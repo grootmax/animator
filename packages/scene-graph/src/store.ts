@@ -5,6 +5,7 @@ export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group';
 
 export interface SceneNode {
   id: string;
+  name: string;
   type: NodeType;
   parentId: string | null;
   children: string[];
@@ -13,6 +14,9 @@ export interface SceneNode {
   rotation: number;
   scaleX: number;
   scaleY: number;
+  opacity: number;
+  visible: boolean;
+  locked: boolean;
   width?: number;
   height?: number;
   radius?: number;
@@ -29,13 +33,25 @@ export interface SceneNode {
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
-  addNode: (node: Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>) => void;
+  addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
 }
 
-const getDefaultNode = (node: Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>): SceneNode => ({
+const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }): SceneNode => ({
+  parentId: null,
+  children: [],
+  name: node.id,
+  x: 0,
+  y: 0,
+  rotation: 0,
+  scaleX: 1,
+  scaleY: 1,
+  opacity: 1,
+  visible: true,
+  locked: false,
   ...node,
   localMatrix: createMatrix(),
   worldMatrix: createMatrix(),
@@ -76,6 +92,43 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       // O(1) dirty marking: just mark the current node.
       // The recalculate step will propagate this to children automatically!
       const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
+
+      return { nodes: newNodes };
+    });
+  },
+
+  reorderNode: (id, newParentId, index) => {
+    set((state) => {
+      const node = state.nodes[id];
+      if (!node) return state;
+
+      const newNodes = { ...state.nodes };
+
+      // Remove from old parent
+      if (node.parentId && newNodes[node.parentId]) {
+        const parent = newNodes[node.parentId];
+        newNodes[node.parentId] = {
+          ...parent,
+          children: parent.children.filter(childId => childId !== id)
+        };
+      } else if (!node.parentId && id !== state.rootId) {
+          // It was a root child, handle root node if we support multiple roots.
+          // In our setup rootId is one node. Wait, rootId might be a single node.
+          // We can assume scene has a main root container.
+      }
+
+      // Add to new parent
+      if (newParentId && newNodes[newParentId]) {
+        const newParent = newNodes[newParentId];
+        const newChildren = [...newParent.children];
+        newChildren.splice(index, 0, id);
+        newNodes[newParentId] = {
+          ...newParent,
+          children: newChildren
+        };
+      }
+
+      newNodes[id] = { ...node, parentId: newParentId, isDirty: true };
 
       return { nodes: newNodes };
     });

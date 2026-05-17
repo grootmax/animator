@@ -7,12 +7,42 @@ export class Viewport {
   private isDragging = false;
   private lastPos = { x: 0, y: 0 };
 
+  private grid: PIXI.Graphics;
+
   constructor(app: PIXI.Application) {
     this.app = app;
+
+    // Grid setup
+    this.grid = new PIXI.Graphics();
+    this.app.stage.addChild(this.grid);
+
     this.container = new PIXI.Container();
     this.app.stage.addChild(this.container);
 
     this.setupEvents();
+    this.drawGrid();
+  }
+
+  private drawGrid() {
+    this.grid.clear();
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    const gridSize = 50 * this.container.scale.x;
+    const offsetX = this.container.x % gridSize;
+    const offsetY = this.container.y % gridSize;
+
+    this.grid.lineStyle(1, 0x333333, 0.5);
+
+    for (let x = offsetX; x < width; x += gridSize) {
+      this.grid.moveTo(x, 0);
+      this.grid.lineTo(x, height);
+    }
+
+    for (let y = offsetY; y < height; y += gridSize) {
+      this.grid.moveTo(0, y);
+      this.grid.lineTo(width, y);
+    }
   }
 
   private setupEvents() {
@@ -41,6 +71,7 @@ export class Viewport {
     this.container.y += dy;
 
     this.lastPos = { x: e.clientX, y: e.clientY };
+    this.drawGrid();
   }
 
   private onPointerUp() {
@@ -60,5 +91,6 @@ export class Viewport {
 
     this.container.x += (newLocalPos.x - localPos.x) * this.container.scale.x;
     this.container.y += (newLocalPos.y - localPos.y) * this.container.scale.y;
+    this.drawGrid();
   }
 }

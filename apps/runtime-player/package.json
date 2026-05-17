@@ -1,5 +1,5 @@
 {
-  "name": "@monorepo/serialization",
+  "name": "@monorepo/runtime-player",
   "version": "1.0.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -7,7 +7,8 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@monorepo/math": "*",
-    "@monorepo/scene-graph": "*"
+    "@monorepo/scene-graph": "*",
+    "@monorepo/renderer": "*",
+    "@monorepo/animation-engine": "*"
   }
 }

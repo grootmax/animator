@@ -56,7 +56,7 @@ export class TransformHandles {
     const state = this.store.getState();
     const node = state.nodes[this.selectedNodeId];
 
-    if (!node) {
+    if (!node || node.locked || !node.visible) {
       this.container.visible = false;
       return;
     }
