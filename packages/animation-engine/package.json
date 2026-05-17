@@ -1,0 +1,12 @@
+{
+  "name": "@monorepo/animation-engine",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@monorepo/math": "*",
+    "@monorepo/scene-graph": "*"
+  }
+}
