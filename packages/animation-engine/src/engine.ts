@@ -11,7 +11,7 @@ export interface Keyframe {
 
 export interface Track {
   nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY';
+  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity';
   keyframes: Keyframe[];
 }
 
@@ -22,6 +22,15 @@ export class AnimationEngine {
   private isPlaying = false;
   private lastTime = 0;
   private rafId: number | null = null;
+  public loop = true;
+  private duration = 5000; // ms
+
+  public getPlayhead() { return this.playhead; }
+  public getTracks() { return this.tracks; }
+  public getIsPlaying() { return this.isPlaying; }
+  public getDuration() { return this.duration; }
+  public setDuration(d: number) { this.duration = d; }
+  public setTracks(tracks: Track[]) { this.tracks = tracks; }
 
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
@@ -61,9 +70,21 @@ export class AnimationEngine {
     this.lastTime = now;
 
     this.playhead += dt;
+
+    if (this.playhead > this.duration) {
+      if (this.loop) {
+        this.playhead = this.playhead % this.duration;
+      } else {
+        this.playhead = this.duration;
+        this.pause();
+      }
+    }
+
     this.updateNodes();
 
-    this.rafId = requestAnimationFrame(this.tick);
+    if (this.isPlaying) {
+      this.rafId = requestAnimationFrame(this.tick);
+    }
   }
 
   private getEasingFunction(type: EasingType = 'linear') {

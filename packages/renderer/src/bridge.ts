@@ -102,7 +102,10 @@ export class PixiBridge {
         pixiNode.interactive = true;
         pixiNode.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
             e.stopPropagation();
-            this.handles.setSelectedNode(id);
+            const n = this.store.getState().nodes[id];
+            if (n && !n.locked && n.visible) {
+              this.handles.setSelectedNode(id);
+            }
         });
 
         this.pixiNodes.set(id, pixiNode);
@@ -113,6 +116,10 @@ export class PixiBridge {
           this.viewport.container.addChild(pixiNode);
         }
       }
+
+      // Update visibility and opacity
+      pixiNode.visible = node.visible !== false;
+      pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
       if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();

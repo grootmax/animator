@@ -4,24 +4,31 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && npm run build:electron",
+    "build": "tsc -b && vite build && npm run build:electron",
     "build:electron": "esbuild electron/main.ts --bundle --platform=node --outdir=dist-electron --external:electron",
     "build:preload": "esbuild electron/preload.ts --bundle --platform=node --outdir=dist-electron --external:electron"
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "@monorepo/scene-graph": "*",
-    "@monorepo/renderer": "*",
     "@monorepo/animation-engine": "*",
-    "@monorepo/serialization": "*"
+    "@monorepo/renderer": "*",
+    "@monorepo/scene-graph": "*",
+    "@monorepo/serialization": "*",
+    "lucide-react": "^0.279.0",
+    "react": "^18.2.0",
+    "react-dnd": "^16.0.1",
+    "react-dnd-html5-backend": "^16.0.1",
+    "react-dom": "^18.2.0",
+    "zustand": "^4.4.1"
   },
   "devDependencies": {
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
     "@vitejs/plugin-react": "^4.0.3",
+    "autoprefixer": "^10.4.15",
     "electron": "^25.3.0",
     "esbuild": "^0.18.11",
+    "postcss": "^8.4.29",
+    "tailwindcss": "^3.3.3",
     "vite": "^4.4.5"
   }
 }
