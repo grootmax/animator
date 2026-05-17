@@ -1,0 +1,13 @@
+{
+  "name": "@monorepo/renderer",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "pixi.js": "^7.3.2",
+    "@monorepo/math": "*",
+    "@monorepo/scene-graph": "*"
+  }
+}

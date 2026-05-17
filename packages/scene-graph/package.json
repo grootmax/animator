@@ -1,0 +1,12 @@
+{
+  "name": "@monorepo/scene-graph",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "zustand": "^4.4.1",
+    "@monorepo/math": "*"
+  }
+}
