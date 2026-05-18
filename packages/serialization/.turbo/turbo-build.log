@@ -1,0 +1,4 @@
+
+> @monorepo/serialization@1.0.0 build
+> tsc -b
+
