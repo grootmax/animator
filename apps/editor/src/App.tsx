@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
-import { SvgParser } from '@monorepo/serialization';
+import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
@@ -97,6 +97,17 @@ function App() {
     }
   };
 
+  const handleExportSvg = async () => {
+    if (window.electronAPI) {
+      const state = store.getState().nodes;
+      const serializer = new SvgSerializer();
+      const svgString = serializer.serialize(state);
+      await window.electronAPI.saveFile(svgString);
+    } else {
+      alert("Electron API not available");
+    }
+  };
+
   const handleTestAnimation = () => {
     const state = store.getState();
     const nodeIds = Object.keys(state.nodes);
@@ -165,6 +176,7 @@ function App() {
           togglePlay={handleTogglePlay}
           onImport={handleImportSvg}
           onExport={handleSaveState}
+          onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
         />

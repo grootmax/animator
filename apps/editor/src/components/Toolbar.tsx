@@ -8,6 +8,7 @@ interface ToolbarProps {
   togglePlay: () => void;
   onImport: () => void;
   onExport: () => void;
+  onExportSvg: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
 }
@@ -19,6 +20,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   togglePlay,
   onImport,
   onExport,
+  onExportSvg,
   onZoomIn,
   onZoomOut
 }) => {
@@ -60,7 +62,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <Upload size={20} /> <span className="text-sm">Import</span>
         </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON">
-          <Download size={20} /> <span className="text-sm">Export</span>
+          <Download size={20} /> <span className="text-sm">JSON</span>
+        </button>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG">
+          <Download size={20} /> <span className="text-sm">SVG</span>
         </button>
       </div>
     </div>
