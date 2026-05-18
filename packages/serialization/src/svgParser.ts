@@ -45,6 +45,55 @@ export class SvgParser {
           e, f, 1
         ];
         matrix = multiplyMatrix(matrix, localMatrix);
+      } else if (type === 'translate' && args.length >= 1) {
+        const tx = args[0];
+        const ty = args[1] || 0;
+        const localMatrix: Matrix3 = [
+          1, 0, 0,
+          0, 1, 0,
+          tx, ty, 1
+        ];
+        matrix = multiplyMatrix(matrix, localMatrix);
+      } else if (type === 'scale' && args.length >= 1) {
+        const sx = args[0];
+        const sy = args.length > 1 ? args[1] : sx;
+        const localMatrix: Matrix3 = [
+          sx, 0, 0,
+          0, sy, 0,
+          0, 0, 1
+        ];
+        matrix = multiplyMatrix(matrix, localMatrix);
+      } else if (type === 'rotate' && args.length >= 1) {
+        const angle = args[0] * Math.PI / 180;
+        let localMatrix: Matrix3 = [
+          Math.cos(angle), Math.sin(angle), 0,
+          -Math.sin(angle), Math.cos(angle), 0,
+          0, 0, 1
+        ];
+        if (args.length === 3) {
+          const cx = args[1];
+          const cy = args[2];
+          const t1: Matrix3 = [1, 0, 0, 0, 1, 0, cx, cy, 1];
+          const t2: Matrix3 = [1, 0, 0, 0, 1, 0, -cx, -cy, 1];
+          localMatrix = multiplyMatrix(t1, multiplyMatrix(localMatrix, t2));
+        }
+        matrix = multiplyMatrix(matrix, localMatrix);
+      } else if (type === 'skewX' && args.length === 1) {
+        const angle = args[0] * Math.PI / 180;
+        const localMatrix: Matrix3 = [
+          1, 0, 0,
+          Math.tan(angle), 1, 0,
+          0, 0, 1
+        ];
+        matrix = multiplyMatrix(matrix, localMatrix);
+      } else if (type === 'skewY' && args.length === 1) {
+        const angle = args[0] * Math.PI / 180;
+        const localMatrix: Matrix3 = [
+          1, Math.tan(angle), 0,
+          0, 1, 0,
+          0, 0, 1
+        ];
+        matrix = multiplyMatrix(matrix, localMatrix);
       }
     }
 
@@ -52,13 +101,23 @@ export class SvgParser {
   }
 
   private extractTransformProperties(matrix: Matrix3) {
-    const x = matrix[6];
-    const y = matrix[7];
-    const scaleX = Math.hypot(matrix[0], matrix[1]);
-    const scaleY = Math.hypot(matrix[3], matrix[4]);
-    const rotation = Math.atan2(matrix[1], matrix[0]);
+    const a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4], x = matrix[6], y = matrix[7];
 
-    return { x, y, scaleX, scaleY, rotation };
+    const scaleX = Math.sqrt(a * a + b * b);
+    const rotation = Math.atan2(b, a);
+    
+    const cosR = Math.cos(rotation);
+    const sinR = Math.sin(rotation);
+    
+    // Rotate [c, d] back by -rotation
+    const cR = c * cosR + d * sinR;
+    const dR = -c * sinR + d * cosR;
+    
+    const scaleY = Math.sqrt(cR * cR + dR * dR) * Math.sign(dR || 1);
+    const skewX = Math.atan2(cR, dR);
+    const skewY = 0;
+
+    return { x, y, scaleX, scaleY, rotation, skewX, skewY };
   }
 
   private processElement(element: Element, parentId: string | null, nodesList: SceneNode[], parentMatrix: Matrix3) {
@@ -66,7 +125,11 @@ export class SvgParser {
     let type: NodeType = 'group';
 
     switch (element.tagName.toLowerCase()) {
-      case 'g': type = 'group'; break;
+      case 'g': 
+      case 'svg':
+      case 'symbol':
+        type = 'group'; 
+        break;
       case 'rect': type = 'rect'; break;
       case 'circle': type = 'circle'; break;
       case 'path': type = 'path'; break;
@@ -91,7 +154,7 @@ export class SvgParser {
     ];
 
     const combinedMatrix = multiplyMatrix(localTransformMatrix, baseMatrix);
-    const { x, y, scaleX, scaleY, rotation } = this.extractTransformProperties(combinedMatrix);
+    const { x, y, scaleX, scaleY, rotation, skewX, skewY } = this.extractTransformProperties(combinedMatrix);
 
     const node: Partial<SceneNode> = {
       id,
@@ -103,6 +166,8 @@ export class SvgParser {
       scaleX,
       scaleY,
       rotation,
+      skewX,
+      skewY,
       fill: element.getAttribute('fill') || undefined,
       stroke: element.getAttribute('stroke') || undefined
     };

@@ -14,6 +14,8 @@ export interface SceneNode {
   rotation: number;
   scaleX: number;
   scaleY: number;
+  skewX?: number;
+  skewY?: number;
   opacity: number;
   visible: boolean;
   locked: boolean;
@@ -161,7 +163,12 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
         let currentWorldMatrix = parentWorldMatrix;
 
         if (isNowDirty) {
-          const localMatrix = getTransformMatrix(node.x, node.y, node.rotation, node.scaleX, node.scaleY);
+          const localMatrix = getTransformMatrix(
+            node.x, node.y, 
+            node.rotation, 
+            node.scaleX, node.scaleY,
+            node.skewX || 0, node.skewY || 0
+          );
           currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
 
           newNodes[nodeId] = {
