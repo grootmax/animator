@@ -11,6 +11,8 @@ export class PixiBridge {
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private remoteSelectionsContainer: PIXI.Container;
+  private remoteSelectionGraphics: Map<string, PIXI.Graphics> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -23,8 +25,12 @@ export class PixiBridge {
 
     this.app.stage.sortableChildren = true;
 
-    this.viewport = new Viewport(this.app);
+    this.viewport = new Viewport(this.app, store);
     this.handles = new TransformHandles(store, this.viewport);
+
+    this.remoteSelectionsContainer = new PIXI.Container();
+    this.remoteSelectionsContainer.zIndex = 999;
+    this.viewport.container.addChild(this.remoteSelectionsContainer);
 
     // Add handles directly to the viewport so they pan and zoom with the nodes!
     this.viewport.container.addChild(this.handles.container);
@@ -38,14 +44,72 @@ export class PixiBridge {
       }
     });
 
-    this.store.subscribe((state) => {
-      this.syncNodes(state.nodes);
+    this.store.subscribe((state, prevState) => {
+      if (!prevState || state.nodes !== prevState.nodes) {
+        this.syncNodes(state.nodes);
+      }
+      if (!prevState || state.remoteSelections !== prevState.remoteSelections || state.nodes !== prevState.nodes) {
+        this.syncRemoteSelections(state.remoteSelections, state.nodes);
+      }
       this.handles.update();
     });
 
     this.app.ticker.add(() => {
         this.handles.update();
     });
+  }
+
+  private syncRemoteSelections(
+    remoteSelections: Record<string, { nodeId: string; color: string; userName?: string }>,
+    nodes: Record<string, SceneNode>
+  ) {
+    const activeUserIds = new Set(Object.keys(remoteSelections));
+
+    // Remove old selections
+    for (const [userId, graphics] of this.remoteSelectionGraphics.entries()) {
+      if (!activeUserIds.has(userId)) {
+        this.remoteSelectionsContainer.removeChild(graphics);
+        graphics.destroy();
+        this.remoteSelectionGraphics.delete(userId);
+      }
+    }
+
+    // Add or update selections
+    for (const [userId, selection] of Object.entries(remoteSelections)) {
+      const node = nodes[selection.nodeId];
+      if (!node || node.locked || !node.visible) {
+        // If node doesn't exist or is not visible, hide/remove the highlight
+        if (this.remoteSelectionGraphics.has(userId)) {
+           const g = this.remoteSelectionGraphics.get(userId)!;
+           g.visible = false;
+        }
+        continue;
+      }
+
+      let graphics = this.remoteSelectionGraphics.get(userId);
+      if (!graphics) {
+        graphics = new PIXI.Graphics();
+        this.remoteSelectionsContainer.addChild(graphics);
+        this.remoteSelectionGraphics.set(userId, graphics);
+      }
+
+      graphics.visible = true;
+      graphics.clear();
+      
+      const colorNum = parseInt(selection.color.replace('#', '0x'));
+      graphics.lineStyle(2, colorNum, 1);
+      
+      const w = node.width || (node.radius ? node.radius * 2 : 100);
+      const h = node.height || (node.radius ? node.radius * 2 : 100);
+      graphics.drawRect(-w / 2, -h / 2, w, h);
+
+      const wm = node.worldMatrix;
+      graphics.setTransform(
+        wm[6], wm[7],
+        Math.hypot(wm[0], wm[1]), Math.hypot(wm[3], wm[4]),
+        Math.atan2(wm[1], wm[0])
+      );
+    }
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {

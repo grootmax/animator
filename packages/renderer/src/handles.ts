@@ -6,7 +6,6 @@ export class TransformHandles {
   public container: PIXI.Container;
   private store: ReturnType<typeof createSceneGraphStore>;
   private viewport: Viewport;
-  private selectedNodeId: string | null = null;
 
   private box: PIXI.Graphics;
   private handles: Record<string, PIXI.Graphics> = {};
@@ -43,18 +42,18 @@ export class TransformHandles {
   }
 
   public setSelectedNode(id: string | null) {
-    this.selectedNodeId = id;
-    this.update();
+    this.store.getState().setSelectedNodeId(id);
   }
 
   public update() {
-    if (!this.selectedNodeId) {
+    const selectedNodeId = this.store.getState().selectedNodeId;
+    if (!selectedNodeId) {
       this.container.visible = false;
       return;
     }
 
     const state = this.store.getState();
-    const node = state.nodes[this.selectedNodeId];
+    const node = state.nodes[selectedNodeId];
 
     if (!node || node.locked || !node.visible) {
       this.container.visible = false;
@@ -106,16 +105,18 @@ export class TransformHandles {
 
   private onDragStart(e: PIXI.FederatedPointerEvent, type: string) {
     e.stopPropagation();
-    if (!this.selectedNodeId) return;
+    const selectedNodeId = this.store.getState().selectedNodeId;
+    if (!selectedNodeId) return;
 
     this.isDragging = true;
     this.dragType = type;
     this.dragStartPos = { x: e.globalX, y: e.globalY };
-    this.startNodeState = { ...this.store.getState().nodes[this.selectedNodeId] } as SceneNode;
+    this.startNodeState = { ...this.store.getState().nodes[selectedNodeId] } as SceneNode;
   }
 
   private onDragMove(e: PointerEvent) {
-    if (!this.isDragging || !this.selectedNodeId || !this.startNodeState) return;
+    const selectedNodeId = this.store.getState().selectedNodeId;
+    if (!this.isDragging || !selectedNodeId || !this.startNodeState) return;
 
     const dx = e.clientX - this.dragStartPos.x;
     const dy = e.clientY - this.dragStartPos.y;
@@ -137,7 +138,7 @@ export class TransformHandles {
        updates.scaleY = this.startNodeState.scaleY + scaleDelta;
     }
 
-    this.store.getState().updateNode(this.selectedNodeId, updates);
+    this.store.getState().updateNode(selectedNodeId, updates);
     this.store.getState().recalculateMatrices();
   }
 

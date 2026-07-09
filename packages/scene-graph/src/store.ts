@@ -43,11 +43,17 @@ export interface SceneNode {
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
+  viewport: { x: number; y: number; zoom: number };
+  selectedNodeId: string | null;
+  remoteSelections: Record<string, { nodeId: string; color: string; userName?: string }>;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
+  setViewport: (viewport: { x: number; y: number; zoom: number }) => void;
+  setSelectedNodeId: (id: string | null) => void;
+  setRemoteSelection: (userId: string, nodeId: string | null, color?: string, userName?: string) => void;
 }
 
 const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }): SceneNode => ({
@@ -71,6 +77,23 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
 export const createSceneGraphStore = () => createStore<SceneGraphState>((set, get) => ({
   nodes: {},
   rootId: null,
+  viewport: { x: 0, y: 0, zoom: 1 },
+  selectedNodeId: null,
+  remoteSelections: {},
+
+  setViewport: (viewport) => set({ viewport }),
+  
+  setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+  
+  setRemoteSelection: (userId, nodeId, color, userName) => set((state) => {
+    const newRemoteSelections = { ...state.remoteSelections };
+    if (nodeId === null) {
+      delete newRemoteSelections[userId];
+    } else {
+      newRemoteSelections[userId] = { nodeId, color: color || '#ff0000', userName };
+    }
+    return { remoteSelections: newRemoteSelections };
+  }),
 
   addNode: (node) => {
     set((state) => {
