@@ -48,6 +48,11 @@ export class PixiBridge {
     });
   }
 
+  private getMaterialHash(node: SceneNode): string {
+    if (node.type === 'container' || node.type === 'group') return 'container';
+    return `${node.fill || 'none'}_${node.stroke || 'none'}_${node.strokeWidth || 0}`;
+  }
+
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
     const a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4], tx = matrix[6], ty = matrix[7];
     
@@ -128,6 +133,13 @@ export class PixiBridge {
         } else {
           this.viewport.container.addChild(pixiNode);
         }
+      } else {
+        const expectedParent = node.parentId && this.pixiNodes.has(node.parentId) 
+          ? this.pixiNodes.get(node.parentId)! 
+          : this.viewport.container;
+        if (pixiNode.parent !== expectedParent) {
+          expectedParent.addChild(pixiNode);
+        }
       }
 
       // Update visibility and opacity
@@ -175,5 +187,57 @@ export class PixiBridge {
 
       this.applyMatrix(pixiNode, node.localMatrix);
     }
+
+    const containers = new Set<string>();
+    const rootChildren: string[] = [];
+
+    for (const [id, node] of Object.entries(nodes)) {
+        if (node.parentId) {
+            containers.add(node.parentId);
+        } else {
+            rootChildren.push(id);
+        }
+    }
+
+    const sortChildren = (childIds: string[], parentContainer: PIXI.Container) => {
+        if (childIds.length === 0) return;
+        const sorted = [...childIds].sort((a, b) => {
+            const hashA = this.getMaterialHash(nodes[a]);
+            const hashB = this.getMaterialHash(nodes[b]);
+            if (hashA < hashB) return -1;
+            if (hashA > hashB) return 1;
+            return childIds.indexOf(a) - childIds.indexOf(b);
+        });
+        
+        let startIndex = Number.MAX_SAFE_INTEGER;
+        const childDisplayObjects: PIXI.DisplayObject[] = [];
+        
+        for (const id of sorted) {
+            const childNode = this.pixiNodes.get(id);
+            if (childNode && childNode.parent === parentContainer) {
+                const idx = parentContainer.getChildIndex(childNode);
+                if (idx < startIndex) startIndex = idx;
+                childDisplayObjects.push(childNode);
+            }
+        }
+
+        if (startIndex !== Number.MAX_SAFE_INTEGER) {
+            for (let i = 0; i < childDisplayObjects.length; i++) {
+                parentContainer.setChildIndex(childDisplayObjects[i], startIndex + i);
+            }
+        }
+    };
+
+    for (const parentId of containers) {
+        const parentPixi = this.pixiNodes.get(parentId);
+        if (parentPixi instanceof PIXI.Container) {
+            const node = nodes[parentId];
+            if (node && node.children) {
+                sortChildren(node.children, parentPixi);
+            }
+        }
+    }
+
+    sortChildren(rootChildren, this.viewport.container);
   }
 }
