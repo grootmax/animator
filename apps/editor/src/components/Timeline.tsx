@@ -83,7 +83,6 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
     const time = (x / rect.width) * duration;
     engine.seek(time);
-
     // Immediate DOM update for responsiveness during scrub
     if (playheadRef.current) {
       playheadRef.current.style.left = `${(time / duration) * 100}%`;
@@ -91,6 +90,8 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
     if (timeDisplayRef.current) {
       timeDisplayRef.current.textContent = `${(time / 1000).toFixed(2)}s`;
     }
+    const bridge = (window as any).__bridge;
+    if (bridge) bridge.scheduleUpdate(true);
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -106,13 +107,14 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
          const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
          const time = (x / rect.width) * duration;
          engine.seek(time);
-         
          if (playheadRef.current) {
            playheadRef.current.style.left = `${(time / duration) * 100}%`;
          }
          if (timeDisplayRef.current) {
            timeDisplayRef.current.textContent = `${(time / 1000).toFixed(2)}s`;
          }
+         const bridge = (window as any).__bridge;
+         if (bridge) bridge.scheduleUpdate(true);
       }
     };
     const handlePointerUp = () => setIsScrubbing(false);

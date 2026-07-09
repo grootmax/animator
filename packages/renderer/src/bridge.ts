@@ -11,7 +11,40 @@ export class PixiBridge {
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private remoteSelectionsContainer: PIXI.Container;
   private pathCache: Map<string, PathToken[]> = new Map();
+  private prevNodes: Record<string, SceneNode> = {};
+  private pendingFrameId: number | null = null;
+  private latestNodes: Record<string, SceneNode> | null = null;
+
+  public syncImmediately = (nodes?: Record<string, SceneNode>) => {
+    if (this.pendingFrameId !== null) {
+      cancelAnimationFrame(this.pendingFrameId);
+      this.pendingFrameId = null;
+    }
+    const stateNodes = nodes || this.store.getState().nodes;
+    this.syncNodes(stateNodes);
+    this.handles.update();
+  }
+
+  public scheduleUpdate = (priority: boolean = false) => {
+    const nodes = this.store.getState().nodes;
+    if (priority) {
+      this.syncImmediately(nodes);
+    } else {
+      this.latestNodes = nodes;
+      if (this.pendingFrameId === null) {
+        this.pendingFrameId = requestAnimationFrame(() => {
+          this.pendingFrameId = null;
+          if (this.latestNodes) {
+            this.syncNodes(this.latestNodes);
+            this.handles.update();
+            this.latestNodes = null;
+          }
+        });
+      }
+    }
+  }
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -25,7 +58,7 @@ export class PixiBridge {
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app, store);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id) => this.pixiNodes.get(id));
 
     this.remoteSelectionsContainer = new PIXI.Container();
     this.remoteSelectionsContainer.zIndex = 999;
@@ -43,17 +76,8 @@ export class PixiBridge {
       }
     });
 
-    let updateQueued = false;
-    this.store.subscribe(() => {
-      if (!updateQueued) {
-        updateQueued = true;
-        queueMicrotask(() => {
-          updateQueued = false;
-          const state = this.store.getState();
-          this.syncNodes(state.nodes);
-          this.handles.update();
-        });
-      }
+    this.store.subscribe((state) => {
+      this.scheduleUpdate(false);
     });
 
     this.app.ticker.add(() => {
@@ -92,8 +116,9 @@ export class PixiBridge {
   private drawPath(graphics: PIXI.Graphics, pathData: string) {
     let tokens = this.pathCache.get(pathData);
     if (!tokens) {
-      tokens = tokenizePath(pathData);
-      this.pathCache.set(pathData, tokens);
+      const parsed = tokenizePath(pathData);
+      this.pathCache.set(pathData, parsed);
+      tokens = parsed;
     }
     let x = 0, y = 0;
 
@@ -126,7 +151,26 @@ export class PixiBridge {
   private syncNodes(nodes: Record<string, SceneNode>) {
     const usedPaths = new Set<string>();
 
+    // Check for removed nodes
+    for (const id of Object.keys(this.prevNodes)) {
+      if (!nodes[id]) {
+        const pixiNode = this.pixiNodes.get(id);
+        if (pixiNode) {
+          if (pixiNode.parent) {
+            pixiNode.parent.removeChild(pixiNode);
+          }
+          pixiNode.destroy();
+          this.pixiNodes.delete(id);
+        }
+      }
+    }
+
     for (const [id, node] of Object.entries(nodes)) {
+      const prevNode = this.prevNodes[id];
+      if (prevNode === node) {
+        continue; // Unchanged reference
+      }
+
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
@@ -251,11 +295,12 @@ export class PixiBridge {
 
       this.applyMatrix(pixiNode, node.localMatrix);
     }
-
     for (const path of this.pathCache.keys()) {
       if (!usedPaths.has(path)) {
         this.pathCache.delete(path);
       }
     }
+
+    this.prevNodes = nodes;
   }
 }
