@@ -24,7 +24,7 @@ export class PixiBridge {
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id: string) => this.pixiNodes.get(id));
 
     // Add handles directly to the viewport so they pan and zoom with the nodes!
     this.viewport.container.addChild(this.handles.container);
