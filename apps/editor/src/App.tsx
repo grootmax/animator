@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
-import { SvgParser } from '@monorepo/serialization';
+import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
@@ -70,28 +70,17 @@ function App() {
 
   const handleSaveState = async () => {
     if (window.electronAPI) {
-      const state = store.getState().nodes;
+      const state = store.getState();
+      const nodes = state.nodes;
+      const rootId = state.rootId;
 
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
-      }
+      const serializer = new SvgSerializer();
+      const width = canvasRef.current?.clientWidth || 800;
+      const height = canvasRef.current?.clientHeight || 600;
 
-      const exportData = {
-        scene: cleanScene,
-        animations: engine.getTracks(),
-        metadata: {
-          version: "1.0.0",
-          duration: engine.getDuration()
-        }
-      };
+      const svgContent = serializer.serialize(nodes, rootId, width, height);
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      await window.electronAPI.saveFile(svgContent);
     } else {
       alert("Electron API not available");
     }

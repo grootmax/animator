@@ -65,11 +65,14 @@ export class SvgParser {
     const id = element.id || generateId();
     let type: NodeType = 'group';
 
-    switch (element.tagName.toLowerCase()) {
+    const tagName = element.tagName.toLowerCase();
+    switch (tagName) {
       case 'g': type = 'group'; break;
       case 'rect': type = 'rect'; break;
       case 'circle': type = 'circle'; break;
       case 'path': type = 'path'; break;
+      case 'ellipse': type = 'path'; break;
+      case 'line': type = 'path'; break;
       default: return; // Ignore unsupported
     }
 
@@ -79,9 +82,15 @@ export class SvgParser {
     let xAttr = parseFloat(element.getAttribute('x') || '0');
     let yAttr = parseFloat(element.getAttribute('y') || '0');
 
-    if (type === 'circle') {
+    if (tagName === 'circle') {
       xAttr = parseFloat(element.getAttribute('cx') || '0');
       yAttr = parseFloat(element.getAttribute('cy') || '0');
+    } else if (tagName === 'ellipse') {
+      xAttr = parseFloat(element.getAttribute('cx') || '0');
+      yAttr = parseFloat(element.getAttribute('cy') || '0');
+    } else if (tagName === 'line') {
+      xAttr = 0;
+      yAttr = 0;
     }
 
     const baseMatrix: Matrix3 = [
@@ -113,7 +122,19 @@ export class SvgParser {
     } else if (type === 'circle') {
       node.radius = parseFloat(element.getAttribute('r') || '0');
     } else if (type === 'path') {
-      node.pathData = element.getAttribute('d') || '';
+      if (tagName === 'path') {
+        node.pathData = element.getAttribute('d') || '';
+      } else if (tagName === 'ellipse') {
+        const rx = parseFloat(element.getAttribute('rx') || '0');
+        const ry = parseFloat(element.getAttribute('ry') || '0');
+        node.pathData = `M ${-rx},0 a ${rx},${ry} 0 1,0 ${2 * rx},0 a ${rx},${ry} 0 1,0 ${-2 * rx},0`;
+      } else if (tagName === 'line') {
+        const x1 = parseFloat(element.getAttribute('x1') || '0');
+        const y1 = parseFloat(element.getAttribute('y1') || '0');
+        const x2 = parseFloat(element.getAttribute('x2') || '0');
+        const y2 = parseFloat(element.getAttribute('y2') || '0');
+        node.pathData = `M ${x1},${y1} L ${x2},${y2}`;
+      }
     }
 
     const sceneNode = node as SceneNode;
