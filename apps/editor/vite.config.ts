@@ -2,10 +2,10 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import electron from 'vite-plugin-electron';
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [
     react(),
-    electron([
+    command === 'serve' ? electron([
       {
         entry: 'electron/main.ts',
       },
@@ -15,6 +15,6 @@ export default defineConfig({
           options.reload();
         },
       }
-    ]),
+    ]) : null,
   ],
-});
+}));
