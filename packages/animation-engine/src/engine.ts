@@ -1,20 +1,6 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
-
-export interface Keyframe {
-  id: string;
-  time: number; // in milliseconds
-  value: number | string;
-  easing?: EasingType;
-}
-
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
-}
+import { EasingType, Keyframe, Track, Heartbeat, NetworkRole } from './types';
 
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
@@ -104,6 +90,8 @@ export class AnimationEngine {
   private rafId: number | null = null;
   public loop = true;
   private duration = 5000; // ms
+  private frameCallbacks: Set<() => void> = new Set();
+  private uiCallbacks: Set<(state: { isPlaying: boolean }) => void> = new Set();
 
   public role: NetworkRole = 'standalone';
   public onHeartbeat?: (heartbeat: Heartbeat) => void;
@@ -118,6 +106,26 @@ export class AnimationEngine {
   public setDuration(d: number) { this.duration = d; }
   public setTracks(tracks: Track[]) { this.tracks = tracks; }
 
+  public subscribeUI(cb: (state: { isPlaying: boolean }) => void) {
+    this.uiCallbacks.add(cb);
+    cb({ isPlaying: this.isPlaying });
+    return () => {
+      this.uiCallbacks.delete(cb);
+    };
+  }
+
+  private notifyUI() {
+    this.uiCallbacks.forEach(cb => cb({ isPlaying: this.isPlaying }));
+  }
+
+  public onFrameReady(cb: () => void) {
+    this.frameCallbacks.add(cb);
+  }
+
+  public offFrameReady(cb: () => void) {
+    this.frameCallbacks.delete(cb);
+  }
+
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
   }
@@ -129,6 +137,7 @@ export class AnimationEngine {
   public play() {
     if (this.isPlaying) return;
     this.isPlaying = true;
+    this.notifyUI();
     this.lastTime = performance.now();
     this.drift = 0;
     this.tick();
@@ -141,6 +150,7 @@ export class AnimationEngine {
 
   public pause() {
     this.isPlaying = false;
+    this.notifyUI();
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
@@ -156,6 +166,7 @@ export class AnimationEngine {
     this.drift = 0;
     this.playhead = Math.round(time / 16.67) * 16.67;
     this.updateNodes();
+    this.frameCallbacks.forEach(cb => cb());
 
     if (this.role === 'leader') {
       this.broadcastHeartbeat();
@@ -239,6 +250,7 @@ export class AnimationEngine {
     }
 
     this.updateNodes();
+    this.frameCallbacks.forEach(cb => cb());
 
     if (this.isPlaying) {
       this.rafId = requestAnimationFrame(this.tick);
@@ -279,7 +291,8 @@ export class AnimationEngine {
     const updates = new Map<string, any>();
 
     for (const track of this.tracks) {
-      const keyframesArray = Object.values(track.keyframes).sort((a, b) => {
+      const kfs = Array.isArray(track.keyframes) ? track.keyframes : Object.values(track.keyframes);
+      const keyframesArray = (kfs as Keyframe[]).sort((a, b) => {
         if (a.time === b.time) return a.id.localeCompare(b.id);
         return a.time - b.time;
       });

@@ -16,15 +16,18 @@ export class TransformHandles {
   private dragStartPos = { x: 0, y: 0 };
   private startNodeState: SceneNode | null = null;
   private getPixiNode: (id: string) => PIXI.Container | PIXI.Graphics | undefined;
+  private requestSync?: () => void;
 
   constructor(
       store: ReturnType<typeof createSceneGraphStore>, 
       viewport: Viewport,
-      getPixiNode: (id: string) => PIXI.Container | PIXI.Graphics | undefined
+      getPixiNode: (id: string) => PIXI.Container | PIXI.Graphics | undefined,
+      requestSync?: () => void
   ) {
     this.store = store;
     this.viewport = viewport;
     this.getPixiNode = getPixiNode;
+    this.requestSync = requestSync;
     this.container = new PIXI.Container();
     this.container.zIndex = 1000;
 
@@ -90,7 +93,7 @@ export class TransformHandles {
     let maxY = h / 2;
 
     if (node.type === 'group' || node.type === 'container') {
-      const pixiNode = this.getPixiNode(this.selectedNodeId);
+      const pixiNode = this.getPixiNode(selectedNodeId);
       if (pixiNode && pixiNode.children.length > 0) {
         const bounds = pixiNode.getLocalBounds();
         if (bounds.width > 0 || bounds.height > 0) {
@@ -150,7 +153,9 @@ export class TransformHandles {
     if (!this.isDragging || !selectedNodeId || !this.startNodeState) return;
 
     if (!this.hasMoved) {
-      this.store.getState().commitHistory();
+      if (typeof (this.store.getState() as any).commitHistory === 'function') {
+        (this.store.getState() as any).commitHistory();
+      }
       this.hasMoved = true;
     }
 
@@ -179,6 +184,9 @@ export class TransformHandles {
 
     this.store.getState().updateNode(selectedNodeId, updates);
     this.store.getState().recalculateMatrices();
+    if (this.requestSync) {
+      this.requestSync();
+    }
   }
 
   private onDragEnd() {

@@ -39,6 +39,7 @@ self.onmessage = (e) => {
       engine = new AnimationEngine(store);
       // PixiBridge will use the offscreen canvas
       bridge = new PixiBridge(canvas, store);
+      engine.onFrameReady(() => bridge.syncFrame());
       break;
     }
     case 'load': {

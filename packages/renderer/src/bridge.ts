@@ -12,6 +12,7 @@ export class PixiBridge {
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
+  private remoteSelectionsContainer: PIXI.Container;
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -25,7 +26,7 @@ export class PixiBridge {
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app, store);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id) => this.pixiNodes.get(id), () => this.syncFrame());
 
     this.remoteSelectionsContainer = new PIXI.Container();
     this.remoteSelectionsContainer.zIndex = 999;
@@ -43,18 +44,6 @@ export class PixiBridge {
       }
     });
 
-    let updateQueued = false;
-    this.store.subscribe(() => {
-      if (!updateQueued) {
-        updateQueued = true;
-        queueMicrotask(() => {
-          updateQueued = false;
-          const state = this.store.getState();
-          this.syncNodes(state.nodes);
-          this.handles.update();
-        });
-      }
-    });
 
     this.app.ticker.add(() => {
         this.handles.update();
@@ -66,24 +55,31 @@ export class PixiBridge {
     return `${node.fill || 'none'}_${node.stroke || 'none'}_${node.strokeWidth || 0}`;
   }
 
+  public syncFrame() {
+    const state = this.store.getState();
+    this.syncNodes(state.modifiedNodes, state.nodes);
+    state.clearModifiedNodes();
+    this.handles.update();
+  }
+
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
     const a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4], tx = matrix[6], ty = matrix[7];
-    
+
     const scaleX = Math.sqrt(a * a + b * b);
     const rotation = Math.atan2(b, a);
-    
+
     const cosR = Math.cos(rotation);
     const sinR = Math.sin(rotation);
     const cR = c * cosR + d * sinR;
     const dR = -c * sinR + d * cosR;
-    
+
     const scaleY = Math.sqrt(cR * cR + dR * dR) * Math.sign(dR || 1);
     const skewX = Math.atan2(cR, dR);
-    
+
     displayObject.setTransform(
-      tx, ty, 
-      scaleX, scaleY, 
-      rotation, 
+      tx, ty,
+      scaleX, scaleY,
+      rotation,
       skewX, 0, // skewX, skewY
       0, 0 // pivot
     );
@@ -123,11 +119,20 @@ export class PixiBridge {
     }
   }
 
-  private syncNodes(nodes: Record<string, SceneNode>) {
+  private syncNodes(modifiedNodes: Set<string>, allNodes: Record<string, SceneNode>) {
     const usedPaths = new Set<string>();
 
-    for (const [id, node] of Object.entries(nodes)) {
+    for (const id of modifiedNodes) {
+      const node = allNodes[id];
       let pixiNode = this.pixiNodes.get(id);
+
+      if (!node) {
+        if (pixiNode) {
+          pixiNode.destroy({ children: true });
+          this.pixiNodes.delete(id);
+        }
+        continue;
+      }
 
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
@@ -158,8 +163,8 @@ export class PixiBridge {
           this.viewport.container.addChild(pixiNode);
         }
       } else {
-        const expectedParent = node.parentId && this.pixiNodes.has(node.parentId) 
-          ? this.pixiNodes.get(node.parentId)! 
+        const expectedParent = node.parentId && this.pixiNodes.has(node.parentId)
+          ? this.pixiNodes.get(node.parentId)!
           : this.viewport.container;
         if (pixiNode.parent !== expectedParent) {
           expectedParent.addChild(pixiNode);
@@ -174,8 +179,8 @@ export class PixiBridge {
         pixiNode.clear();
 
         if (node.fill) {
-            const fill = typeof PIXI.utils?.string2hex === 'function' 
-              ? PIXI.utils.string2hex(node.fill) 
+            const fill = typeof PIXI.utils?.string2hex === 'function'
+              ? PIXI.utils.string2hex(node.fill)
               : parseInt(node.fill.replace('#', '0x')) || 0;
             if (!isNaN(fill)) {
               pixiNode.beginFill(fill);
@@ -218,14 +223,14 @@ export class PixiBridge {
         }
       } else if (node.type === 'image') {
         const sprite = (pixiNode as PIXI.Container).children[0] as PIXI.Sprite;
-        
+
         if (node.src) {
            const currentSrc = (sprite as any)._currentSrc;
            if (currentSrc !== node.src) {
                (sprite as any)._currentSrc = node.src;
                const tex = PIXI.Texture.from(node.src);
                sprite.texture = tex;
-               
+
                if (!tex.valid) {
                    (tex.baseTexture as any).once('loaded', () => {
                        const n = this.store.getState().nodes[id];
