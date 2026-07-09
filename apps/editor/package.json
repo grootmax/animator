@@ -1,14 +1,20 @@
 {
   "name": "@monorepo/editor",
   "version": "1.0.0",
+  "description": "Desktop Editor",
+  "author": "Acme Corp",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "package": "electron-builder build --mac --win --linux"
+    "build": "npm run build:renderer && npm run build:main && npm run build:preload",
+    "build:renderer": "echo 'Building Renderer...' && tsc -b && vite build",
+    "build:main": "echo 'Building Main...' && npx esbuild electron/main.ts --bundle --platform=node --external:electron --outfile=dist-electron/main.js",
+    "build:preload": "echo 'Building Preload...' && npx esbuild electron/preload.ts --bundle --platform=node --external:electron --outfile=dist-electron/preload.js",
+    "package": "electron-builder build --linux"
   },
   "build": {
     "appId": "com.monorepo.editor",
+    "electronVersion": "25.3.0",
     "directories": {
       "output": "release"
     },
