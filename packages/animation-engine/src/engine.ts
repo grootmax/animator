@@ -1,20 +1,6 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
-
-export interface Keyframe {
-  id: string;
-  time: number; // in milliseconds
-  value: number | string;
-  easing?: EasingType;
-}
-
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
-}
+import { EasingType, Keyframe, Track, NetworkRole, Heartbeat } from './types';
 
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
@@ -126,9 +112,24 @@ export class AnimationEngine {
     this.tracks.push(track);
   }
 
+  private uiListeners = new Set<(state: { isPlaying: boolean; playhead: number }) => void>();
+
+  public subscribeUI(cb: (state: { isPlaying: boolean; playhead: number }) => void) {
+    this.uiListeners.add(cb);
+    cb({ isPlaying: this.isPlaying, playhead: this.playhead });
+    return () => { this.uiListeners.delete(cb); };
+  }
+
+  private notifyUI() {
+    for (const listener of this.uiListeners) {
+      listener({ isPlaying: this.isPlaying, playhead: this.playhead });
+    }
+  }
+
   public play() {
     if (this.isPlaying) return;
     this.isPlaying = true;
+    this.notifyUI();
     this.lastTime = performance.now();
     this.drift = 0;
     this.tick();
@@ -141,6 +142,7 @@ export class AnimationEngine {
 
   public pause() {
     this.isPlaying = false;
+    this.notifyUI();
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
@@ -156,6 +158,7 @@ export class AnimationEngine {
     this.drift = 0;
     this.playhead = Math.round(time / 16.67) * 16.67;
     this.updateNodes();
+    this.notifyUI();
 
     if (this.role === 'leader') {
       this.broadcastHeartbeat();

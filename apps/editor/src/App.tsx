@@ -13,7 +13,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 
 // Create singletons for the app
 const channel = new BroadcastChannel('scene-graph-sync');
-const store = createSceneGraphStore((msg) => {
+const store = createSceneGraphStore((msg: any) => {
   channel.postMessage(msg);
 });
 channel.onmessage = (event) => {
@@ -40,8 +40,18 @@ function App() {
   const [storeVersion, setStoreVersion] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [saveProgress, setSaveProgress] = useState<number | null>(null);
-  const [showSaveProgress, setShowSaveProgress] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const workerRef = useRef<Worker | null>(null);
+
+  useEffect(() => {
+    workerRef.current = new Worker(
+      new URL('./serialization.worker.ts', import.meta.url),
+      { type: 'module' }
+    );
+    return () => {
+      workerRef.current?.terminate();
+    };
+  }, []);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -51,7 +61,7 @@ function App() {
       (window as any).__bridge = bridge;
 
       // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
+      const unsubscribe = store.subscribe((state: any) => {
         setNodesCount(Object.keys(state.nodes).length);
         setStoreVersion(state.version);
       });
@@ -91,7 +101,7 @@ function App() {
         const nodes = parser.parse(svgContent);
         if (nodes.length > 0) {
           store.getState().commitHistory();
-          nodes.forEach(node => store.getState().addNode(node));
+          nodes.forEach((node: any) => store.getState().addNode(node));
         }
       }
     } else {
@@ -101,74 +111,38 @@ function App() {
 
   const handleSaveState = async () => {
     if (window.electronAPI) {
+      if (isSaving) return;
+      setIsSaving(true);
+      
       const state = store.getState().nodes;
-      const nodeKeys = Object.keys(state);
-      const totalNodes = nodeKeys.length;
+      const animations = engine.getTracks();
+      const duration = engine.getDuration();
       
-      const cleanScene: Record<string, any> = {};
-      
-      let currentIndex = 0;
-      
-      const showProgressTimeout = setTimeout(() => {
-        setShowSaveProgress(true);
-      }, 500);
-
-      const processBatch = (deadline?: any) => {
-        const startTime = performance.now();
-        
-        while (currentIndex < totalNodes) {
-          if (deadline && deadline.timeRemaining) {
-            if (deadline.timeRemaining() < 2) break;
-          } else {
-            if (performance.now() - startTime > 10) break;
-          }
-          
-          const id = nodeKeys[currentIndex];
-          const node = state[id];
-          const cleanNode = { ...node };
-          delete (cleanNode as any).localMatrix;
-          delete (cleanNode as any).worldMatrix;
-          delete (cleanNode as any).isDirty;
-          cleanScene[id] = cleanNode;
-          
-          currentIndex++;
-        }
-        
-        setSaveProgress(Math.floor((currentIndex / totalNodes) * 100));
-
-        if (currentIndex < totalNodes) {
-          if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(processBatch);
-          } else {
-            setTimeout(processBatch, 0);
-          }
-        } else {
-          finishSave();
-        }
-      };
-
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
-          }
-        };
-
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
-      };
-      
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(processBatch);
-      } else {
-        setTimeout(processBatch, 0);
+      if (!workerRef.current) {
+        workerRef.current = new Worker(
+          new URL('./serialization.worker.ts', import.meta.url),
+          { type: 'module' }
+        );
       }
+
+      const handleMessage = async (e: MessageEvent) => {
+        if (e.data.type === 'SUCCESS') {
+          try {
+            await window.electronAPI!.saveFile(e.data.result);
+          } catch (err) {
+            console.error("Failed to save file", err);
+            alert("Failed to save file.");
+          }
+        } else if (e.data.type === 'ERROR') {
+          console.error("Serialization failed", e.data.error);
+          alert("Serialization failed: " + e.data.error);
+        }
+        setIsSaving(false);
+        workerRef.current?.removeEventListener('message', handleMessage);
+      };
+
+      workerRef.current.addEventListener('message', handleMessage);
+      workerRef.current.postMessage({ state, animations, duration });
     } else {
       alert("Electron API not available");
     }
@@ -193,11 +167,11 @@ function App() {
       engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: {
-          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
-          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
-        }
+        keyframes: [
+          { id: 'a', time: 0, value: 0, easing: 'linear' },
+          { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        ]
       });
       engine.play();
     } else {
@@ -309,20 +283,19 @@ function App() {
             >
               Add Test Anim
             </button>
+            {isSaving && (
+              <div className="absolute bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded shadow-lg flex items-center space-x-2 pointer-events-none">
+                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>Saving project...</span>
+              </div>
+            )}
           </div>
         </div>
 
         <Timeline engine={engine} store={store} />
-
-        {showSaveProgress && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-gray-800 p-6 rounded-lg border border-gray-700 flex flex-col items-center gap-3">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-              <div className="text-sm font-medium">Saving Project...</div>
-              <div className="text-xs text-gray-400">{saveProgress}%</div>
-            </div>
-          </div>
-        )}
       </div>
     </DndProvider>
   );

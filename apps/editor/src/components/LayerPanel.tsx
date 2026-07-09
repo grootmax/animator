@@ -27,8 +27,8 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
     const [isEditing, setIsEditing] = useState(false);
     const [editName, setEditName] = useState(node.name);
 
-    const childNodes = Object.values(nodes).filter(n => n.parentId === id).sort((a,b) => (a.order || '').localeCompare(b.order || ''));
-    const childrenIds = childNodes.map(n => n.id);
+    const childNodes = Object.values(nodes).filter((n: any) => n.parentId === id).sort((a: any, b: any) => (a.order || '').localeCompare(b.order || ''));
+    const childrenIds = childNodes.map((n: any) => n.id);
     const hasChildren = childrenIds.length > 0;
 
     const toggleVisible = (e: React.MouseEvent) => {
@@ -88,12 +88,12 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
          }
 
          if (dropNode.type === 'group' || dropNode.type === 'container') {
-             store.getState().reorderNode(item.id, id, Object.values(store.getState().nodes).filter(n => n.parentId === id).length);
+             store.getState().reorderNode(item.id, id, Object.values(store.getState().nodes).filter((n: any) => n.parentId === id).length);
          } else {
              const parentId = dropNode.parentId;
-             const siblingsNodes = Object.values(store.getState().nodes).filter(n => n.parentId === parentId);
-             siblingsNodes.sort((a,b) => (a.order || '').localeCompare(b.order || ''));
-             const siblings = siblingsNodes.map(n => n.id);
+             const siblingsNodes = Object.values(store.getState().nodes).filter((n: any) => n.parentId === parentId);
+             siblingsNodes.sort((a: any, b: any) => (a.order || '').localeCompare(b.order || ''));
+             const siblings = siblingsNodes.map((n: any) => n.id);
              const dropIndex = siblings.indexOf(id);
              store.getState().commitHistory();
              store.getState().reorderNode(item.id, parentId, dropIndex + 1);
@@ -157,9 +157,9 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
     );
   };
 
-  const rootNodesList = Object.values(nodes).filter(n => !n.parentId);
-  rootNodesList.sort((a,b) => (a.order || '').localeCompare(b.order || ''));
-  const rootNodes = rootNodesList.map(n => n.id);
+  const rootNodesList = Object.values(nodes).filter((n: any) => !n.parentId);
+  rootNodesList.sort((a: any, b: any) => (a.order || '').localeCompare(b.order || ''));
+  const rootNodes = rootNodesList.map((n: any) => n.id);
 
   return (
     <div className="flex flex-col h-full bg-gray-800 border-r border-gray-700 w-64 select-none">
