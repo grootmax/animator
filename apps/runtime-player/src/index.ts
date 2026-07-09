@@ -1,6 +1,6 @@
 import { createSceneGraphStore, SceneNode } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
-import { AnimationEngine, Track } from '@monorepo/animation-engine';
+import { AnimationEngine, Track, NetworkCommand } from '@monorepo/animation-engine';
 
 export interface ExportedProject {
   scene: Record<string, Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>>;
@@ -17,6 +17,14 @@ export class RuntimePlayer {
     this.store = createSceneGraphStore();
     this.engine = new AnimationEngine(this.store);
     this.bridge = new PixiBridge(canvas, this.store);
+  }
+
+  public get clock() {
+    return this.engine.clock;
+  }
+
+  public scheduleCommand(command: NetworkCommand) {
+    this.engine.scheduleCommand(command);
   }
 
   public load(json: string | ExportedProject) {
@@ -57,5 +65,9 @@ export class RuntimePlayer {
 
   public pause() {
     this.engine.pause();
+  }
+
+  public seek(time: number) {
+    this.engine.seek(time);
   }
 }

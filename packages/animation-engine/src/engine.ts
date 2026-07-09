@@ -1,5 +1,6 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { NetworkClock, NetworkCommand } from './network';
 
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
 
@@ -25,6 +26,9 @@ export class AnimationEngine {
   public loop = true;
   private duration = 5000; // ms
 
+  public clock: NetworkClock;
+  private commandQueue: NetworkCommand[] = [];
+
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
   public getIsPlaying() { return this.isPlaying; }
@@ -32,58 +36,105 @@ export class AnimationEngine {
   public setDuration(d: number) { this.duration = d; }
   public setTracks(tracks: Track[]) { this.tracks = tracks; }
 
-  constructor(store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(store: ReturnType<typeof createSceneGraphStore>, clock: NetworkClock = new NetworkClock()) {
     this.store = store;
+    this.clock = clock;
   }
 
   public addTrack(track: Track) {
-    // Sort keyframes by time
     track.keyframes.sort((a, b) => a.time - b.time);
     this.tracks.push(track);
   }
 
+  private getSchedulingBuffer(): number {
+    // Dynamic buffer based on RTT, capped at 250ms
+    return Math.min(250, this.clock.estimatedRTT + 50); 
+  }
+
+  public scheduleCommand(command: NetworkCommand) {
+    const now = this.clock.time;
+    // If the command arrives after its scheduled execution time, it means
+    // the network delay/jitter exceeded our chosen scheduling buffer.
+    if (now > command.scheduledStartTime) {
+      console.warn("Network jitter exceeds the scheduling buffer capacity");
+    }
+
+    this.commandQueue.push(command);
+    this.commandQueue.sort((a, b) => a.scheduledStartTime - b.scheduledStartTime);
+
+    // If not currently ticking, start ticking to process the delayed start
+    if (this.rafId === null) {
+      this.lastTime = this.clock.time;
+      this.rafId = requestAnimationFrame(this.tick);
+    }
+  }
+
   public play() {
-    if (this.isPlaying) return;
-    this.isPlaying = true;
-    this.lastTime = performance.now();
-    this.tick();
+    this.scheduleCommand({ type: 'play', scheduledStartTime: this.clock.time + this.getSchedulingBuffer() });
   }
 
   public pause() {
-    this.isPlaying = false;
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
-    }
+    this.scheduleCommand({ type: 'pause', scheduledStartTime: this.clock.time + this.getSchedulingBuffer() });
   }
 
   public seek(time: number) {
-    this.playhead = time;
-    this.updateNodes();
+    this.scheduleCommand({ type: 'seek', scheduledStartTime: this.clock.time + this.getSchedulingBuffer(), playhead: time });
+  }
+
+  private processCommands(now: number) {
+    while (this.commandQueue.length > 0 && this.commandQueue[0].scheduledStartTime <= now) {
+      const cmd = this.commandQueue.shift()!;
+      
+      switch (cmd.type) {
+        case 'play':
+          if (!this.isPlaying) {
+            this.isPlaying = true;
+            // Advance playhead by the time elapsed since the scheduled start time, to keep in sync.
+            const elapsedSinceScheduled = Math.max(0, now - cmd.scheduledStartTime);
+            this.playhead += elapsedSinceScheduled;
+          }
+          break;
+        case 'pause':
+          this.isPlaying = false;
+          break;
+        case 'seek':
+          if (cmd.playhead !== undefined) {
+            this.playhead = cmd.playhead;
+            this.updateNodes();
+          }
+          break;
+      }
+    }
   }
 
   private tick = () => {
-    if (!this.isPlaying) return;
-
-    const now = performance.now();
+    const now = this.clock.time;
     const dt = now - this.lastTime;
     this.lastTime = now;
 
-    this.playhead += dt;
+    this.processCommands(now);
 
-    if (this.playhead > this.duration) {
-      if (this.loop) {
-        this.playhead = this.playhead % this.duration;
-      } else {
-        this.playhead = this.duration;
-        this.pause();
+    if (this.isPlaying) {
+      this.playhead += dt;
+
+      if (this.playhead > this.duration) {
+        if (this.loop) {
+          this.playhead = this.playhead % this.duration;
+        } else {
+          this.playhead = this.duration;
+          this.isPlaying = false; // deterministic local stop
+        }
       }
     }
 
+    // Prepare frame buffer
     this.updateNodes();
 
-    if (this.isPlaying) {
+    // Determine if we need to continue ticking
+    if (this.isPlaying || this.commandQueue.length > 0) {
       this.rafId = requestAnimationFrame(this.tick);
+    } else {
+      this.rafId = null;
     }
   }
 
