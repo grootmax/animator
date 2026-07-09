@@ -22,6 +22,8 @@ export class AnimationEngine {
   private isPlaying = false;
   private lastTime = 0;
   private rafId: number | null = null;
+  private frameDeltas: number[] = [];
+  private driftCompensation: number = 0;
   public loop = true;
   private duration = 5000; // ms
 
@@ -46,6 +48,7 @@ export class AnimationEngine {
     if (this.isPlaying) return;
     this.isPlaying = true;
     this.lastTime = performance.now();
+    this.driftCompensation = 0;
     this.tick();
   }
 
@@ -62,6 +65,36 @@ export class AnimationEngine {
     this.updateNodes();
   }
 
+  private getTargetFrameDuration(): number {
+    if (this.frameDeltas.length < 5) {
+      return 1000 / 60;
+    }
+    let sum = 0;
+    for (const delta of this.frameDeltas) {
+      sum += delta;
+    }
+    const avg = sum / this.frameDeltas.length;
+
+    const candidates = [
+      1000 / 144,
+      1000 / 120,
+      1000 / 60
+    ];
+
+    let closest = candidates[0];
+    let minDiff = Math.abs(avg - candidates[0]);
+    
+    for (let i = 1; i < candidates.length; i++) {
+      const diff = Math.abs(avg - candidates[i]);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = candidates[i];
+      }
+    }
+    
+    return closest;
+  }
+
   private tick = () => {
     if (!this.isPlaying) return;
 
@@ -69,7 +102,28 @@ export class AnimationEngine {
     const dt = now - this.lastTime;
     this.lastTime = now;
 
-    this.playhead += dt;
+    if (dt >= 2 && dt <= 50) {
+      this.frameDeltas.push(dt);
+      if (this.frameDeltas.length > 15) {
+        this.frameDeltas.shift();
+      }
+    }
+
+    const adjustedDt = dt + this.driftCompensation;
+    const T = this.getTargetFrameDuration();
+    
+    const k = Math.round(adjustedDt / T);
+    const nearestMultiple = k * T;
+    const deviation = Math.abs(adjustedDt - nearestMultiple);
+    const tolerance = 0.15 * T;
+    
+    let step = adjustedDt;
+    if (k >= 1 && deviation <= tolerance) {
+      step = nearestMultiple;
+    }
+    
+    this.driftCompensation = adjustedDt - step;
+    this.playhead += step;
 
     if (this.playhead > this.duration) {
       if (this.loop) {
