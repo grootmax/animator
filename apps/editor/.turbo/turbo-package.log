@@ -1,0 +1,52 @@
+
+> @monorepo/editor@1.0.0 package
+> electron-builder build --mac --win --linux
+
+  • electron-builder  version=24.13.3 os=6.12.83
+  • loaded configuration  file=package.json ("build" field)
+  • description is missed in the package.json  appPackageFile=/app/apps/editor/package.json
+  • author is missed in the package.json  appPackageFile=/app/apps/editor/package.json
+  ⨯ Cannot find module 'dmg-license'
+Require stack:
+- /app/node_modules/dmg-builder/out/dmgLicense.js
+- /app/node_modules/dmg-builder/out/dmg.js
+- /app/node_modules/dmg-builder/out/dmgUtil.js
+- /app/node_modules/app-builder-lib/out/macPackager.js
+- /app/node_modules/app-builder-lib/out/packager.js
+- /app/node_modules/app-builder-lib/out/index.js
+- /app/node_modules/electron-builder/out/builder.js
+- /app/node_modules/electron-builder/out/cli/cli.js
+- /app/node_modules/electron-builder/cli.js  failedTask=build stackTrace=Error: Cannot find module 'dmg-license'
+Require stack:
+- /app/node_modules/dmg-builder/out/dmgLicense.js
+- /app/node_modules/dmg-builder/out/dmg.js
+- /app/node_modules/dmg-builder/out/dmgUtil.js
+- /app/node_modules/app-builder-lib/out/macPackager.js
+- /app/node_modules/app-builder-lib/out/packager.js
+- /app/node_modules/app-builder-lib/out/index.js
+- /app/node_modules/electron-builder/out/builder.js
+- /app/node_modules/electron-builder/out/cli/cli.js
+- /app/node_modules/electron-builder/cli.js
+    at Function._resolveFilename (node:internal/modules/cjs/loader:1383:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1025:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1030:22)
+    at Function._load (node:internal/modules/cjs/loader:1192:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:237:24)
+    at Module.require (node:internal/modules/cjs/loader:1463:12)
+    at require (node:internal/modules/helpers:147:16)
+    at Object.<anonymous> (/app/node_modules/dmg-builder/src/dmgLicense.ts:7:1)
+    at Module._compile (node:internal/modules/cjs/loader:1705:14)
+    at Object..js (node:internal/modules/cjs/loader:1838:10)
+    at Module.load (node:internal/modules/cjs/loader:1441:32)
+    at Function._load (node:internal/modules/cjs/loader:1263:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:237:24)
+    at Module.require (node:internal/modules/cjs/loader:1463:12)
+npm error Lifecycle script `package` failed with error:
+npm error code 1
+npm error path /app/apps/editor
+npm error workspace @monorepo/editor@1.0.0
+npm error location /app/apps/editor
+npm error command failed
+npm error command sh -c electron-builder build --mac --win --linux
