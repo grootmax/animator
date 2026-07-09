@@ -36,7 +36,9 @@ jobs:
 
       - name: Build (Main)
         working-directory: ./main
-        run: npm run build -- --force
+        run: |
+          find . -name "*.tsbuildinfo" -type f -delete
+          npm run build -- --force
 
       - name: Run Benchmark (Main)
         working-directory: ./main/packages/benchmarks
@@ -48,7 +50,9 @@ jobs:
 
       - name: Build (PR)
         working-directory: ./pr
-        run: npm run build -- --force
+        run: |
+          find . -name "*.tsbuildinfo" -type f -delete
+          npm run build -- --force
 
       - name: Run Benchmark (PR)
         working-directory: ./pr/packages/benchmarks
