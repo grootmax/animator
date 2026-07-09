@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as path from 'path';
 import * as fs from 'fs';
-import { secureProjectWriter } from './writerUtils';
+import { secureProjectWriter } from './writerUtils.js';
 import * as os from 'os';
 
 test('secureProjectWriter', async (t) => {

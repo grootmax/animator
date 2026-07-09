@@ -90,7 +90,7 @@ export class TransformHandles {
     let maxY = h / 2;
 
     if (node.type === 'group' || node.type === 'container') {
-      const pixiNode = this.getPixiNode(this.selectedNodeId);
+      const pixiNode = this.getPixiNode(selectedNodeId);
       if (pixiNode && pixiNode.children.length > 0) {
         const bounds = pixiNode.getLocalBounds();
         if (bounds.width > 0 || bounds.height > 0) {
@@ -150,7 +150,9 @@ export class TransformHandles {
     if (!this.isDragging || !selectedNodeId || !this.startNodeState) return;
 
     if (!this.hasMoved) {
-      this.store.getState().commitHistory();
+      if ((this.store.getState() as any).commitHistory) {
+        (this.store.getState() as any).commitHistory();
+      }
       this.hasMoved = true;
     }
 
@@ -177,8 +179,9 @@ export class TransformHandles {
        updates.scaleY = this.startNodeState.scaleY + scaleDelta;
     }
 
-    this.store.getState().updateNode(selectedNodeId, updates);
-    this.store.getState().recalculateMatrices();
+    this.store.getState().batchUpdateAndRecalculate({
+       [selectedNodeId]: updates
+    });
   }
 
   private onDragEnd() {
