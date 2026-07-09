@@ -15,6 +15,13 @@ export interface Track {
   keyframes: Keyframe[];
 }
 
+export interface Heartbeat {
+  playhead: number;
+  isPlaying: boolean;
+}
+
+export type NetworkRole = 'leader' | 'follower' | 'standalone';
+
 export class AnimationEngine {
   private store: ReturnType<typeof createSceneGraphStore>;
   private tracks: Track[] = [];
@@ -24,6 +31,12 @@ export class AnimationEngine {
   private rafId: number | null = null;
   public loop = true;
   private duration = 5000; // ms
+
+  public role: NetworkRole = 'standalone';
+  public onHeartbeat?: (heartbeat: Heartbeat) => void;
+  private heartbeatTimer: any = null;
+  private heartbeatRate = 100;
+  public driftThreshold = 150;
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
@@ -47,6 +60,11 @@ export class AnimationEngine {
     this.isPlaying = true;
     this.lastTime = performance.now();
     this.tick();
+
+    if (this.role === 'leader') {
+      this.broadcastHeartbeat();
+      this.startHeartbeat();
+    }
   }
 
   public pause() {
@@ -55,11 +73,74 @@ export class AnimationEngine {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+
+    if (this.role === 'leader') {
+      this.stopHeartbeat();
+      this.broadcastHeartbeat();
+    }
   }
 
   public seek(time: number) {
     this.playhead = time;
     this.updateNodes();
+
+    if (this.role === 'leader') {
+      this.broadcastHeartbeat();
+    }
+  }
+
+  public setRole(role: NetworkRole) {
+    this.role = role;
+    if (role !== 'leader') {
+      this.stopHeartbeat();
+    } else if (this.isPlaying) {
+      this.startHeartbeat();
+    }
+  }
+
+  private startHeartbeat() {
+    if (this.role !== 'leader') return;
+    if (this.heartbeatTimer !== null) return;
+    
+    this.heartbeatTimer = setInterval(() => {
+      this.broadcastHeartbeat();
+    }, this.heartbeatRate);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  private broadcastHeartbeat() {
+    if (this.role === 'leader' && this.onHeartbeat) {
+      this.onHeartbeat({
+        playhead: this.playhead,
+        isPlaying: this.isPlaying
+      });
+    }
+  }
+
+  public receiveHeartbeat(heartbeat: Heartbeat, estimatedLatency: number = 0) {
+    if (this.role !== 'follower') return;
+
+    const targetPlayhead = heartbeat.isPlaying 
+      ? heartbeat.playhead + estimatedLatency 
+      : heartbeat.playhead;
+
+    const drift = Math.abs(this.playhead - targetPlayhead);
+
+    if (drift > this.driftThreshold) {
+      this.seek(targetPlayhead);
+    }
+
+    if (heartbeat.isPlaying && !this.isPlaying) {
+      this.play();
+    } else if (!heartbeat.isPlaying && this.isPlaying) {
+      this.pause();
+    }
   }
 
   private tick = () => {
