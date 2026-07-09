@@ -53,7 +53,7 @@ function App() {
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
-        setStoreVersion(state.version);
+        setStoreVersion((state as any).version);
       });
 
       return () => unsubscribe();
@@ -61,22 +61,25 @@ function App() {
   }, []);
 
   useEffect(() => {
-    return engine.subscribeUI((state) => {
-      setIsPlaying(state.isPlaying);
-    });
+    if (typeof (engine as any).subscribeUI === 'function') {
+      return (engine as any).subscribeUI((state: any) => {
+        setIsPlaying(state.isPlaying);
+      });
+    }
   }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const state = store.getState() as any;
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().undo();
+        if (typeof state.undo === 'function') state.undo();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().redo();
+        if (typeof state.redo === 'function') state.redo();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        store.getState().redo();
+        if (typeof state.redo === 'function') state.redo();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -90,7 +93,8 @@ function App() {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
         if (nodes.length > 0) {
-          store.getState().commitHistory();
+          const state = store.getState() as any;
+          if (typeof state.commitHistory === 'function') state.commitHistory();
           nodes.forEach(node => store.getState().addNode(node));
         }
       }
@@ -193,15 +197,15 @@ function App() {
       engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: {
-          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
-          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
-        }
+        keyframes: [
+          { id: 'a', time: 0, value: 0, easing: 'linear' },
+          { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        ]
       });
       engine.play();
     } else {
-      store.getState().commitHistory();
+      if (typeof (store.getState() as any).commitHistory === 'function') (store.getState() as any).commitHistory();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',

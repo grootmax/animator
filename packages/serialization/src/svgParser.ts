@@ -1,6 +1,8 @@
 import { SceneNode, NodeType } from '@monorepo/scene-graph';
 import { Matrix3, createMatrix, multiplyMatrix } from '@monorepo/math';
 
+const multiply = (a: Matrix3, b: Matrix3): Matrix3 => multiplyMatrix(createMatrix(), a, b);
+
 let idCounter = 0;
 const generateId = () => `node_${idCounter++}`;
 
@@ -108,7 +110,7 @@ export class SvgParser {
           c, d, 0,
           e, f, 1
         ];
-        matrix = multiplyMatrix(matrix, localMatrix);
+        matrix = multiply(matrix, localMatrix);
       } else if (type === 'translate' && args.length >= 1) {
         const tx = args[0];
         const ty = args.length > 1 ? args[1] : 0;
@@ -117,7 +119,7 @@ export class SvgParser {
           0, 1, 0,
           tx, ty, 1
         ];
-        matrix = multiplyMatrix(matrix, translateMatrix);
+        matrix = multiply(matrix, translateMatrix);
       } else if (type === 'scale' && args.length >= 1) {
         const sx = args[0];
         const sy = args.length > 1 ? args[1] : sx;
@@ -126,7 +128,7 @@ export class SvgParser {
           0, sy, 0,
           0, 0, 1
         ];
-        matrix = multiplyMatrix(matrix, scaleMatrix);
+        matrix = multiply(matrix, scaleMatrix);
       } else if (type === 'rotate' && args.length >= 1) {
         const angle = args[0] * Math.PI / 180;
         const cx = args.length === 3 ? args[1] : 0;
@@ -139,9 +141,9 @@ export class SvgParser {
         if (cx !== 0 || cy !== 0) {
           const tToCenter: Matrix3 = [1, 0, 0, 0, 1, 0, cx, cy, 1];
           const tBack: Matrix3 = [1, 0, 0, 0, 1, 0, -cx, -cy, 1];
-          rotateMatrix = multiplyMatrix(tToCenter, multiplyMatrix(rotateMatrix, tBack));
+          rotateMatrix = multiply(tToCenter, multiply(rotateMatrix, tBack));
         }
-        matrix = multiplyMatrix(matrix, rotateMatrix);
+        matrix = multiply(matrix, rotateMatrix);
       }
     }
 
@@ -153,65 +155,53 @@ export class SvgParser {
 
     const scaleX = Math.sqrt(a * a + b * b);
     const rotation = Math.atan2(b, a);
-    
-    const cosR = Math.cos(rotation);
-    const sinR = Math.sin(rotation);
-    
-    // Rotate [c, d] back by -rotation
-    const cR = c * cosR + d * sinR;
-    const dR = -c * sinR + d * cosR;
-    
-    const scaleY = Math.sqrt(cR * cR + dR * dR) * Math.sign(dR || 1);
-    const skewX = Math.atan2(cR, dR);
+
+    const det = a * d - b * c;
+    const signScaleY = det < 0 ? -1 : 1;
+    const scaleY = signScaleY * Math.sqrt(c * c + d * d);
+
+    const skewX = Math.atan2(a * c + b * d, scaleX * scaleX);
     const skewY = 0;
 
     return { x, y, scaleX, scaleY, rotation, skewX, skewY };
   }
 
-  private processElement(element: Element, parentId: string | null, nodesList: SceneNode[], parentMatrix: Matrix3) {
-    const id = element.id || generateId();
-    let type: NodeType = 'group';
+  private mapSvgTagToNodeType(tagName: string): NodeType | null {
+    switch (tagName.toLowerCase()) {
+      case 'g': return 'group';
+      case 'rect': return 'rect';
+      case 'circle': return 'circle';
+      case 'ellipse': return 'ellipse';
+      case 'line': return 'line';
+      case 'polyline': return 'polyline';
+      case 'path': return 'path';
+      case 'image': return 'image';
+      case 'svg': return 'container';
+      default: return null; // Ignore non-visual/unsupported tags like defs, title, etc.
+    }
+  }
 
+  private processElement(element: Element, parentId: string | null, nodesList: SceneNode[], parentMatrix: Matrix3) {
     const tagName = element.tagName.toLowerCase();
-    if (!['g', 'svg', 'symbol', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'path'].includes(tagName)) {
-      // Recurse into unsupported tags like <defs> without creating a SceneNode for them
-      Array.from(element.children).forEach(child => {
-        this.processElement(child, parentId, nodesList, parentMatrix);
-      });
+    const type = this.mapSvgTagToNodeType(tagName);
+
+    if (!type) {
+      // If it's a defs, symbol, etc., we skip, but if it has children we might still parse?
+      // Typically non-visual elements like <style>, <defs> are skipped.
       return;
     }
 
-    switch (tagName) {
-      case 'g': 
-      case 'svg':
-      case 'symbol':
-        type = 'group'; 
-        break;
-      case 'rect': type = 'rect'; break;
-      case 'circle': type = 'circle'; break;
-      case 'ellipse': type = 'ellipse'; break;
-      case 'line': type = 'line'; break;
-      case 'polyline': type = 'polyline'; break;
-      case 'path': type = 'path'; break;
-      case 'ellipse': type = 'path'; break;
-      case 'line': type = 'path'; break;
-      default: return; // Ignore unsupported
-    }
+    const id = element.id || generateId();
+    const transformAttr = element.getAttribute('transform') || '';
+    const localTransformMatrix = this.parseTransform(transformAttr);
 
-    const transformStr = element.getAttribute('transform') || '';
-    const localTransformMatrix = this.parseTransform(transformStr);
+    let xAttr = 0;
+    let yAttr = 0;
 
-    let xAttr = parseFloat(element.getAttribute('x') || '0');
-    let yAttr = parseFloat(element.getAttribute('y') || '0');
-    let width = 0;
-    let height = 0;
-
-    if (type === 'rect') {
-      width = parseFloat(element.getAttribute('width') || '0');
-      height = parseFloat(element.getAttribute('height') || '0');
-      xAttr += width / 2;
-      yAttr += height / 2;
-    } else if (type === 'circle' || type === 'ellipse') {
+    if (tagName === 'rect' || tagName === 'image') {
+      xAttr = parseFloat(element.getAttribute('x') || '0');
+      yAttr = parseFloat(element.getAttribute('y') || '0');
+    } else if (tagName === 'circle') {
       xAttr = parseFloat(element.getAttribute('cx') || '0');
       yAttr = parseFloat(element.getAttribute('cy') || '0');
     } else if (tagName === 'ellipse') {
@@ -228,9 +218,9 @@ export class SvgParser {
       xAttr, yAttr, 1
     ];
 
-    const localMatrix = multiplyMatrix(localTransformMatrix, baseMatrix);
+    const localMatrix = multiply(localTransformMatrix, baseMatrix);
     const combinedMatrix = parentId === null 
-      ? multiplyMatrix(parentMatrix, localMatrix) 
+      ? multiply(parentMatrix, localMatrix) 
       : localMatrix;
 
     const { x, y, scaleX, scaleY, rotation, skewX, skewY } = this.extractTransformProperties(combinedMatrix);
@@ -294,7 +284,7 @@ export class SvgParser {
     nodesList.push(sceneNode);
 
     Array.from(element.children).forEach(child => {
-      this.processElement(child, id, nodesList, finalMatrix);
+      this.processElement(child, id, nodesList, combinedMatrix);
     });
   }
 }

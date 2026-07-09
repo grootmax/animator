@@ -8,9 +8,10 @@
     "dev": "tsc -b -w"
   },
   "dependencies": {
-    "pixi.js": "^7.3.2",
     "@monorepo/math": "*",
     "@monorepo/scene-graph": "*",
-    "@monorepo/serialization": "*"
+    "@monorepo/serialization": "*",
+    "@pixi/unsafe-eval": "^7.4.3",
+    "pixi.js": "^7.3.2"
   }
 }

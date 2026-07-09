@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "package": "electron-builder build --mac --linux"
+    "package": "electron-builder build --mac --win --linux",
+    "test": "playwright test",
+    "test:e2e": "playwright test"
   },
   "build": {
     "appId": "com.monorepo.editor", "productName": "MonorepoEditor",

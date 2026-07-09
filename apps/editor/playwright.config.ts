@@ -1,12 +1,12 @@
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
-  testDir: './tests',
+  testDir: './e2e',
   timeout: 30000,
   expect: {
-    timeout: 5000,
+    timeout: 5000
   },
-  reporter: 'html',
+  reporter: 'list',
   use: {
     trace: 'on-first-retry',
   },
