@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AnimationEngine, Track } from '@monorepo/animation-engine';
+import { AnimationEngine, Track, Keyframe } from '@monorepo/animation-engine';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { Play, Pause, SkipBack } from 'lucide-react';
 
@@ -23,6 +23,66 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
   const [scrollTop, setScrollTop] = useState(0);
   const [clientHeight, setClientHeight] = useState(0);
 
+  const [, forceRender] = useState({});
+
+  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
+  const [selectedKeyframes, setSelectedKeyframes] = useState<Keyframe[]>([]);
+  const [dragState, setDragState] = useState<{
+    startX: number;
+    initialTimes: Map<Keyframe, number>;
+    trackId: string;
+    clickedKf: Keyframe;
+    shiftKey: boolean;
+    hasMoved: boolean;
+  } | null>(null);
+
+  const handleKeyframePointerDown = (e: React.PointerEvent, trackId: string, kf: Keyframe) => {
+    e.stopPropagation();
+    const shiftKey = e.shiftKey;
+    
+    let newSelectedTrackId = selectedTrackId;
+    let newSelectedKeyframes = [...selectedKeyframes];
+
+    if (shiftKey) {
+      if (selectedTrackId !== trackId) {
+        newSelectedTrackId = trackId;
+        newSelectedKeyframes = [kf];
+      } else {
+        if (newSelectedKeyframes.includes(kf)) {
+          newSelectedKeyframes = newSelectedKeyframes.filter(k => k !== kf);
+        } else {
+          newSelectedKeyframes.push(kf);
+        }
+      }
+    } else {
+      if (selectedTrackId !== trackId || !newSelectedKeyframes.includes(kf)) {
+        newSelectedTrackId = trackId;
+        newSelectedKeyframes = [kf];
+      }
+    }
+
+    setSelectedTrackId(newSelectedTrackId);
+    setSelectedKeyframes(newSelectedKeyframes);
+
+    if (!newSelectedKeyframes.includes(kf)) {
+      return;
+    }
+
+    const initialTimes = new Map<Keyframe, number>();
+    newSelectedKeyframes.forEach(k => initialTimes.set(k, k.time));
+
+    setDragState({
+      startX: e.clientX,
+      initialTimes,
+      trackId: newSelectedTrackId!,
+      clickedKf: kf,
+      shiftKey,
+      hasMoved: false,
+    });
+
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
   useEffect(() => {
     let frame: number;
     const update = () => {
@@ -36,7 +96,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
         timeDisplayRef.current.textContent = `${(currentPlayhead / 1000).toFixed(2)}s`;
       }
 
-      setIsPlaying((prev) => {
+      setIsPlaying((prev: boolean) => {
         if (prev !== currentlyPlaying) return currentlyPlaying;
         return prev;
       });
@@ -113,9 +173,56 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
          if (timeDisplayRef.current) {
            timeDisplayRef.current.textContent = `${(time / 1000).toFixed(2)}s`;
          }
+      } else if (dragState) {
+         if (!rulerRef.current) return;
+         const rect = rulerRef.current.getBoundingClientRect();
+         
+         const dx = e.clientX - dragState.startX;
+         if (Math.abs(dx) > 1 && !dragState.hasMoved) {
+            setDragState(prev => prev ? { ...prev, hasMoved: true } : null);
+         }
+         
+         const timeDeltaMs = dx * (duration / rect.width);
+         
+         let minDelta = -Infinity;
+         let maxDelta = Infinity;
+         for (const originalTime of dragState.initialTimes.values()) {
+            minDelta = Math.max(minDelta, -originalTime);
+            maxDelta = Math.min(maxDelta, duration - originalTime);
+         }
+         
+         const clampedDelta = Math.max(minDelta, Math.min(maxDelta, timeDeltaMs));
+         
+         for (const [kf, originalTime] of dragState.initialTimes.entries()) {
+            kf.time = Math.round(originalTime + clampedDelta);
+         }
+         
+         engine.setTracks([...engine.getTracks()]);
+         forceRender({});
       }
     };
-    const handlePointerUp = () => setIsScrubbing(false);
+    
+    const handlePointerUp = () => {
+      if (isScrubbing) {
+        setIsScrubbing(false);
+      }
+      if (dragState) {
+        if (!dragState.hasMoved && !dragState.shiftKey) {
+           setSelectedKeyframes([dragState.clickedKf]);
+        }
+        
+        const tracks = engine.getTracks();
+        for (const track of tracks) {
+           const trackId = `${track.nodeId}-${track.property}`;
+           if (trackId === dragState.trackId) {
+               track.keyframes.sort((a: Keyframe, b: Keyframe) => a.time - b.time);
+           }
+        }
+        engine.setTracks([...tracks]);
+        
+        setDragState(null);
+      }
+    };
 
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
@@ -123,11 +230,11 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
     };
-  }, [isScrubbing, duration, engine]);
+  }, [isScrubbing, dragState, duration, engine]);
 
   // Group tracks by node
   const tracksByNode: Record<string, Track[]> = {};
-  tracks.forEach(t => {
+  tracks.forEach((t: Track) => {
     if (!tracksByNode[t.nodeId]) tracksByNode[t.nodeId] = [];
     tracksByNode[t.nodeId].push(t);
   });
@@ -194,15 +301,29 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
                       {node ? node.name : nodeId}
                    </div>
                    <div className="flex-1 relative">
-                      {nodeTracks.map((track, i) => (
+                      {nodeTracks.map((track, i) => {
+                         const trackId = `${track.nodeId}-${track.property}`;
+                         return (
                          <div key={i} className="absolute left-0 right-0 h-8 flex items-center" style={{ top: i * 32 }}>
                             {/* We don't render a visual label here, just the keyframes */}
                             <div className="absolute left-0 -ml-60 text-xs text-gray-500 pointer-events-none">{track.property}</div>
-                            {track.keyframes.map((kf, j) => (
-                              <div key={j} className="absolute w-3 h-3 bg-blue-500 rotate-45 rounded-sm transform -translate-x-1/2 cursor-pointer hover:bg-blue-400 hover:scale-125 transition-transform" style={{ left: `${(kf.time/duration)*100}%` }} title={`${track.property}: ${kf.value}`}></div>
-                            ))}
+                            {track.keyframes.map((kf: Keyframe, j: number) => {
+                              const isSelected = selectedTrackId === trackId && selectedKeyframes.includes(kf);
+                              return (
+                              <div 
+                                key={j} 
+                                onPointerDown={(e) => handleKeyframePointerDown(e, trackId, kf)}
+                                className={`absolute w-3 h-3 rotate-45 rounded-sm transform -translate-x-1/2 cursor-pointer transition-transform ${isSelected ? 'bg-yellow-400 scale-110 shadow-[0_0_8px_rgba(250,204,21,0.6)] z-20' : 'bg-blue-500 hover:bg-blue-400 hover:scale-125 z-10'}`} 
+                                style={{ left: `${(kf.time/duration)*100}%` }} 
+                                title={`${track.property}: ${kf.value}`}>
+                              </div>
+                              );
+                            })}
                          </div>
-                      ))}
+                         );
+                      })}
+                      {/* Placeholder space to ensure proper height for all tracks */}
+                      <div style={{ height: nodeTracks.length * 32 }}></div>
                    </div>
                 </div>
               );
