@@ -1,5 +1,6 @@
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
+import { invalidateBounds } from './bounds';
 
 export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline';
 
@@ -84,6 +85,8 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
             ...parent,
             children: [...parent.children, node.id]
           };
+          // Invalidate parent bounds since a child was added
+          invalidateBounds(node.parentId, { ...state, nodes: newNodes });
         }
       }
 
@@ -99,6 +102,8 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       const node = state.nodes[id];
       if (!node) return state;
 
+      invalidateBounds(id, state);
+
       // O(1) dirty marking: just mark the current node.
       // The recalculate step will propagate this to children automatically!
       const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
@@ -113,6 +118,9 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       if (!node) return state;
 
       const newNodes = { ...state.nodes };
+
+      // Invalidate old hierarchy bounds
+      invalidateBounds(id, state);
 
       // Remove from old parent
       if (node.parentId && newNodes[node.parentId]) {
@@ -140,6 +148,11 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
 
       newNodes[id] = { ...node, parentId: newParentId, isDirty: true };
 
+      // Invalidate new hierarchy bounds
+      if (newParentId) {
+        invalidateBounds(newParentId, { ...state, nodes: newNodes });
+      }
+
       return { nodes: newNodes };
     });
   },
@@ -148,6 +161,8 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
     set((state) => {
       const node = state.nodes[id];
       if (!node) return state;
+
+      invalidateBounds(id, state);
 
       // O(1) dirty marking
       const newNodes = { ...state.nodes, [id]: { ...node, isDirty: true } };

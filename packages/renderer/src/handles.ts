@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
+import { SceneNode, createSceneGraphStore, getBounds } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 
 export class TransformHandles {
@@ -63,45 +63,46 @@ export class TransformHandles {
 
     this.container.visible = true;
 
-    // Use worldMatrix to position the handles relative to the viewport
-    const wm = node.worldMatrix;
+    const bounds = getBounds(this.selectedNodeId, this.store);
+    if (!bounds) {
+      this.container.visible = false;
+      return;
+    }
 
-    // Apply world matrix to the handles container
-    this.container.setTransform(
-      wm[6], wm[7],
-      Math.hypot(wm[0], wm[1]), Math.hypot(wm[3], wm[4]),
-      Math.atan2(wm[1], wm[0])
-    );
+    // Reset container transform to world space
+    this.container.setTransform(0, 0, 1, 1, 0, 0, 0, 0, 0);
 
-    let w = node.width || (node.radius ? node.radius * 2 : 100);
-    let h = node.height || (node.radius ? node.radius * 2 : 100);
-
+    const w = bounds.maxX - bounds.minX;
+    const h = bounds.maxY - bounds.minY;
+    const cx = (bounds.maxX + bounds.minX) / 2;
+    
     this.box.clear();
     this.box.lineStyle(2, 0x00aaff, 1);
-    this.box.drawRect(-w/2, -h/2, w, h);
+    this.box.drawRect(bounds.minX, bounds.minY, w, h);
 
-    // The handle visual size needs to counter-scale BOTH the local node's world scale AND the viewport zoom
-    // We apply viewport scaling in bridge.ts by making handles a child of viewport.
-    const globalScaleX = Math.hypot(wm[0], wm[1]);
-    const globalScaleY = Math.hypot(wm[3], wm[4]);
-
-    const sizeX = 10 / globalScaleX;
-    const sizeY = 10 / globalScaleY;
+    // handles are drawn in world space, we no longer need to counter scale the node's local scale
+    // as the container is unscaled. We could scale by 1 / viewport.container.scale.x to keep handles 
+    // pixel perfect, but 10px in world space is fine for this demo.
+    const vScaleX = this.viewport.container.scale.x || 1;
+    const vScaleY = this.viewport.container.scale.y || 1;
+    
+    const sizeX = 10 / vScaleX;
+    const sizeY = 10 / vScaleY;
 
     const drawHandle = (g: PIXI.Graphics, x: number, y: number) => {
       g.clear();
       g.beginFill(0xffffff);
-      g.lineStyle(1 / Math.min(globalScaleX, globalScaleY), 0x00aaff); // line width invariant
+      g.lineStyle(1 / Math.min(vScaleX, vScaleY), 0x00aaff);
       g.drawRect(x - sizeX/2, y - sizeY/2, sizeX, sizeY);
       g.endFill();
     };
 
-    drawHandle(this.handles['tl'], -w/2, -h/2);
-    drawHandle(this.handles['tr'], w/2, -h/2);
-    drawHandle(this.handles['bl'], -w/2, h/2);
-    drawHandle(this.handles['br'], w/2, h/2);
+    drawHandle(this.handles['tl'], bounds.minX, bounds.minY);
+    drawHandle(this.handles['tr'], bounds.maxX, bounds.minY);
+    drawHandle(this.handles['bl'], bounds.minX, bounds.maxY);
+    drawHandle(this.handles['br'], bounds.maxX, bounds.maxY);
 
-    drawHandle(this.handles['rot'], 0, -h/2 - 20/globalScaleY);
+    drawHandle(this.handles['rot'], cx, bounds.minY - 20 / vScaleY);
   }
 
   private onDragStart(e: PIXI.FederatedPointerEvent, type: string) {
@@ -123,10 +124,12 @@ export class TransformHandles {
     const updates: any = {};
 
     if (this.dragType === 'rot') {
-       // get container absolute pos on screen to calculate angle
-       const rect = (this.viewport.container as any).parent.parent?.getBounds?.() || {x:0, y:0};
-       const cx = this.container.x * this.viewport.container.scale.x + this.viewport.container.x;
-       const cy = this.container.y * this.viewport.container.scale.y + this.viewport.container.y;
+       const node = this.store.getState().nodes[this.selectedNodeId];
+       const wx = node.worldMatrix[6];
+       const wy = node.worldMatrix[7];
+
+       const cx = wx * this.viewport.container.scale.x + this.viewport.container.x;
+       const cy = wy * this.viewport.container.scale.y + this.viewport.container.y;
 
        const startAngle = Math.atan2(this.dragStartPos.y - cy, this.dragStartPos.x - cx);
        const currentAngle = Math.atan2(e.clientY - cy, e.clientX - cx);
