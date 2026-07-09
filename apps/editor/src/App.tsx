@@ -248,34 +248,54 @@ function App() {
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
-      if (file.type === 'image/png' || file.type === 'image/jpeg') {
+      if (file.type === 'image/png' || file.type === 'image/jpeg' || file.type === 'image/jpg') {
+        if (file.size > 2 * 1024 * 1024) {
+          alert('Warning: Importing images larger than 2MB may degrade editor performance.');
+        }
+        
         const reader = new FileReader();
-        reader.onload = (ev) => {
-          const base64Src = ev.target?.result as string;
-          const img = new Image();
-          img.onload = () => {
-            const state = store.getState();
-            state.addNode({
-              id: `image_${Date.now()}`,
-              type: 'image',
-              src: base64Src,
-              x: e.clientX,
-              y: e.clientY,
-              width: img.width,
-              height: img.height,
-              parentId: null
-            });
-            state.recalculateMatrices();
-          };
-          img.src = base64Src;
+        reader.onload = (event) => {
+          const dataUrl = event.target?.result as string;
+          if (dataUrl) {
+            const img = new Image();
+            img.onload = () => {
+              const state = store.getState();
+              const rect = e.currentTarget.getBoundingClientRect();
+              const x = e.clientX - rect.left;
+              const y = e.clientY - rect.top;
+              
+              const bridge = (window as any).__bridge;
+              let dropX = x;
+              let dropY = y;
+              
+              if (bridge && bridge.viewport) {
+                 const v = bridge.viewport.container;
+                 dropX = (x - v.x) / v.scale.x;
+                 dropY = (y - v.y) / v.scale.y;
+              }
+
+              state.addNode({
+                id: `image_${Date.now()}`,
+                type: 'image',
+                parentId: null,
+                x: dropX,
+                y: dropY,
+                rotation: 0,
+                scaleX: 1,
+                scaleY: 1,
+                width: img.naturalWidth,
+                height: img.naturalHeight,
+                imageData: dataUrl,
+                src: dataUrl
+              });
+              state.recalculateMatrices();
+            };
+            img.src = dataUrl;
+          }
         };
         reader.readAsDataURL(file);
       }
     }
-  };
-
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
   };
 
   return (
@@ -298,8 +318,8 @@ function App() {
 
           <div 
             className="flex-1 relative bg-[#1a1a1a]"
+            onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
-            onDragOver={handleDragOver}
           >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
             {/* Overlay a subtle test animation button for quick testing */}

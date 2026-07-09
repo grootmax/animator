@@ -15,12 +15,12 @@ export class TransformHandles {
   private dragType: string | null = null;
   private dragStartPos = { x: 0, y: 0 };
   private startNodeState: SceneNode | null = null;
-  private getPixiNode: (id: string) => PIXI.Container | PIXI.Graphics | undefined;
+  private getPixiNode: (id: string) => PIXI.Container | PIXI.Graphics | PIXI.Sprite | undefined;
 
   constructor(
       store: ReturnType<typeof createSceneGraphStore>, 
       viewport: Viewport,
-      getPixiNode: (id: string) => PIXI.Container | PIXI.Graphics | undefined
+      getPixiNode: (id: string) => PIXI.Container | PIXI.Graphics | PIXI.Sprite | undefined
   ) {
     this.store = store;
     this.viewport = viewport;

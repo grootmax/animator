@@ -24,6 +24,7 @@ export interface SceneNode {
   height?: number;
   radius?: number;
   pathData?: string;
+  imageData?: string;
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
