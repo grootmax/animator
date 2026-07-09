@@ -49,10 +49,24 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
+  // Validate JSON payload
+  try {
+    JSON.parse(content);
+  } catch (err) {
+    throw new Error('Invalid JSON payload: data must be valid JSON');
+  }
+
   const { canceled, filePath } = await dialog.showSaveDialog({
     filters: [{ name: 'JSON files', extensions: ['json'] }]
   });
+  
   if (canceled || !filePath) return false;
+
+  // Validate file extension
+  if (!filePath.toLowerCase().endsWith('.json')) {
+    throw new Error('Invalid file extension: only .json files are allowed');
+  }
+
   await fs.promises.writeFile(filePath, content, 'utf-8');
   return true;
 });
