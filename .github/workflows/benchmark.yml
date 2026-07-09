@@ -1,0 +1,63 @@
+name: Headless Engine Regression Guard
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          path: pr
+
+      - name: Checkout Main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Copy Benchmarks to Main (for initial PR)
+        run: |
+          cp -r ./pr/packages/benchmarks ./main/packages/
+          cp -r ./pr/scripts ./main/ || true
+
+      - name: Install Dependencies (Main)
+        working-directory: ./main
+        run: npm install
+
+      - name: Build (Main)
+        working-directory: ./main
+        run: |
+          find . -name "*.tsbuildinfo" -type f -delete
+          npm run build -- --force
+
+      - name: Run Benchmark (Main)
+        working-directory: ./main/packages/benchmarks
+        run: npm run bench -- ../../../main-results.json
+
+      - name: Install Dependencies (PR)
+        working-directory: ./pr
+        run: npm install
+
+      - name: Build (PR)
+        working-directory: ./pr
+        run: |
+          find . -name "*.tsbuildinfo" -type f -delete
+          npm run build -- --force
+
+      - name: Run Benchmark (PR)
+        working-directory: ./pr/packages/benchmarks
+        run: npm run bench -- ../../../pr-results.json
+
+      - name: Compare Results
+        working-directory: ./pr
+        run: node scripts/compare-benchmarks.js ../main-results.json ../pr-results.json

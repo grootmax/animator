@@ -1,0 +1,16 @@
+{
+  "name": "@monorepo/benchmarks",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -b",
+    "bench": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@monorepo/math": "*",
+    "@monorepo/scene-graph": "*"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.0"
+  }
+}
