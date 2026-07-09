@@ -17,6 +17,8 @@ export class RuntimePlayer {
     this.store = createSceneGraphStore();
     this.engine = new AnimationEngine(this.store);
     this.bridge = new PixiBridge(canvas, this.store);
+
+    this.engine.onFrameReady(() => this.bridge.syncFrame());
   }
 
   public load(json: string | ExportedProject) {

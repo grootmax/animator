@@ -24,6 +24,7 @@ export class AnimationEngine {
   private rafId: number | null = null;
   public loop = true;
   private duration = 5000; // ms
+  private frameCallbacks: Set<() => void> = new Set();
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
@@ -31,6 +32,14 @@ export class AnimationEngine {
   public getDuration() { return this.duration; }
   public setDuration(d: number) { this.duration = d; }
   public setTracks(tracks: Track[]) { this.tracks = tracks; }
+
+  public onFrameReady(cb: () => void) {
+    this.frameCallbacks.add(cb);
+  }
+
+  public offFrameReady(cb: () => void) {
+    this.frameCallbacks.delete(cb);
+  }
 
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
@@ -60,6 +69,7 @@ export class AnimationEngine {
   public seek(time: number) {
     this.playhead = time;
     this.updateNodes();
+    this.frameCallbacks.forEach(cb => cb());
   }
 
   private tick = () => {
@@ -81,6 +91,7 @@ export class AnimationEngine {
     }
 
     this.updateNodes();
+    this.frameCallbacks.forEach(cb => cb());
 
     if (this.isPlaying) {
       this.rafId = requestAnimationFrame(this.tick);

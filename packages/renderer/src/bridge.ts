@@ -24,7 +24,7 @@ export class PixiBridge {
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, () => this.syncFrame());
 
     // Add handles directly to the viewport so they pan and zoom with the nodes!
     this.viewport.container.addChild(this.handles.container);
@@ -38,14 +38,16 @@ export class PixiBridge {
       }
     });
 
-    this.store.subscribe((state) => {
-      this.syncNodes(state.nodes);
-      this.handles.update();
-    });
-
     this.app.ticker.add(() => {
         this.handles.update();
     });
+  }
+
+  public syncFrame() {
+    const state = this.store.getState();
+    this.syncNodes(state.modifiedNodes, state.nodes);
+    state.clearModifiedNodes();
+    this.handles.update();
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
@@ -101,10 +103,19 @@ export class PixiBridge {
     }
   }
 
-  private syncNodes(nodes: Record<string, SceneNode>) {
-    for (const [id, node] of Object.entries(nodes)) {
+  private syncNodes(modifiedNodes: Set<string>, allNodes: Record<string, SceneNode>) {
+    for (const id of modifiedNodes) {
+      const node = allNodes[id];
       let pixiNode = this.pixiNodes.get(id);
 
+      if (!node) {
+        if (pixiNode) {
+          pixiNode.destroy({ children: true });
+          this.pixiNodes.delete(id);
+        }
+        continue;
+      }
+      
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();

@@ -15,10 +15,12 @@ export class TransformHandles {
   private dragType: string | null = null;
   private dragStartPos = { x: 0, y: 0 };
   private startNodeState: SceneNode | null = null;
+  private requestSync: () => void;
 
-  constructor(store: ReturnType<typeof createSceneGraphStore>, viewport: Viewport) {
+  constructor(store: ReturnType<typeof createSceneGraphStore>, viewport: Viewport, requestSync: () => void) {
     this.store = store;
     this.viewport = viewport;
+    this.requestSync = requestSync;
     this.container = new PIXI.Container();
     this.container.zIndex = 1000;
 
@@ -139,6 +141,7 @@ export class TransformHandles {
 
     this.store.getState().updateNode(this.selectedNodeId, updates);
     this.store.getState().recalculateMatrices();
+    this.requestSync();
   }
 
   private onDragEnd() {

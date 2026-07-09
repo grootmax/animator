@@ -36,12 +36,18 @@ function App() {
       // We keep bridge instance alive
       (window as any).__bridge = bridge;
 
+      const syncCallback = () => bridge.syncFrame();
+      engine.onFrameReady(syncCallback);
+
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
       });
 
-      return () => unsubscribe();
+      return () => {
+        unsubscribe();
+        engine.offFrameReady(syncCallback);
+      };
     }
   }, []);
 
