@@ -41,6 +41,8 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
     const time = (x / rect.width) * duration;
     engine.seek(time);
     setPlayhead(time);
+    const bridge = (window as any).__bridge;
+    if (bridge) bridge.scheduleUpdate(true);
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -56,6 +58,8 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
          const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
          const time = (x / rect.width) * duration;
          engine.seek(time);
+         const bridge = (window as any).__bridge;
+         if (bridge) bridge.scheduleUpdate(true);
       }
     };
     const handlePointerUp = () => setIsScrubbing(false);
