@@ -12,7 +12,7 @@ const DOMAIN_WHITELIST = [
   'https://fonts.gstatic.com'
 ];
 
-function setupSecurity() {
+function setupLocalSecurity() {
   const isDev = !!process.env.VITE_DEV_SERVER_URL;
   const devUrl = isDev ? new URL(process.env.VITE_DEV_SERVER_URL!).origin : '';
 
@@ -36,7 +36,7 @@ function setupSecurity() {
     });
   });
 
-  app.on('web-contents-created', (event, contents) => {
+  app.on('web-contents-created', (_event, contents) => {
     contents.on('will-navigate', (event, navigationUrl) => {
       try {
         const parsedUrl = new URL(navigationUrl);
@@ -106,6 +106,15 @@ function createWindow() {
     }
   });
 
+  mainWindow.webContents.on('will-redirect', (event, url) => {
+    const isDevUrl = !!process.env.VITE_DEV_SERVER_URL && url.startsWith(process.env.VITE_DEV_SERVER_URL);
+    const isLocalUrl = url.startsWith('file://');
+    
+    if (!isDevUrl && !isLocalUrl) {
+      event.preventDefault();
+    }
+  });
+
   // Security Hardening: Window open handlers
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     console.warn(`Blocked unauthorized window open request for: ${url}`);
@@ -142,7 +151,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  setupSecurity();
+  setupLocalSecurity();
   createWindow();
 
   app.on('activate', () => {
