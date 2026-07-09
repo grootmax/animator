@@ -11,6 +11,7 @@ export class PixiBridge {
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private lastProcessedNodes: Map<string, SceneNode> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -103,6 +104,9 @@ export class PixiBridge {
 
   private syncNodes(nodes: Record<string, SceneNode>) {
     for (const [id, node] of Object.entries(nodes)) {
+      if (this.lastProcessedNodes.get(id) === node) continue;
+      this.lastProcessedNodes.set(id, node);
+
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
