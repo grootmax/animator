@@ -84,7 +84,7 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
              store.getState().reorderNode(item.id, id, store.getState().nodes[id].children.length);
          } else {
              const parentId = dropNode.parentId;
-             const siblings = parentId ? store.getState().nodes[parentId].children : Object.values(store.getState().nodes).filter(n => !n.parentId).map(n => n.id);
+             const siblings = parentId ? store.getState().nodes[parentId].children : Object.values(store.getState().nodes).filter((n: any) => !n.parentId).map((n: any) => n.id);
              const dropIndex = siblings.indexOf(id);
              store.getState().reorderNode(item.id, parentId, dropIndex + 1);
          }
@@ -138,7 +138,7 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
 
         {expanded && hasChildren && (
           <div className="flex flex-col">
-            {node.children.map(childId => (
+            {node.children.map((childId: string) => (
               <LayerNode key={childId} id={childId} depth={depth + 1} />
             ))}
           </div>
@@ -147,7 +147,7 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
     );
   };
 
-  const rootNodes = Object.values(nodes).filter(n => !n.parentId).map(n => n.id);
+  const rootNodes = Object.values(nodes).filter((n: any) => !n.parentId).map((n: any) => n.id);
 
   return (
     <div className="flex flex-col h-full bg-gray-800 border-r border-gray-700 w-64 select-none">
