@@ -108,6 +108,11 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'image') {
+          pixiNode = new PIXI.Container();
+          const sprite = new PIXI.Sprite();
+          sprite.anchor.set(0.5);
+          pixiNode.addChild(sprite);
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -171,9 +176,48 @@ export class PixiBridge {
         if (node.fill) {
             pixiNode.endFill();
         }
+      } else if (node.type === 'image') {
+        const sprite = (pixiNode as PIXI.Container).children[0] as PIXI.Sprite;
+        
+        if (node.src) {
+           const currentSrc = (sprite as any)._currentSrc;
+           if (currentSrc !== node.src) {
+               (sprite as any)._currentSrc = node.src;
+               const tex = PIXI.Texture.from(node.src);
+               sprite.texture = tex;
+               
+               if (!tex.valid) {
+                   (tex.baseTexture as any).once('loaded', () => {
+                       const n = this.store.getState().nodes[id];
+                       if (n && n.width !== undefined && n.height !== undefined && sprite.texture === tex) {
+                           sprite.width = n.width;
+                           sprite.height = n.height;
+                       }
+                   });
+               }
+           }
+        } else {
+           sprite.texture = PIXI.Texture.EMPTY;
+           (sprite as any)._currentSrc = undefined;
+        }
+
+        if (node.width !== undefined && node.height !== undefined && sprite.texture.valid) {
+           sprite.width = node.width;
+           sprite.height = node.height;
+        } else if (node.width === undefined || node.height === undefined) {
+           sprite.scale.set(1);
+        }
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);
+    }
+
+    // Cleanup removed nodes
+    for (const [id, pixiNode] of this.pixiNodes.entries()) {
+      if (!nodes[id]) {
+        pixiNode.destroy({ children: true });
+        this.pixiNodes.delete(id);
+      }
     }
   }
 }
