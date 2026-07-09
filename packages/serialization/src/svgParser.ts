@@ -16,6 +16,7 @@ export class SvgParser {
     const svgElement = doc.documentElement;
     const rootNodes: SceneNode[] = [];
 
+    let lastOrder = null;
     Array.from(svgElement.children).forEach(child => {
       this.processElement(child, null, rootNodes, createMatrix());
     });
@@ -151,7 +152,7 @@ export class SvgParser {
       id,
       type,
       parentId,
-      children: [],
+      order: '',
       x,
       y,
       scaleX,
@@ -188,7 +189,8 @@ export class SvgParser {
     const sceneNode = node as SceneNode;
     nodesList.push(sceneNode);
 
-    Array.from(element.children).forEach(child => {
+    let lastOrder = null;
+      Array.from(element.children).forEach(child => {
       this.processElement(child, id, nodesList, combinedMatrix);
     });
   }

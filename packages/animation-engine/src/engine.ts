@@ -4,6 +4,7 @@ import { createSceneGraphStore } from '@monorepo/scene-graph';
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
 
 export interface Keyframe {
+  id: string;
   time: number; // in milliseconds
   value: number;
   easing?: EasingType;
@@ -12,7 +13,7 @@ export interface Keyframe {
 export interface Track {
   nodeId: string;
   property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity';
-  keyframes: Keyframe[];
+  keyframes: Record<string, Keyframe>;
 }
 
 export class AnimationEngine {
@@ -37,8 +38,6 @@ export class AnimationEngine {
   }
 
   public addTrack(track: Track) {
-    // Sort keyframes by time
-    track.keyframes.sort((a, b) => a.time - b.time);
     this.tracks.push(track);
   }
 
@@ -121,7 +120,11 @@ export class AnimationEngine {
     const updates = new Map<string, any>();
 
     for (const track of this.tracks) {
-      const [start, end] = this.binarySearchKeyframes(track.keyframes, this.playhead);
+      const keyframesArray = Object.values(track.keyframes).sort((a, b) => {
+        if (a.time === b.time) return a.id.localeCompare(b.id);
+        return a.time - b.time;
+      });
+      const [start, end] = this.binarySearchKeyframes(keyframesArray, this.playhead);
 
       if (!start || !end) continue;
 
