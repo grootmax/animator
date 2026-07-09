@@ -1,7 +1,7 @@
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group';
+export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline';
 
 export interface SceneNode {
   id: string;
@@ -23,6 +23,14 @@ export interface SceneNode {
   pathData?: string;
   fill?: string;
   stroke?: string;
+  strokeWidth?: number;
+  rx?: number;
+  ry?: number;
+  x1?: number;
+  y1?: number;
+  x2?: number;
+  y2?: number;
+  points?: string;
 
   // Internal state
   localMatrix: Matrix3;
