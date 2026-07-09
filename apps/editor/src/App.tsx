@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
@@ -23,13 +23,22 @@ channel.onmessage = (event) => {
 };
 const engine = new AnimationEngine(store);
 
-// Extend Window interface for Electron IPC
 declare global {
   interface Window {
     electronAPI?: {
-      openFile: () => Promise<string | null>;
-      saveFile: (content: string) => Promise<boolean>;
-      exportSvg: (content: string) => Promise<boolean>;
+      showOpenDialog: () => Promise<string | null>;
+      showSaveDialog: (defaultPath?: string) => Promise<string | null>;
+      readFile: (filePath: string) => Promise<{ content?: string, filePath?: string, fileName?: string, error?: string }>;
+      writeFile: (filePath: string, content: string) => Promise<{ success?: boolean, filePath?: string, fileName?: string, error?: string }>;
+      getRecentFiles: () => Promise<string[]>;
+      setDirty: (isDirty: boolean) => void;
+      onMenuOpen: (callback: () => void) => () => void;
+      onMenuSave: (callback: () => void) => () => void;
+      onMenuSaveAs: (callback: () => void) => () => void;
+      onOpenRecentFile: (callback: (filePath: string) => void) => () => void;
+      onRequestSaveAndClose: (callback: () => void) => () => void;
+      closeApp: () => void;
+      removeAllListeners: (channel: string) => void;
     }
   }
 }
@@ -43,19 +52,24 @@ function App() {
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [showSaveProgress, setShowSaveProgress] = useState(false);
 
+  const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
+  const [currentFileName, setCurrentFileName] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  
+  const ignoreDirtyRef = useRef(false);
+
   useEffect(() => {
     if (canvasRef.current) {
-      // Initialize renderer
       const bridge = new PixiBridge(canvasRef.current, store);
-      // We keep bridge instance alive
       (window as any).__bridge = bridge;
 
-      // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
+      const unsubscribe = store.subscribe((state: any, prevState: any) => {
         setNodesCount(Object.keys(state.nodes).length);
         setStoreVersion(state.version);
+        if (!ignoreDirtyRef.current && state.nodes !== prevState.nodes) {
+          setIsDirty(true);
+        }
       });
-
       return () => unsubscribe();
     }
   }, []);
@@ -83,107 +97,130 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const handleImportSvg = async () => {
+  useEffect(() => {
     if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
-        const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
-        if (nodes.length > 0) {
-          store.getState().commitHistory();
-          nodes.forEach(node => store.getState().addNode(node));
-        }
-      }
-    } else {
-      alert("Electron API not available");
+      window.electronAPI.setDirty(isDirty);
     }
-  };
+    const fileNameDisplay = currentFileName ? currentFileName : 'Untitled';
+    const dirtyIndicator = isDirty ? '*' : '';
+    document.title = `${fileNameDisplay}${dirtyIndicator} - Essential Shell`;
+  }, [currentFileName, isDirty]);
 
-  const handleSaveState = async () => {
-    if (window.electronAPI) {
-      const state = store.getState().nodes;
-      const nodeKeys = Object.keys(state);
-      const totalNodes = nodeKeys.length;
-      
-      const cleanScene: Record<string, any> = {};
-      
-      let currentIndex = 0;
-      
-      const showProgressTimeout = setTimeout(() => {
-        setShowSaveProgress(true);
-      }, 500);
-
-      const processBatch = (deadline?: any) => {
-        const startTime = performance.now();
-        
-        while (currentIndex < totalNodes) {
-          if (deadline && deadline.timeRemaining) {
-            if (deadline.timeRemaining() < 2) break;
-          } else {
-            if (performance.now() - startTime > 10) break;
-          }
-          
-          const id = nodeKeys[currentIndex];
-          const node = state[id];
-          const cleanNode = { ...node };
-          delete (cleanNode as any).localMatrix;
-          delete (cleanNode as any).worldMatrix;
-          delete (cleanNode as any).isDirty;
-          cleanScene[id] = cleanNode;
-          
-          currentIndex++;
-        }
-        
-        setSaveProgress(Math.floor((currentIndex / totalNodes) * 100));
-
-        if (currentIndex < totalNodes) {
-          if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(processBatch);
-          } else {
-            setTimeout(processBatch, 0);
-          }
-        } else {
-          finishSave();
-        }
-      };
-
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
-          }
-        };
-
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
-      };
-      
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(processBatch);
-      } else {
-        setTimeout(processBatch, 0);
-      }
-    } else {
-      alert("Electron API not available");
+  const loadFileContent = useCallback(async (filePath: string) => {
+    if (!window.electronAPI) return;
+    const result = await window.electronAPI.readFile(filePath);
+    if (result.error || !result.content) {
+      alert(result.error || "Failed to read file");
+      return;
     }
-  };
+    
+    ignoreDirtyRef.current = true;
+    store.setState({ nodes: {}, rootId: null });
+    
+    if (filePath.toLowerCase().endsWith('.svg')) {
+      const parser = new SvgParser();
+      const nodes = parser.parse(result.content);
+      nodes.forEach(node => store.getState().addNode(node));
+    } else {
+      try {
+        const data = JSON.parse(result.content);
+        const sceneNodes = data.scene || {};
+        Object.values(sceneNodes).forEach((node: any) => {
+           store.getState().addNode(node);
+        });
+      } catch (e) {
+        console.error("Error parsing JSON", e);
+      }
+    }
+    
+    store.getState().recalculateMatrices();
+    
+    setCurrentFilePath(result.filePath || null);
+    setCurrentFileName(result.fileName || null);
+    setIsDirty(false);
+    
+    setTimeout(() => {
+       ignoreDirtyRef.current = false;
+    }, 50);
+  }, []);
 
-  const handleExportSvg = async () => {
-    if (window.electronAPI) {
-      const state = store.getState().nodes;
+  const handleOpen = useCallback(async () => {
+    if (!window.electronAPI) return;
+    const filePath = await window.electronAPI.showOpenDialog();
+    if (filePath) {
+      await loadFileContent(filePath);
+    }
+  }, [loadFileContent]);
+
+  const getSaveContent = (format: 'json' | 'svg'): string => {
+    const state = store.getState().nodes;
+    if (format === 'svg') {
       const serializer = new SvgSerializer();
-      const svgString = serializer.serialize(state);
-      await window.electronAPI.exportSvg(svgString);
+      return serializer.serialize(state);
     } else {
-      alert("Electron API not available");
+      const cleanScene: Record<string, any> = {};
+      for (const [id, node] of Object.entries(state)) {
+        const cleanNode = { ...(node as any) };
+        delete (cleanNode as any).localMatrix;
+        delete (cleanNode as any).worldMatrix;
+        delete (cleanNode as any).isDirty;
+        cleanScene[id] = cleanNode;
+      }
+      const exportData = {
+        scene: cleanScene,
+        animations: engine.getTracks(),
+        metadata: { version: "1.0.0", duration: engine.getDuration() }
+      };
+      return JSON.stringify(exportData, null, 2);
     }
   };
+
+  const handleSave = useCallback(async (saveAs: boolean): Promise<boolean> => {
+    if (!window.electronAPI) return false;
+    
+    let targetPath = currentFilePath;
+    if (saveAs || !targetPath) {
+      const newPath = await window.electronAPI.showSaveDialog(targetPath || undefined);
+      if (!newPath) return false;
+      targetPath = newPath;
+    }
+    
+    const format = targetPath.toLowerCase().endsWith('.svg') ? 'svg' : 'json';
+    const content = getSaveContent(format);
+    
+    const result = await window.electronAPI.writeFile(targetPath, content);
+    if (result.error) {
+      alert(result.error);
+      return false;
+    }
+    
+    setCurrentFilePath(result.filePath || null);
+    setCurrentFileName(result.fileName || null);
+    setIsDirty(false);
+    return true;
+  }, [currentFilePath]);
+
+  useEffect(() => {
+    if (!window.electronAPI) return;
+    const unOpen = window.electronAPI.onMenuOpen(handleOpen);
+    const unSave = window.electronAPI.onMenuSave(() => handleSave(false));
+    const unSaveAs = window.electronAPI.onMenuSaveAs(() => handleSave(true));
+    const unOpenRecent = window.electronAPI.onOpenRecentFile((path) => loadFileContent(path));
+    const unSaveAndClose = window.electronAPI.onRequestSaveAndClose(async () => {
+      const saved = await handleSave(false);
+      if (saved) {
+        window.electronAPI?.closeApp();
+      }
+    });
+
+    return () => {
+      unOpen();
+      unSave();
+      unSaveAs();
+      unOpenRecent();
+      unSaveAndClose();
+    };
+  }, [handleOpen, handleSave, loadFileContent]);
 
   const handleTestAnimation = () => {
     const state = store.getState();
@@ -201,8 +238,7 @@ function App() {
       });
       engine.play();
     } else {
-      store.getState().commitHistory();
-      // Create a test node if none exist
+      (store.getState() as any).commitHistory?.();
       state.addNode({
         id: 'test_rect',
         type: 'rect',
@@ -286,9 +322,9 @@ function App() {
           setTool={setTool}
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
-          onImport={handleImportSvg}
-          onExport={handleSaveState}
-          onExportSvg={handleExportSvg}
+          onOpen={handleOpen}
+          onSave={() => handleSave(false)}
+          onSaveAs={() => handleSave(true)}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
         />
@@ -302,7 +338,6 @@ function App() {
             onDragOver={handleDragOver}
           >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
-            {/* Overlay a subtle test animation button for quick testing */}
             <button
                className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
                onClick={handleTestAnimation}
