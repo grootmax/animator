@@ -10,7 +10,7 @@ export class PixiBridge {
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -108,6 +108,9 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'image') {
+          pixiNode = new PIXI.Sprite();
+          (pixiNode as PIXI.Sprite).anchor.set(0.5);
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -133,6 +136,19 @@ export class PixiBridge {
       // Update visibility and opacity
       pixiNode.visible = node.visible !== false;
       pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
+
+      if (pixiNode instanceof PIXI.Sprite && node.type === 'image') {
+        if (node.imageData && (pixiNode as any)._currentImageData !== node.imageData) {
+          try {
+            pixiNode.texture = PIXI.Texture.from(node.imageData);
+            (pixiNode as any)._currentImageData = node.imageData;
+          } catch (e) {
+            console.warn('Failed to load image texture', e);
+          }
+        }
+        if (node.width !== undefined) pixiNode.width = node.width;
+        if (node.height !== undefined) pixiNode.height = node.height;
+      }
 
       if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();
