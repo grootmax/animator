@@ -28,6 +28,18 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const workerRef = useRef<Worker | null>(null);
+
+  useEffect(() => {
+    workerRef.current = new Worker(
+      new URL('./serialization.worker.ts', import.meta.url),
+      { type: 'module' }
+    );
+    return () => {
+      workerRef.current?.terminate();
+    };
+  }, []);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -37,7 +49,7 @@ function App() {
       (window as any).__bridge = bridge;
 
       // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
+      const unsubscribe = store.subscribe((state: any) => {
         setNodesCount(Object.keys(state.nodes).length);
       });
 
@@ -61,7 +73,7 @@ function App() {
       if (svgContent) {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+        nodes.forEach((node: any) => store.getState().addNode(node));
       }
     } else {
       alert("Electron API not available");
@@ -70,28 +82,38 @@ function App() {
 
   const handleSaveState = async () => {
     if (window.electronAPI) {
+      if (isSaving) return;
+      setIsSaving(true);
+      
       const state = store.getState().nodes;
-
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
+      const animations = engine.getTracks();
+      const duration = engine.getDuration();
+      
+      if (!workerRef.current) {
+        workerRef.current = new Worker(
+          new URL('./serialization.worker.ts', import.meta.url),
+          { type: 'module' }
+        );
       }
 
-      const exportData = {
-        scene: cleanScene,
-        animations: engine.getTracks(),
-        metadata: {
-          version: "1.0.0",
-          duration: engine.getDuration()
+      const handleMessage = async (e: MessageEvent) => {
+        if (e.data.type === 'SUCCESS') {
+          try {
+            await window.electronAPI!.saveFile(e.data.result);
+          } catch (err) {
+            console.error("Failed to save file", err);
+            alert("Failed to save file.");
+          }
+        } else if (e.data.type === 'ERROR') {
+          console.error("Serialization failed", e.data.error);
+          alert("Serialization failed: " + e.data.error);
         }
+        setIsSaving(false);
+        workerRef.current?.removeEventListener('message', handleMessage);
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      workerRef.current.addEventListener('message', handleMessage);
+      workerRef.current.postMessage({ state, animations, duration });
     } else {
       alert("Electron API not available");
     }
@@ -193,6 +215,15 @@ function App() {
             >
               Add Test Anim
             </button>
+            {isSaving && (
+              <div className="absolute bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded shadow-lg flex items-center space-x-2 pointer-events-none">
+                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>Saving project...</span>
+              </div>
+            )}
           </div>
         </div>
 
