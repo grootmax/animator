@@ -45,6 +45,7 @@ export interface SceneGraphState {
   rootId: string | null;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  batchUpdateAndRecalculate: (updates: Record<string, Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
@@ -102,6 +103,61 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       // O(1) dirty marking: just mark the current node.
       // The recalculate step will propagate this to children automatically!
       const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
+
+      return { nodes: newNodes };
+    });
+  },
+
+  batchUpdateAndRecalculate: (updates) => {
+    set((state) => {
+      const newNodes = { ...state.nodes };
+      let anyChanged = false;
+
+      for (const [id, nodeUpdates] of Object.entries(updates)) {
+        const node = newNodes[id];
+        if (node) {
+          newNodes[id] = { ...node, ...nodeUpdates, isDirty: true };
+          anyChanged = true;
+        }
+      }
+
+      if (!anyChanged) return state;
+
+      const { rootId } = state;
+      if (!rootId || !newNodes[rootId]) return { nodes: newNodes };
+
+      const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
+        const node = newNodes[nodeId];
+        if (!node) return;
+
+        const isNowDirty = node.isDirty || parentWasDirty;
+        let currentWorldMatrix = parentWorldMatrix;
+
+        if (isNowDirty) {
+          const localMatrix = getTransformMatrix(
+            node.x, node.y, 
+            node.rotation, 
+            node.scaleX, node.scaleY,
+            node.skewX || 0, node.skewY || 0
+          );
+          currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
+
+          newNodes[nodeId] = {
+            ...node,
+            localMatrix,
+            worldMatrix: currentWorldMatrix,
+            isDirty: false
+          };
+        } else {
+            currentWorldMatrix = node.worldMatrix;
+        }
+
+        for (const childId of node.children) {
+          traverse(childId, currentWorldMatrix, isNowDirty);
+        }
+      };
+
+      traverse(rootId, createMatrix(), false);
 
       return { nodes: newNodes };
     });

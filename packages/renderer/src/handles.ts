@@ -137,8 +137,9 @@ export class TransformHandles {
        updates.scaleY = this.startNodeState.scaleY + scaleDelta;
     }
 
-    this.store.getState().updateNode(this.selectedNodeId, updates);
-    this.store.getState().recalculateMatrices();
+    this.store.getState().batchUpdateAndRecalculate({
+       [this.selectedNodeId]: updates
+    });
   }
 
   private onDragEnd() {
