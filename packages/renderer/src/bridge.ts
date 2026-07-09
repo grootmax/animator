@@ -11,6 +11,24 @@ export class PixiBridge {
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pathCache: Map<string, { pathData: string; tokens: ReturnType<typeof tokenizePath> }> = new Map();
+  private lastDrawnGeometry: Map<string, {
+    type: string;
+    fill?: string;
+    stroke?: string;
+    strokeWidth?: number;
+    width?: number;
+    height?: number;
+    radius?: number;
+    rx?: number;
+    ry?: number;
+    x1?: number;
+    y1?: number;
+    x2?: number;
+    y2?: number;
+    points?: string;
+    pathData?: string;
+  }> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -38,7 +56,7 @@ export class PixiBridge {
       }
     });
 
-    this.store.subscribe((state) => {
+    this.store.subscribe((state: any) => {
       this.syncNodes(state.nodes);
       this.handles.update();
     });
@@ -71,8 +89,17 @@ export class PixiBridge {
     );
   }
 
-  private drawPath(graphics: PIXI.Graphics, pathData: string) {
-    const tokens = tokenizePath(pathData);
+  private drawPath(graphics: PIXI.Graphics, pathData: string, nodeId: string) {
+    let tokens;
+    const cached = this.pathCache.get(nodeId);
+    
+    if (cached && cached.pathData === pathData) {
+      tokens = cached.tokens;
+    } else {
+      tokens = tokenizePath(pathData);
+      this.pathCache.set(nodeId, { pathData, tokens });
+    }
+
     let x = 0, y = 0;
 
     for (const t of tokens) {
@@ -102,6 +129,17 @@ export class PixiBridge {
   }
 
   private syncNodes(nodes: Record<string, SceneNode>) {
+    // 1. Cleanup deleted nodes
+    for (const [id, pixiNode] of this.pixiNodes.entries()) {
+      if (!nodes[id]) {
+        pixiNode.destroy({ children: true });
+        this.pixiNodes.delete(id);
+        this.pathCache.delete(id);
+        this.lastDrawnGeometry.delete(id);
+      }
+    }
+
+    // 2. Sync existing/new nodes
     for (const [id, node] of Object.entries(nodes)) {
       let pixiNode = this.pixiNodes.get(id);
 
@@ -135,41 +173,75 @@ export class PixiBridge {
       pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
       if (pixiNode instanceof PIXI.Graphics) {
-        pixiNode.clear();
+        const lastGeom = this.lastDrawnGeometry.get(id);
+        const currentGeom = {
+          type: node.type,
+          fill: node.fill,
+          stroke: node.stroke,
+          strokeWidth: node.strokeWidth,
+          width: node.width,
+          height: node.height,
+          radius: node.radius,
+          rx: node.rx,
+          ry: node.ry,
+          x1: node.x1,
+          y1: node.y1,
+          x2: node.x2,
+          y2: node.y2,
+          points: node.points,
+          pathData: node.pathData,
+        };
 
-        if (node.fill) {
-            const fill = parseInt(node.fill.replace('#', '0x'));
-            pixiNode.beginFill(fill);
-        }
-        if (node.stroke) {
-            const stroke = parseInt(node.stroke.replace('#', '0x'));
-            const strokeWidth = node.strokeWidth !== undefined ? node.strokeWidth : 2;
-            pixiNode.lineStyle(strokeWidth, stroke);
-        }
-
-        if (node.type === 'rect' && node.width && node.height) {
-          pixiNode.drawRect(-node.width/2, -node.height/2, node.width, node.height);
-        } else if (node.type === 'circle' && node.radius) {
-          pixiNode.drawCircle(0, 0, node.radius);
-        } else if (node.type === 'ellipse' && node.rx && node.ry) {
-          pixiNode.drawEllipse(0, 0, node.rx, node.ry);
-        } else if (node.type === 'line') {
-          pixiNode.moveTo(node.x1 || 0, node.y1 || 0);
-          pixiNode.lineTo(node.x2 || 0, node.y2 || 0);
-        } else if (node.type === 'polyline' && node.points) {
-          const pts = node.points.trim().split(/[\s,]+/).map(parseFloat);
-          if (pts.length >= 2) {
-            pixiNode.moveTo(pts[0], pts[1]);
-            for (let i = 2; i < pts.length; i += 2) {
-                pixiNode.lineTo(pts[i], pts[i+1]);
+        let isDirty = true;
+        if (lastGeom) {
+          isDirty = false;
+          for (const key of Object.keys(currentGeom) as (keyof typeof currentGeom)[]) {
+            if (lastGeom[key as keyof typeof lastGeom] !== currentGeom[key as keyof typeof currentGeom]) {
+              isDirty = true;
+              break;
             }
           }
-        } else if (node.type === 'path' && node.pathData) {
-          this.drawPath(pixiNode, node.pathData);
         }
 
-        if (node.fill) {
-            pixiNode.endFill();
+        if (isDirty) {
+          pixiNode.clear();
+
+          if (node.fill) {
+              const fill = parseInt(node.fill.replace('#', '0x'));
+              pixiNode.beginFill(fill);
+          }
+          if (node.stroke) {
+              const stroke = parseInt(node.stroke.replace('#', '0x'));
+              const strokeWidth = node.strokeWidth !== undefined ? node.strokeWidth : 2;
+              pixiNode.lineStyle(strokeWidth, stroke);
+          }
+
+          if (node.type === 'rect' && node.width && node.height) {
+            pixiNode.drawRect(-node.width/2, -node.height/2, node.width, node.height);
+          } else if (node.type === 'circle' && node.radius) {
+            pixiNode.drawCircle(0, 0, node.radius);
+          } else if (node.type === 'ellipse' && node.rx && node.ry) {
+            pixiNode.drawEllipse(0, 0, node.rx, node.ry);
+          } else if (node.type === 'line') {
+            pixiNode.moveTo(node.x1 || 0, node.y1 || 0);
+            pixiNode.lineTo(node.x2 || 0, node.y2 || 0);
+          } else if (node.type === 'polyline' && node.points) {
+            const pts = node.points.trim().split(/[\s,]+/).map(parseFloat);
+            if (pts.length >= 2) {
+              pixiNode.moveTo(pts[0], pts[1]);
+              for (let i = 2; i < pts.length; i += 2) {
+                  pixiNode.lineTo(pts[i], pts[i+1]);
+              }
+            }
+          } else if (node.type === 'path' && node.pathData) {
+            this.drawPath(pixiNode, node.pathData, id);
+          }
+
+          if (node.fill) {
+              pixiNode.endFill();
+          }
+
+          this.lastDrawnGeometry.set(id, currentGeom);
         }
       }
 
