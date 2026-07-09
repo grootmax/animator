@@ -49,11 +49,24 @@ export class PixiBridge {
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
+    const a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4], tx = matrix[6], ty = matrix[7];
+    
+    const scaleX = Math.sqrt(a * a + b * b);
+    const rotation = Math.atan2(b, a);
+    
+    const cosR = Math.cos(rotation);
+    const sinR = Math.sin(rotation);
+    const cR = c * cosR + d * sinR;
+    const dR = -c * sinR + d * cosR;
+    
+    const scaleY = Math.sqrt(cR * cR + dR * dR) * Math.sign(dR || 1);
+    const skewX = Math.atan2(cR, dR);
+    
     displayObject.setTransform(
-      matrix[6], matrix[7], // tx, ty
-      Math.hypot(matrix[0], matrix[1]), Math.hypot(matrix[3], matrix[4]), // sx, sy
-      Math.atan2(matrix[1], matrix[0]), // rotation
-      0, 0, // skew
+      tx, ty, 
+      scaleX, scaleY, 
+      rotation, 
+      skewX, 0, // skewX, skewY
       0, 0 // pivot
     );
   }

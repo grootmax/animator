@@ -85,13 +85,23 @@ export class SvgParser {
   }
 
   private extractTransformProperties(matrix: Matrix3) {
-    const x = matrix[6];
-    const y = matrix[7];
-    const scaleX = Math.hypot(matrix[0], matrix[1]);
-    const scaleY = Math.hypot(matrix[3], matrix[4]);
-    const rotation = Math.atan2(matrix[1], matrix[0]);
+    const a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4], x = matrix[6], y = matrix[7];
 
-    return { x, y, scaleX, scaleY, rotation };
+    const scaleX = Math.sqrt(a * a + b * b);
+    const rotation = Math.atan2(b, a);
+    
+    const cosR = Math.cos(rotation);
+    const sinR = Math.sin(rotation);
+    
+    // Rotate [c, d] back by -rotation
+    const cR = c * cosR + d * sinR;
+    const dR = -c * sinR + d * cosR;
+    
+    const scaleY = Math.sqrt(cR * cR + dR * dR) * Math.sign(dR || 1);
+    const skewX = Math.atan2(cR, dR);
+    const skewY = 0;
+
+    return { x, y, scaleX, scaleY, rotation, skewX, skewY };
   }
 
   private processElement(element: Element, parentId: string | null, nodesList: SceneNode[], parentMatrix: Matrix3) {
@@ -99,7 +109,11 @@ export class SvgParser {
     let type: NodeType = 'group';
 
     switch (element.tagName.toLowerCase()) {
-      case 'g': type = 'group'; break;
+      case 'g': 
+      case 'svg':
+      case 'symbol':
+        type = 'group'; 
+        break;
       case 'rect': type = 'rect'; break;
       case 'circle': type = 'circle'; break;
       case 'ellipse': type = 'ellipse'; break;
@@ -127,7 +141,7 @@ export class SvgParser {
     ];
 
     const combinedMatrix = multiplyMatrix(localTransformMatrix, baseMatrix);
-    const { x, y, scaleX, scaleY, rotation } = this.extractTransformProperties(combinedMatrix);
+    const { x, y, scaleX, scaleY, rotation, skewX, skewY } = this.extractTransformProperties(combinedMatrix);
 
     const opacityStr = element.getAttribute('opacity');
     const visibilityStr = element.getAttribute('visibility');
@@ -143,6 +157,8 @@ export class SvgParser {
       scaleX,
       scaleY,
       rotation,
+      skewX,
+      skewY,
       fill: element.getAttribute('fill') || undefined,
       stroke: element.getAttribute('stroke') || undefined,
       opacity: opacityStr !== null ? parseFloat(opacityStr) : 1,

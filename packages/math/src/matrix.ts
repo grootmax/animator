@@ -49,10 +49,31 @@ export const scaleMatrix = (m: Matrix3, sx: number, sy: number): Matrix3 => {
   ]);
 };
 
-export const getTransformMatrix = (x: number, y: number, rotation: number, scaleX: number, scaleY: number): Matrix3 => {
+export const skewMatrix = (m: Matrix3, skewXRad: number, skewYRad: number): Matrix3 => {
+  return multiplyMatrix(m, [
+    1, Math.tan(skewYRad), 0,
+    Math.tan(skewXRad), 1, 0,
+    0, 0, 1
+  ]);
+};
+
+export const getTransformMatrix = (
+  x: number, 
+  y: number, 
+  rotation: number, 
+  scaleX: number, 
+  scaleY: number,
+  skewX: number = 0,
+  skewY: number = 0
+): Matrix3 => {
   let m = createMatrix();
   m = translateMatrix(m, x, y);
   m = rotateMatrix(m, rotation);
+  
+  if (skewX !== 0 || skewY !== 0) {
+    m = skewMatrix(m, skewX, skewY);
+  }
+  
   m = scaleMatrix(m, scaleX, scaleY);
   return m;
 };
