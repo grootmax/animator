@@ -71,6 +71,17 @@ self.onmessage = (e) => {
       engine.seek(payload.time);
       break;
     }
+    case 'scheduleCommand': {
+      if (engine) engine.scheduleCommand(payload);
+      break;
+    }
+    case 'syncClock': {
+      if (engine && engine.clock) {
+        const { t0, t1, t2, t3 } = payload;
+        engine.clock.sync(t0, t1, t2, t3);
+      }
+      break;
+    }
     case 'updateNode': {
       const { id, updates } = payload;
       store.getState().updateNode(id, updates);

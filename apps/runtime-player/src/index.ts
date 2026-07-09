@@ -1,5 +1,5 @@
 import { SceneNode } from '@monorepo/scene-graph';
-import { Track } from '@monorepo/animation-engine';
+import { Track, NetworkCommand, NetworkClock } from '@monorepo/animation-engine';
 
 export interface ExportedProject {
   scene: Record<string, Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>>;
@@ -11,6 +11,7 @@ export class RuntimePlayer {
   private worker: Worker;
   private sharedBuffer: SharedArrayBuffer;
   private syncArray: Float32Array;
+  private _clock: NetworkClock = new NetworkClock();
 
   constructor(canvas: HTMLCanvasElement) {
     // SharedArrayBuffer for node state sync (up to 100k nodes * 16 floats per node)
@@ -41,6 +42,17 @@ export class RuntimePlayer {
         eventType: type,
         eventData: { clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId }
       }
+    });
+  }
+
+  public get clock() {
+    return this._clock;
+  }
+
+  public scheduleCommand(command: NetworkCommand) {
+    this.worker.postMessage({
+      type: 'scheduleCommand',
+      payload: command
     });
   }
 
@@ -78,3 +90,4 @@ export class RuntimePlayer {
     this.worker.postMessage({ type: 'updateNode', payload: { id, updates } });
   }
 }
+
