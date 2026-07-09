@@ -36,7 +36,7 @@ export class Viewport {
     this.setupEvents();
     this.drawGrid();
     
-    this.store.subscribe((state) => {
+    this.store.subscribe((state: any) => {
       // In case viewport gets updated from outside (like remote sync or reset)
       // but to prevent feedback loops, we might skip applying if we are currently dragging.
       // For now, let's just make sure we are not overwriting our active state.

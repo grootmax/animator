@@ -11,7 +11,9 @@ export class PixiBridge {
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
-  private pathCache: Map<string, PathToken[]> = new Map();
+  private pathCache: Map<string, { pathData: string; tokens: PathToken[] }> = new Map();
+  private lastDrawnGeometry: Map<string, any> = new Map();
+  private remoteSelectionsContainer: PIXI.Container;
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -25,7 +27,7 @@ export class PixiBridge {
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app, store);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id) => this.pixiNodes.get(id));
 
     this.remoteSelectionsContainer = new PIXI.Container();
     this.remoteSelectionsContainer.zIndex = 999;
@@ -89,11 +91,15 @@ export class PixiBridge {
     );
   }
 
-  private drawPath(graphics: PIXI.Graphics, pathData: string) {
-    let tokens = this.pathCache.get(pathData);
-    if (!tokens) {
+  private drawPath(graphics: PIXI.Graphics, pathData: string, nodeId: string) {
+    let tokens: PathToken[];
+    const cached = this.pathCache.get(nodeId);
+    
+    if (cached && cached.pathData === pathData) {
+      tokens = cached.tokens;
+    } else {
       tokens = tokenizePath(pathData);
-      this.pathCache.set(pathData, tokens);
+      this.pathCache.set(nodeId, { pathData, tokens });
     }
     let x = 0, y = 0;
 
@@ -124,8 +130,17 @@ export class PixiBridge {
   }
 
   private syncNodes(nodes: Record<string, SceneNode>) {
-    const usedPaths = new Set<string>();
+    // 1. Cleanup deleted nodes
+    for (const [id, pixiNode] of this.pixiNodes.entries()) {
+      if (!nodes[id]) {
+        pixiNode.destroy({ children: true });
+        this.pixiNodes.delete(id);
+        this.pathCache.delete(id);
+        this.lastDrawnGeometry.delete(id);
+      }
+    }
 
+    // 2. Sync existing/new nodes
     for (const [id, node] of Object.entries(nodes)) {
       let pixiNode = this.pixiNodes.get(id);
 
@@ -171,17 +186,48 @@ export class PixiBridge {
       pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
       if (pixiNode instanceof PIXI.Graphics) {
-        pixiNode.clear();
+        const lastGeom = this.lastDrawnGeometry.get(id);
+        const currentGeom = {
+          type: node.type,
+          fill: node.fill,
+          stroke: node.stroke,
+          strokeWidth: node.strokeWidth,
+          width: node.width,
+          height: node.height,
+          radius: node.radius,
+          rx: node.rx,
+          ry: node.ry,
+          x1: node.x1,
+          y1: node.y1,
+          x2: node.x2,
+          y2: node.y2,
+          points: node.points,
+          pathData: node.pathData,
+        };
 
-        if (node.fill) {
+        let isDirty = true;
+        if (lastGeom) {
+          isDirty = false;
+          for (const key of Object.keys(currentGeom) as (keyof typeof currentGeom)[]) {
+            if (lastGeom[key as keyof typeof lastGeom] !== currentGeom[key as keyof typeof currentGeom]) {
+              isDirty = true;
+              break;
+            }
+          }
+        }
+
+        if (isDirty) {
+          pixiNode.clear();
+
+          if (node.fill) {
             const fill = typeof PIXI.utils?.string2hex === 'function' 
               ? PIXI.utils.string2hex(node.fill) 
               : parseInt(node.fill.replace('#', '0x')) || 0;
             if (!isNaN(fill)) {
               pixiNode.beginFill(fill);
             }
-        }
-        if (node.stroke) {
+          }
+          if (node.stroke) {
             const stroke = typeof PIXI.utils?.string2hex === 'function'
               ? PIXI.utils.string2hex(node.stroke)
               : parseInt(node.stroke.replace('#', '0x')) || 0;
@@ -189,32 +235,34 @@ export class PixiBridge {
             if (!isNaN(stroke)) {
               pixiNode.lineStyle(strokeWidth, stroke);
             }
-        }
-
-        if (node.type === 'rect' && node.width && node.height) {
-          pixiNode.drawRect(-node.width/2, -node.height/2, node.width, node.height);
-        } else if (node.type === 'circle' && node.radius) {
-          pixiNode.drawCircle(0, 0, node.radius);
-        } else if (node.type === 'ellipse' && node.rx && node.ry) {
-          pixiNode.drawEllipse(0, 0, node.rx, node.ry);
-        } else if (node.type === 'line') {
-          pixiNode.moveTo(node.x1 || 0, node.y1 || 0);
-          pixiNode.lineTo(node.x2 || 0, node.y2 || 0);
-        } else if (node.type === 'polyline' && node.points) {
-          const pts = node.points.trim().split(/[\s,]+/).map(parseFloat);
-          if (pts.length >= 2) {
-            pixiNode.moveTo(pts[0], pts[1]);
-            for (let i = 2; i < pts.length; i += 2) {
-                pixiNode.lineTo(pts[i], pts[i+1]);
-            }
           }
-        } else if (node.type === 'path' && node.pathData) {
-          usedPaths.add(node.pathData);
-          this.drawPath(pixiNode, node.pathData);
-        }
 
-        if (node.fill) {
+          if (node.type === 'rect' && node.width && node.height) {
+            pixiNode.drawRect(-node.width/2, -node.height/2, node.width, node.height);
+          } else if (node.type === 'circle' && node.radius) {
+            pixiNode.drawCircle(0, 0, node.radius);
+          } else if (node.type === 'ellipse' && node.rx && node.ry) {
+            pixiNode.drawEllipse(0, 0, node.rx, node.ry);
+          } else if (node.type === 'line') {
+            pixiNode.moveTo(node.x1 || 0, node.y1 || 0);
+            pixiNode.lineTo(node.x2 || 0, node.y2 || 0);
+          } else if (node.type === 'polyline' && node.points) {
+            const pts = node.points.trim().split(/[\s,]+/).map(parseFloat);
+            if (pts.length >= 2) {
+              pixiNode.moveTo(pts[0], pts[1]);
+              for (let i = 2; i < pts.length; i += 2) {
+                pixiNode.lineTo(pts[i], pts[i+1]);
+              }
+            }
+          } else if (node.type === 'path' && node.pathData) {
+            this.drawPath(pixiNode, node.pathData, id);
+          }
+
+          if (node.fill) {
             pixiNode.endFill();
+          }
+
+          this.lastDrawnGeometry.set(id, currentGeom);
         }
       } else if (node.type === 'image') {
         const sprite = (pixiNode as PIXI.Container).children[0] as PIXI.Sprite;
@@ -250,12 +298,6 @@ export class PixiBridge {
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);
-    }
-
-    for (const path of this.pathCache.keys()) {
-      if (!usedPaths.has(path)) {
-        this.pathCache.delete(path);
-      }
     }
   }
 }
