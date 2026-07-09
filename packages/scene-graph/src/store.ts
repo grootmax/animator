@@ -1,7 +1,7 @@
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline';
+export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image';
 
 export interface SceneNode {
   id: string;
@@ -23,6 +23,7 @@ export interface SceneNode {
   height?: number;
   radius?: number;
   pathData?: string;
+  imageData?: string;
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
