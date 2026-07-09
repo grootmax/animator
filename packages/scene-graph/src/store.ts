@@ -193,17 +193,21 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
         let currentWorldMatrix = parentWorldMatrix;
 
         if (isWorldDirty) {
-          let localMatrix = node.localMatrix;
+          const localMatrix = node.isDirty
+            ? getTransformMatrix(
+                node.x, node.y, 
+                node.rotation, 
+                node.scaleX, node.scaleY,
+                node.skewX || 0, node.skewY || 0,
+                node.localMatrix
+              )
+            : node.localMatrix;
 
-          if (node.isDirty) {
-            localMatrix = getTransformMatrix(
-              node.x, node.y, 
-              node.rotation, 
-              node.scaleX, node.scaleY,
-              node.skewX || 0, node.skewY || 0
-            );
-          }
-          currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
+          currentWorldMatrix = multiplyMatrix(
+            parentWorldMatrix, 
+            localMatrix, 
+            node.worldMatrix
+          );
 
           newNodes[nodeId] = {
             ...node,
@@ -214,7 +218,7 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
             currentWorldMatrix = node.worldMatrix;
         }
 
-        for (const childId of node.children) {
+        for (const childId of (childrenMap[nodeId] || [])) {
           traverse(childId, currentWorldMatrix, isWorldDirty);
         }
       };
