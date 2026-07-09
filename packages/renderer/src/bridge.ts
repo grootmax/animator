@@ -2,7 +2,6 @@ import * as PIXI from 'pixi.js';
 import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
-import { Matrix3 } from '@monorepo/math';
 import { tokenizePath } from '@monorepo/serialization';
 
 export class PixiBridge {
@@ -46,29 +45,6 @@ export class PixiBridge {
     this.app.ticker.add(() => {
         this.handles.update();
     });
-  }
-
-  private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
-    const a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4], tx = matrix[6], ty = matrix[7];
-    
-    const scaleX = Math.sqrt(a * a + b * b);
-    const rotation = Math.atan2(b, a);
-    
-    const cosR = Math.cos(rotation);
-    const sinR = Math.sin(rotation);
-    const cR = c * cosR + d * sinR;
-    const dR = -c * sinR + d * cosR;
-    
-    const scaleY = Math.sqrt(cR * cR + dR * dR) * Math.sign(dR || 1);
-    const skewX = Math.atan2(cR, dR);
-    
-    displayObject.setTransform(
-      tx, ty, 
-      scaleX, scaleY, 
-      rotation, 
-      skewX, 0, // skewX, skewY
-      0, 0 // pivot
-    );
   }
 
   private drawPath(graphics: PIXI.Graphics, pathData: string) {
@@ -120,6 +96,33 @@ export class PixiBridge {
               this.handles.setSelectedNode(id);
             }
         });
+
+        const viewportContainer = this.viewport.container;
+        pixiNode.updateTransform = function(this: any) {
+          this._boundsID++;
+          
+          const w = this.worldMatrix;
+          if (w) {
+            const v = viewportContainer.worldTransform;
+            this.worldTransform.set(
+              v.a * w[0] + v.c * w[1],
+              v.b * w[0] + v.d * w[1],
+              v.a * w[3] + v.c * w[4],
+              v.b * w[3] + v.d * w[4],
+              v.a * w[6] + v.c * w[7] + v.tx,
+              v.b * w[6] + v.d * w[7] + v.ty
+            );
+          }
+          
+          this.worldAlpha = this.alpha * this.parent.worldAlpha;
+          
+          for (let i = 0, j = this.children.length; i < j; ++i) {
+            const child = this.children[i];
+            if (child.visible) {
+              child.updateTransform();
+            }
+          }
+        };
 
         this.pixiNodes.set(id, pixiNode);
 
@@ -173,7 +176,7 @@ export class PixiBridge {
         }
       }
 
-      this.applyMatrix(pixiNode, node.localMatrix);
+      (pixiNode as any).worldMatrix = node.worldMatrix;
     }
   }
 }
