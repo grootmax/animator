@@ -8,7 +8,7 @@
     "dev": "tsc -b -w"
   },
   "dependencies": {
-    "zustand": "^4.4.1",
-    "@monorepo/math": "*"
+    "@monorepo/math": "*",
+    "zustand": "^4.4.1"
   }
 }
