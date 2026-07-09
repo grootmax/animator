@@ -11,6 +11,7 @@ export class PixiBridge {
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private syncRafId: number | null = null;
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -38,9 +39,15 @@ export class PixiBridge {
       }
     });
 
-    this.store.subscribe((state) => {
-      this.syncNodes(state.nodes);
-      this.handles.update();
+    this.store.subscribe(() => {
+      if (this.syncRafId === null) {
+        this.syncRafId = requestAnimationFrame(() => {
+          this.syncRafId = null;
+          const latestState = this.store.getState();
+          this.syncNodes(latestState.nodes);
+          this.handles.update();
+        });
+      }
     });
 
     this.app.ticker.add(() => {
