@@ -108,7 +108,16 @@ export class SvgParser {
     const id = element.id || generateId();
     let type: NodeType = 'group';
 
-    switch (element.tagName.toLowerCase()) {
+    const tagName = element.tagName.toLowerCase();
+    if (!['g', 'svg', 'symbol', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'path'].includes(tagName)) {
+      // Recurse into unsupported tags like <defs> without creating a SceneNode for them
+      Array.from(element.children).forEach(child => {
+        this.processElement(child, parentId, nodesList, parentMatrix);
+      });
+      return;
+    }
+
+    switch (tagName) {
       case 'g': 
       case 'svg':
       case 'symbol':
@@ -120,7 +129,6 @@ export class SvgParser {
       case 'line': type = 'line'; break;
       case 'polyline': type = 'polyline'; break;
       case 'path': type = 'path'; break;
-      default: return; // Ignore unsupported
     }
 
     const transformStr = element.getAttribute('transform') || '';
@@ -140,8 +148,9 @@ export class SvgParser {
       xAttr, yAttr, 1
     ];
 
-    const combinedMatrix = multiplyMatrix(localTransformMatrix, baseMatrix);
-    const { x, y, scaleX, scaleY, rotation, skewX, skewY } = this.extractTransformProperties(combinedMatrix);
+    const localCombinedMatrix = multiplyMatrix(localTransformMatrix, baseMatrix);
+    const finalMatrix = multiplyMatrix(parentMatrix, localCombinedMatrix);
+    const { x, y, scaleX, scaleY, rotation, skewX, skewY } = this.extractTransformProperties(finalMatrix);
 
     const opacityStr = element.getAttribute('opacity');
     const visibilityStr = element.getAttribute('visibility');
@@ -189,7 +198,7 @@ export class SvgParser {
     nodesList.push(sceneNode);
 
     Array.from(element.children).forEach(child => {
-      this.processElement(child, id, nodesList, combinedMatrix);
+      this.processElement(child, id, nodesList, finalMatrix);
     });
   }
 }
