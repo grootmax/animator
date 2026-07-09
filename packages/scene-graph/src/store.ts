@@ -112,6 +112,17 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       const node = state.nodes[id];
       if (!node) return state;
 
+      // Cycle detection guard
+      if (id === newParentId) return state;
+
+      if (newParentId) {
+        let curr: string | null = newParentId;
+        while (curr) {
+          if (curr === id) return state;
+          curr = state.nodes[curr]?.parentId || null;
+        }
+      }
+
       const newNodes = { ...state.nodes };
 
       // Remove from old parent
@@ -166,6 +177,11 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
         const node = newNodes[nodeId];
         if (!node) return;
+
+        // Guard against missing parent (if not the root node)
+        if (nodeId !== rootId && (!node.parentId || !newNodes[node.parentId])) {
+          return;
+        }
 
         const isNowDirty = node.isDirty || parentWasDirty;
         let currentWorldMatrix = parentWorldMatrix;

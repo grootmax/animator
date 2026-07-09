@@ -73,13 +73,6 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
          const dropNode = store.getState().nodes[id];
          if (!dragNode || !dropNode) return;
 
-         // Check if dropNode is a child of dragNode (prevent cycles)
-         let curr = dropNode.parentId;
-         while (curr) {
-            if (curr === item.id) return;
-            curr = store.getState().nodes[curr]?.parentId || null;
-         }
-
          if (dropNode.type === 'group' || dropNode.type === 'container') {
              store.getState().reorderNode(item.id, id, store.getState().nodes[id].children.length);
          } else {
