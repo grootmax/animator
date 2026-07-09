@@ -175,9 +175,14 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
             node.x, node.y, 
             node.rotation, 
             node.scaleX, node.scaleY,
-            node.skewX || 0, node.skewY || 0
+            node.skewX || 0, node.skewY || 0,
+            node.localMatrix // pass the pre-allocated localMatrix as the target
           );
-          currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
+          currentWorldMatrix = multiplyMatrix(
+            parentWorldMatrix, 
+            localMatrix, 
+            node.worldMatrix // pass the pre-allocated worldMatrix as the target
+          );
 
           newNodes[nodeId] = {
             ...node,
