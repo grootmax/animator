@@ -29,16 +29,19 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
 
     const toggleVisible = (e: React.MouseEvent) => {
       e.stopPropagation();
+      store.getState().commitHistory();
       store.getState().updateNode(id, { visible: !node.visible });
     };
 
     const toggleLock = (e: React.MouseEvent) => {
       e.stopPropagation();
+      store.getState().commitHistory();
       store.getState().updateNode(id, { locked: !node.locked });
     };
 
     const handleRename = () => {
-      if (editName.trim()) {
+      if (editName.trim() && editName !== node.name) {
+        store.getState().commitHistory();
         store.getState().updateNode(id, { name: editName });
       }
       setIsEditing(false);
@@ -81,11 +84,13 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
          }
 
          if (dropNode.type === 'group' || dropNode.type === 'container') {
+             store.getState().commitHistory();
              store.getState().reorderNode(item.id, id, store.getState().nodes[id].children.length);
          } else {
              const parentId = dropNode.parentId;
              const siblings = parentId ? store.getState().nodes[parentId].children : Object.values(store.getState().nodes).filter(n => !n.parentId).map(n => n.id);
              const dropIndex = siblings.indexOf(id);
+             store.getState().commitHistory();
              store.getState().reorderNode(item.id, parentId, dropIndex + 1);
          }
       }

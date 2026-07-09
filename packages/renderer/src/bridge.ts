@@ -102,6 +102,14 @@ export class PixiBridge {
   }
 
   private syncNodes(nodes: Record<string, SceneNode>) {
+    // Remove nodes that are no longer in the state
+    for (const [id, pixiNode] of this.pixiNodes.entries()) {
+      if (!nodes[id]) {
+        pixiNode.destroy({ children: true });
+        this.pixiNodes.delete(id);
+      }
+    }
+
     for (const [id, node] of Object.entries(nodes)) {
       let pixiNode = this.pixiNodes.get(id);
 

@@ -43,6 +43,11 @@ export interface SceneNode {
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
+  past: Record<string, SceneNode>[];
+  future: Record<string, SceneNode>[];
+  commitHistory: () => void;
+  undo: () => void;
+  redo: () => void;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
@@ -71,6 +76,66 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
 export const createSceneGraphStore = () => createStore<SceneGraphState>((set, get) => ({
   nodes: {},
   rootId: null,
+  past: [],
+  future: [],
+
+  commitHistory: () => {
+    set((state) => {
+      // Don't commit if the state is identical to the top of the stack
+      if (state.past.length > 0 && state.past[state.past.length - 1] === state.nodes) {
+        return state;
+      }
+      const maxHistory = 50;
+      return {
+        past: [...state.past, state.nodes].slice(-maxHistory),
+        future: []
+      };
+    });
+  },
+
+  undo: () => {
+    let shouldRecalc = false;
+    set((state) => {
+      if (state.past.length === 0) return state;
+      const previous = state.past[state.past.length - 1];
+      const newPast = state.past.slice(0, -1);
+      
+      const dirtyNodes = { ...previous };
+      for (const id in dirtyNodes) {
+        dirtyNodes[id] = { ...dirtyNodes[id], isDirty: true };
+      }
+      shouldRecalc = true;
+      
+      return {
+        past: newPast,
+        future: [state.nodes, ...state.future],
+        nodes: dirtyNodes
+      };
+    });
+    if (shouldRecalc) get().recalculateMatrices();
+  },
+
+  redo: () => {
+    let shouldRecalc = false;
+    set((state) => {
+      if (state.future.length === 0) return state;
+      const next = state.future[0];
+      const newFuture = state.future.slice(1);
+      
+      const dirtyNodes = { ...next };
+      for (const id in dirtyNodes) {
+        dirtyNodes[id] = { ...dirtyNodes[id], isDirty: true };
+      }
+      shouldRecalc = true;
+      
+      return {
+        past: [...state.past, state.nodes],
+        future: newFuture,
+        nodes: dirtyNodes
+      };
+    });
+    if (shouldRecalc) get().recalculateMatrices();
+  },
 
   addNode: (node) => {
     set((state) => {
