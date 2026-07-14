@@ -1,76 +1,16 @@
-import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, session, shell, protocol, net } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { setupSecurity } from './security';
 
+// Register custom protocol as privileged
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'asset', privileges: { bypassCSP: true, secure: true, supportFetchAPI: true, stream: true } }
+]);
+
 setupSecurity();
 
 let mainWindow: BrowserWindow | null = null;
-
-const DOMAIN_WHITELIST = [
-  'https://fonts.googleapis.com',
-  'https://fonts.gstatic.com'
-];
-
-function setupSecurity() {
-  const isDev = !!process.env.VITE_DEV_SERVER_URL;
-  const devUrl = isDev ? new URL(process.env.VITE_DEV_SERVER_URL!).origin : '';
-
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const cspRules = [
-      `default-src 'self' ${isDev ? devUrl : ''}`,
-      `script-src 'self' ${isDev ? "'unsafe-inline' 'unsafe-eval' " + devUrl : ''}`,
-      `style-src 'self' 'unsafe-inline' ${DOMAIN_WHITELIST.join(' ')}`,
-      `font-src 'self' data: ${DOMAIN_WHITELIST.join(' ')}`,
-      `img-src 'self' data: blob: ${DOMAIN_WHITELIST.join(' ')} ${isDev ? devUrl : ''}`,
-      `connect-src 'self' ${isDev ? devUrl + " ws: wss:" : ''} ${DOMAIN_WHITELIST.join(' ')}`
-    ];
-
-    const csp = cspRules.map(rule => rule.trim()).filter(Boolean).join('; ');
-
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [csp]
-      }
-    });
-  });
-
-  app.on('web-contents-created', (event, contents) => {
-    contents.on('will-navigate', (event, navigationUrl) => {
-      try {
-        const parsedUrl = new URL(navigationUrl);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
-          event.preventDefault();
-          shell.openExternal(navigationUrl);
-        }
-      } catch (err) {
-        event.preventDefault();
-      }
-    });
-
-    contents.setWindowOpenHandler(({ url }) => {
-      try {
-        const parsedUrl = new URL(url);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
-          shell.openExternal(url);
-          return { action: 'deny' };
-        }
-        return { action: 'allow' };
-      } catch (err) {
-        return { action: 'deny' };
-      }
-    });
-  });
-}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -144,6 +84,14 @@ function createWindow() {
 app.whenReady().then(() => {
   setupSecurity();
   createWindow();
+  
+  // Custom asset protocol handler
+  protocol.handle('asset', (request) => {
+    const urlPath = decodeURIComponent(request.url.replace('asset://', ''));
+    // Basic security check: resolve path and check if it exists
+    const safePath = path.resolve(urlPath);
+    return net.fetch(`file://${safePath}`);
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -179,6 +127,55 @@ app.on('window-all-closed', () => {
   }
 });
 
+// Recent files registry
+function getRecentFilesPath() {
+  return path.join(app.getPath('userData'), 'recent-files.json');
+}
+
+ipcMain.handle('registry:getRecentFiles', async () => {
+  try {
+    const data = await fs.promises.readFile(getRecentFilesPath(), 'utf-8');
+    return JSON.parse(data);
+  } catch (e) {
+    return [];
+  }
+});
+
+ipcMain.handle('registry:addRecentFile', async (_, filePath: string) => {
+  try {
+    const recentPath = getRecentFilesPath();
+    let recentFiles: string[] = [];
+    try {
+      const data = await fs.promises.readFile(recentPath, 'utf-8');
+      recentFiles = JSON.parse(data);
+    } catch (e) {
+      // Ignore
+    }
+    recentFiles = recentFiles.filter(p => p !== filePath);
+    recentFiles.unshift(filePath);
+    if (recentFiles.length > 10) {
+      recentFiles = recentFiles.slice(0, 10);
+    }
+    await fs.promises.writeFile(recentPath, JSON.stringify(recentFiles), 'utf-8');
+    return recentFiles;
+  } catch (e) {
+    return [];
+  }
+});
+
+function addRecent(filePath: string) {
+  const recentPath = getRecentFilesPath();
+  let recentFiles: string[] = [];
+  try {
+    const data = fs.readFileSync(recentPath, 'utf-8');
+    recentFiles = JSON.parse(data);
+  } catch (e) {}
+  recentFiles = recentFiles.filter(p => p !== filePath);
+  recentFiles.unshift(filePath);
+  if (recentFiles.length > 10) recentFiles = recentFiles.slice(0, 10);
+  fs.writeFileSync(recentPath, JSON.stringify(recentFiles), 'utf-8');
+}
+
 // IPC Handlers
 ipcMain.handle('dialog:openFile', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -186,7 +183,18 @@ ipcMain.handle('dialog:openFile', async () => {
     filters: [{ name: 'SVG files', extensions: ['svg'] }]
   });
   if (canceled) return null;
+  addRecent(filePaths[0]);
   return fs.promises.readFile(filePaths[0], 'utf-8');
+});
+
+ipcMain.handle('dialog:openFileWithMetadata', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openFile'],
+  });
+  if (canceled || filePaths.length === 0) return null;
+  const content = await fs.promises.readFile(filePaths[0], 'utf-8');
+  addRecent(filePaths[0]);
+  return { content, filePath: filePaths[0] };
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
@@ -208,8 +216,49 @@ ipcMain.handle('dialog:saveFile', async (_, content: string) => {
     }
 
     await fs.promises.writeFile(filePath, content, 'utf-8');
+    addRecent(filePath);
     return true;
   } catch (error) {
     return false;
   }
+});
+
+ipcMain.handle('dialog:saveFileDirect', async (_, filePath: string, content: string) => {
+  await fs.promises.writeFile(filePath, content, 'utf-8');
+  addRecent(filePath);
+  return true;
+});
+
+ipcMain.handle('dialog:saveFileWithDialog', async (_, content: string) => {
+  const { canceled, filePath } = await dialog.showSaveDialog({});
+  if (canceled || !filePath) return null;
+  await fs.promises.writeFile(filePath, content, 'utf-8');
+  addRecent(filePath);
+  return filePath;
+});
+
+// Binary IPC handlers
+ipcMain.handle('dialog:openBinaryFile', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openFile']
+  });
+  if (canceled || filePaths.length === 0) return null;
+  const buffer = await fs.promises.readFile(filePaths[0]);
+  addRecent(filePaths[0]);
+  return { buffer: buffer.buffer, filePath: filePaths[0] };
+});
+
+ipcMain.handle('dialog:saveBinaryFileDirect', async (_, filePath: string, buffer: ArrayBuffer) => {
+  await fs.promises.writeFile(filePath, Buffer.from(buffer));
+  addRecent(filePath);
+  return true;
+});
+
+
+ipcMain.handle('dialog:saveBinaryFileWithDialog', async (_, buffer: ArrayBuffer) => {
+  const { canceled, filePath } = await dialog.showSaveDialog({});
+  if (canceled || !filePath) return null;
+  await fs.promises.writeFile(filePath, Buffer.from(buffer));
+  addRecent(filePath);
+  return filePath;
 });

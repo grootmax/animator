@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
@@ -30,6 +30,14 @@ declare global {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
       exportSvg: (content: string) => Promise<boolean>;
+      openFileWithMetadata: () => Promise<{content: string, filePath: string} | null>;
+      saveFileDirect: (filePath: string, content: string) => Promise<boolean>;
+      saveFileWithDialog: (content: string) => Promise<string | null>;
+      openBinaryFile: () => Promise<{buffer: ArrayBuffer, filePath: string} | null>;
+      saveBinaryFileDirect: (filePath: string, buffer: ArrayBuffer) => Promise<boolean>;
+      saveBinaryFileWithDialog: (buffer: ArrayBuffer) => Promise<string | null>;
+      getRecentFiles: () => Promise<string[]>;
+      addRecentFile: (filePath: string) => Promise<string[]>;
     }
   }
 }
@@ -42,15 +50,13 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [showSaveProgress, setShowSaveProgress] = useState(false);
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
 
   useEffect(() => {
     if (canvasRef.current) {
-      // Initialize renderer
       const bridge = new PixiBridge(canvasRef.current, store);
-      // We keep bridge instance alive
       (window as any).__bridge = bridge;
 
-      // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
         setStoreVersion(state.version);
@@ -85,10 +91,11 @@ function App() {
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
+      const result = await window.electronAPI.openFileWithMetadata();
+      if (result) {
+        setActiveFilePath(result.filePath);
         const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
+        const nodes = parser.parse(result.content);
         if (nodes.length > 0) {
           store.getState().commitHistory();
           nodes.forEach(node => store.getState().addNode(node));
@@ -99,14 +106,14 @@ function App() {
     }
   };
 
-  const handleSaveState = async () => {
+<<<<<<< HEAD
+  const handleSaveState = useCallback(async () => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
       const nodeKeys = Object.keys(state);
       const totalNodes = nodeKeys.length;
       
       const cleanScene: Record<string, any> = {};
-      
       let currentIndex = 0;
       
       const showProgressTimeout = setTimeout(() => {
@@ -161,7 +168,26 @@ function App() {
           }
         };
 
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+        const content = JSON.stringify(exportData, null, 2);
+        const size = new Blob([content]).size;
+        const IS_LARGE = size > 5 * 1024 * 1024; // 5MB
+
+        if (IS_LARGE) {
+          const buffer = new TextEncoder().encode(content).buffer;
+          if (activeFilePath) {
+            await window.electronAPI!.saveBinaryFileDirect(activeFilePath, buffer);
+          } else {
+            const newPath = await window.electronAPI!.saveBinaryFileWithDialog(buffer);
+            if (newPath) setActiveFilePath(newPath);
+          }
+        } else {
+          if (activeFilePath) {
+            await window.electronAPI!.saveFileDirect(activeFilePath, content);
+          } else {
+            const newPath = await window.electronAPI!.saveFileWithDialog(content);
+            if (newPath) setActiveFilePath(newPath);
+          }
+        }
       };
       
       if ('requestIdleCallback' in window) {
@@ -172,7 +198,18 @@ function App() {
     } else {
       alert("Electron API not available");
     }
-  };
+  }, [activeFilePath]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        handleSaveState();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleSaveState]);
 
   const handleExportSvg = async () => {
     if (window.electronAPI) {
@@ -244,39 +281,63 @@ function App() {
     }
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      if (file.type === 'image/png' || file.type === 'image/jpeg') {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const base64Src = ev.target?.result as string;
-          const img = new Image();
-          img.onload = () => {
-            const state = store.getState();
-            state.addNode({
-              id: `image_${Date.now()}`,
-              type: 'image',
-              src: base64Src,
-              x: e.clientX,
-              y: e.clientY,
-              width: img.width,
-              height: img.height,
-              parentId: null
-            });
-            state.recalculateMatrices();
+  useEffect(() => {
+    const handleDrop = async (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0];
+        const filePath = (file as any).path;
+        if (filePath && window.electronAPI) {
+          const assetUrl = `asset://${encodeURIComponent(filePath)}`;
+          
+          store.getState().addNode({
+            id: `image_${Date.now()}`,
+            type: 'image',
+            parentId: null,
+            x: window.innerWidth / 2,
+            y: window.innerHeight / 2,
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+            width: 200,
+            height: 200,
+            src: assetUrl
+          });
+          store.getState().recalculateMatrices();
+        } else if (file.type === 'image/png' || file.type === 'image/jpeg') {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const base64Src = ev.target?.result as string;
+            const img = new Image();
+            img.onload = () => {
+              const state = store.getState();
+              state.addNode({
+                id: `image_${Date.now()}`,
+                type: 'image',
+                src: base64Src,
+                x: e.clientX,
+                y: e.clientY,
+                width: img.width,
+                height: img.height,
+                parentId: null
+              });
+              state.recalculateMatrices();
+            };
+            img.src = base64Src;
           };
-          img.src = base64Src;
-        };
-        reader.readAsDataURL(file);
+          reader.readAsDataURL(file);
+        }
       }
-    }
-  };
+    };
+    const handleDragOver = (e: DragEvent) => e.preventDefault();
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-  };
+    window.addEventListener('drop', handleDrop);
+    window.addEventListener('dragover', handleDragOver);
+    return () => {
+      window.removeEventListener('drop', handleDrop);
+      window.removeEventListener('dragover', handleDragOver);
+    };
+  }, []);
 
   return (
     <DndProvider backend={HTML5Backend}>
@@ -298,17 +359,19 @@ function App() {
 
           <div 
             className="flex-1 relative bg-[#1a1a1a]"
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
           >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
-            {/* Overlay a subtle test animation button for quick testing */}
             <button
                className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
                onClick={handleTestAnimation}
             >
               Add Test Anim
             </button>
+            {activeFilePath && (
+              <div className="absolute top-4 left-4 text-xs text-gray-400">
+                Active: {activeFilePath}
+              </div>
+            )}
           </div>
         </div>
 

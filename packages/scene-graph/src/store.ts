@@ -35,6 +35,7 @@ export interface SceneNode {
   y2?: number;
   points?: string;
   src?: string;
+  assetId?: string;
 
   // Internal state
   localMatrix: Matrix3;
