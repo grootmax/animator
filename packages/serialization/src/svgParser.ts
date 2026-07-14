@@ -5,7 +5,7 @@ let idCounter = 0;
 const generateId = () => `node_${idCounter++}`;
 
 export class SvgParser {
-  public parse(svgString: string): SceneNode[] {
+  public parse(svgString: string): Array<Partial<SceneNode> & Record<string, any>> {
     const parser = new DOMParser();
     const doc = parser.parseFromString(svgString, 'image/svg+xml');
 
@@ -14,7 +14,7 @@ export class SvgParser {
     }
 
     const svgElement = doc.documentElement;
-    const rootNodes: SceneNode[] = [];
+    const rootNodes: Array<Partial<SceneNode> & Record<string, any>> = [];
 
     Array.from(svgElement.children).forEach(child => {
       this.processElement(child, null, rootNodes, createMatrix());
@@ -44,7 +44,7 @@ export class SvgParser {
           c, d, 0,
           e, f, 1
         ];
-        matrix = multiplyMatrix(matrix, localMatrix);
+        matrix = multiplyMatrix(matrix, matrix, localMatrix);
       } else if (type === 'translate' && args.length >= 1) {
         const tx = args[0];
         const ty = args.length > 1 ? args[1] : 0;
@@ -53,7 +53,7 @@ export class SvgParser {
           0, 1, 0,
           tx, ty, 1
         ];
-        matrix = multiplyMatrix(matrix, translateMatrix);
+        matrix = multiplyMatrix(matrix, matrix, translateMatrix);
       } else if (type === 'scale' && args.length >= 1) {
         const sx = args[0];
         const sy = args.length > 1 ? args[1] : sx;
@@ -62,7 +62,7 @@ export class SvgParser {
           0, sy, 0,
           0, 0, 1
         ];
-        matrix = multiplyMatrix(matrix, scaleMatrix);
+        matrix = multiplyMatrix(matrix, matrix, scaleMatrix);
       } else if (type === 'rotate' && args.length >= 1) {
         const angle = args[0] * Math.PI / 180;
         const cx = args.length === 3 ? args[1] : 0;
@@ -75,9 +75,10 @@ export class SvgParser {
         if (cx !== 0 || cy !== 0) {
           const tToCenter: Matrix3 = [1, 0, 0, 0, 1, 0, cx, cy, 1];
           const tBack: Matrix3 = [1, 0, 0, 0, 1, 0, -cx, -cy, 1];
-          rotateMatrix = multiplyMatrix(tToCenter, multiplyMatrix(rotateMatrix, tBack));
+          const temp = createMatrix();
+          rotateMatrix = multiplyMatrix(rotateMatrix, tToCenter, multiplyMatrix(temp, rotateMatrix, tBack));
         }
-        matrix = multiplyMatrix(matrix, rotateMatrix);
+        matrix = multiplyMatrix(matrix, matrix, rotateMatrix);
       }
     }
 
@@ -104,7 +105,7 @@ export class SvgParser {
     return { x, y, scaleX, scaleY, rotation, skewX, skewY };
   }
 
-  private processElement(element: Element, parentId: string | null, nodesList: SceneNode[], parentMatrix: Matrix3) {
+  private processElement(element: Element, parentId: string | null, nodesList: Array<Partial<SceneNode> & Record<string, any>>, parentMatrix: Matrix3) {
     const id = element.id || generateId();
     let type: NodeType = 'group';
 
@@ -140,14 +141,14 @@ export class SvgParser {
       xAttr, yAttr, 1
     ];
 
-    const combinedMatrix = multiplyMatrix(localTransformMatrix, baseMatrix);
+    const combinedMatrix = multiplyMatrix(createMatrix(), localTransformMatrix, baseMatrix);
     const { x, y, scaleX, scaleY, rotation, skewX, skewY } = this.extractTransformProperties(combinedMatrix);
 
     const opacityStr = element.getAttribute('opacity');
     const visibilityStr = element.getAttribute('visibility');
     const strokeWidthStr = element.getAttribute('stroke-width');
 
-    const node: Partial<SceneNode> = {
+    const node: Partial<SceneNode> & Record<string, any> = {
       id,
       type,
       parentId,
@@ -185,8 +186,7 @@ export class SvgParser {
       node.pathData = element.getAttribute('d') || '';
     }
 
-    const sceneNode = node as SceneNode;
-    nodesList.push(sceneNode);
+    nodesList.push(node);
 
     Array.from(element.children).forEach(child => {
       this.processElement(child, id, nodesList, combinedMatrix);

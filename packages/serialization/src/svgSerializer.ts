@@ -1,4 +1,4 @@
-import { SceneNode } from '@monorepo/scene-graph';
+import { SceneNode, transientState } from '@monorepo/scene-graph';
 
 export class SvgSerializer {
   public serialize(nodes: Record<string, SceneNode>): string {
@@ -17,18 +17,19 @@ export class SvgSerializer {
 
   private serializeNode(id: string, nodes: Record<string, SceneNode>, indentLevel: number): string {
     const node = nodes[id];
-    if (!node || node.visible === false) return '';
+    const tNode = transientState[id];
+    if (!node || node.visible === false || !tNode) return '';
 
     const indent = '  '.repeat(indentLevel);
     let elementStr = '';
 
     const transforms: string[] = [];
-    if (node.x !== 0 || node.y !== 0) transforms.push(`translate(${node.x}, ${node.y})`);
-    if (node.rotation !== 0) transforms.push(`rotate(${node.rotation * 180 / Math.PI})`);
-    if (node.scaleX !== 1 || node.scaleY !== 1) transforms.push(`scale(${node.scaleX}, ${node.scaleY})`);
+    if (tNode.x !== 0 || tNode.y !== 0) transforms.push(`translate(${tNode.x}, ${tNode.y})`);
+    if (tNode.rotation !== 0) transforms.push(`rotate(${tNode.rotation * 180 / Math.PI})`);
+    if (tNode.scaleX !== 1 || tNode.scaleY !== 1) transforms.push(`scale(${tNode.scaleX}, ${tNode.scaleY})`);
     
     const transformAttr = transforms.length > 0 ? ` transform="${transforms.join(' ')}"` : '';
-    const opacityAttr = node.opacity !== undefined && node.opacity !== 1 ? ` opacity="${node.opacity}"` : '';
+    const opacityAttr = tNode.opacity !== undefined && tNode.opacity !== 1 ? ` opacity="${tNode.opacity}"` : '';
     const fillAttr = node.fill ? ` fill="${node.fill}"` : '';
     const strokeAttr = node.stroke ? ` stroke="${node.stroke}"` : '';
     const strokeWidthAttr = node.strokeWidth !== undefined ? ` stroke-width="${node.strokeWidth}"` : '';

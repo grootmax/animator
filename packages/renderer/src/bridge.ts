@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
+import { SceneNode, createSceneGraphStore, transientState } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
@@ -44,8 +44,22 @@ export class PixiBridge {
     });
 
     this.app.ticker.add(() => {
+        this.syncTransientNodes();
         this.handles.update();
     });
+  }
+
+  private syncTransientNodes() {
+    for (const [id, tNode] of Object.entries(transientState)) {
+      if (tNode.isRenderDirty) {
+        const pixiNode = this.pixiNodes.get(id);
+        if (pixiNode) {
+          pixiNode.alpha = tNode.opacity !== undefined ? tNode.opacity : 1;
+          this.applyMatrix(pixiNode, tNode.localMatrix);
+        }
+        tNode.isRenderDirty = false;
+      }
+    }
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
@@ -130,9 +144,8 @@ export class PixiBridge {
         }
       }
 
-      // Update visibility and opacity
+      // Update visibility
       pixiNode.visible = node.visible !== false;
-      pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
       if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();
@@ -172,8 +185,6 @@ export class PixiBridge {
             pixiNode.endFill();
         }
       }
-
-      this.applyMatrix(pixiNode, node.localMatrix);
     }
   }
 }

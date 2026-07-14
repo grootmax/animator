@@ -3,20 +3,29 @@ import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@mono
 
 export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline';
 
+export interface TransientNodeState {
+  x: number;
+  y: number;
+  rotation: number;
+  scaleX: number;
+  scaleY: number;
+  skewX: number;
+  skewY: number;
+  opacity: number;
+  localMatrix: Matrix3;
+  worldMatrix: Matrix3;
+  isDirty: boolean;
+  isRenderDirty: boolean; // Flag to tell the renderer it needs syncing
+}
+
+export const transientState: Record<string, TransientNodeState> = {};
+
 export interface SceneNode {
   id: string;
   name: string;
   type: NodeType;
   parentId: string | null;
   children: string[];
-  x: number;
-  y: number;
-  rotation: number;
-  scaleX: number;
-  scaleY: number;
-  skewX?: number;
-  skewY?: number;
-  opacity: number;
   visible: boolean;
   locked: boolean;
   width?: number;
@@ -33,46 +42,56 @@ export interface SceneNode {
   x2?: number;
   y2?: number;
   points?: string;
-
-  // Internal state
-  localMatrix: Matrix3;
-  worldMatrix: Matrix3;
-  isDirty: boolean;
 }
 
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
-  addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
-  updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  addNode: (node: Partial<SceneNode & Omit<TransientNodeState, 'localMatrix' | 'worldMatrix' | 'isDirty' | 'isRenderDirty'>> & { id: string, type: NodeType }) => void;
+  updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children'>>) => void;
+  updateTransientNode: (id: string, updates: Partial<Omit<TransientNodeState, 'localMatrix' | 'worldMatrix' | 'isDirty' | 'isRenderDirty'>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
 }
 
-const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }): SceneNode => ({
-  parentId: null,
-  children: [],
-  name: node.id,
-  x: 0,
-  y: 0,
-  rotation: 0,
-  scaleX: 1,
-  scaleY: 1,
-  opacity: 1,
-  visible: true,
-  locked: false,
-  ...node,
-  localMatrix: createMatrix(),
-  worldMatrix: createMatrix(),
-  isDirty: true
-});
+const getDefaultNode = (node: Partial<SceneNode & Omit<TransientNodeState, 'localMatrix' | 'worldMatrix' | 'isDirty' | 'isRenderDirty'>> & { id: string, type: NodeType }): SceneNode => {
+  const {
+    x, y, rotation, scaleX, scaleY, skewX, skewY, opacity,
+    ...rest
+  } = node;
+  
+  return {
+    parentId: null,
+    children: [],
+    name: node.id,
+    visible: true,
+    locked: false,
+    ...rest
+  };
+};
 
 export const createSceneGraphStore = () => createStore<SceneGraphState>((set, get) => ({
   nodes: {},
   rootId: null,
 
   addNode: (node) => {
+    // Add to transient state mutably
+    transientState[node.id] = {
+      x: node.x ?? 0,
+      y: node.y ?? 0,
+      rotation: node.rotation ?? 0,
+      scaleX: node.scaleX ?? 1,
+      scaleY: node.scaleY ?? 1,
+      skewX: node.skewX ?? 0,
+      skewY: node.skewY ?? 0,
+      opacity: node.opacity ?? 1,
+      localMatrix: createMatrix(),
+      worldMatrix: createMatrix(),
+      isDirty: true,
+      isRenderDirty: true
+    };
+
     set((state) => {
       const newNode = getDefaultNode(node);
       const newNodes = { ...state.nodes, [node.id]: newNode };
@@ -99,35 +118,37 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       const node = state.nodes[id];
       if (!node) return state;
 
-      // O(1) dirty marking: just mark the current node.
-      // The recalculate step will propagate this to children automatically!
-      const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
-
+      const newNodes = { ...state.nodes, [id]: { ...node, ...updates } };
       return { nodes: newNodes };
     });
   },
 
+  updateTransientNode: (id, updates) => {
+    const tNode = transientState[id];
+    if (tNode) {
+      Object.assign(tNode, updates);
+      tNode.isDirty = true;
+      tNode.isRenderDirty = true;
+    }
+  },
+
   reorderNode: (id, newParentId, index) => {
+    transientState[id].isDirty = true;
+    
     set((state) => {
       const node = state.nodes[id];
       if (!node) return state;
 
       const newNodes = { ...state.nodes };
 
-      // Remove from old parent
       if (node.parentId && newNodes[node.parentId]) {
         const parent = newNodes[node.parentId];
         newNodes[node.parentId] = {
           ...parent,
           children: parent.children.filter(childId => childId !== id)
         };
-      } else if (!node.parentId && id !== state.rootId) {
-          // It was a root child, handle root node if we support multiple roots.
-          // In our setup rootId is one node. Wait, rootId might be a single node.
-          // We can assume scene has a main root container.
       }
 
-      // Add to new parent
       if (newParentId && newNodes[newParentId]) {
         const newParent = newNodes[newParentId];
         const newChildren = [...newParent.children];
@@ -138,65 +159,54 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
         };
       }
 
-      newNodes[id] = { ...node, parentId: newParentId, isDirty: true };
-
+      newNodes[id] = { ...node, parentId: newParentId };
       return { nodes: newNodes };
     });
   },
 
   markDirty: (id) => {
-    set((state) => {
-      const node = state.nodes[id];
-      if (!node) return state;
-
-      // O(1) dirty marking
-      const newNodes = { ...state.nodes, [id]: { ...node, isDirty: true } };
-
-      return { nodes: newNodes };
-    });
+    if (transientState[id]) {
+      transientState[id].isDirty = true;
+      transientState[id].isRenderDirty = true;
+    }
   },
 
   recalculateMatrices: () => {
-    set((state) => {
-      const newNodes = { ...state.nodes };
-      const { rootId } = state;
+    const { nodes, rootId } = get();
+    if (!rootId || !nodes[rootId]) return;
 
-      if (!rootId || !newNodes[rootId]) return state;
+    const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
+      const node = nodes[nodeId];
+      const tNode = transientState[nodeId];
+      if (!node || !tNode) return;
 
-      const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
-        const node = newNodes[nodeId];
-        if (!node) return;
+      const isNowDirty = tNode.isDirty || parentWasDirty;
+      let currentWorldMatrix = parentWorldMatrix;
 
-        const isNowDirty = node.isDirty || parentWasDirty;
-        let currentWorldMatrix = parentWorldMatrix;
-
-        if (isNowDirty) {
-          const localMatrix = getTransformMatrix(
-            node.x, node.y, 
-            node.rotation, 
-            node.scaleX, node.scaleY,
-            node.skewX || 0, node.skewY || 0
+      if (isNowDirty) {
+        if (tNode.isDirty) {
+          getTransformMatrix(
+            tNode.localMatrix,
+            tNode.x, tNode.y, 
+            tNode.rotation, 
+            tNode.scaleX, tNode.scaleY,
+            tNode.skewX, tNode.skewY
           );
-          currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
-
-          newNodes[nodeId] = {
-            ...node,
-            localMatrix,
-            worldMatrix: currentWorldMatrix,
-            isDirty: false
-          };
-        } else {
-            currentWorldMatrix = node.worldMatrix;
         }
+        multiplyMatrix(tNode.worldMatrix, parentWorldMatrix, tNode.localMatrix);
+        currentWorldMatrix = tNode.worldMatrix;
 
-        for (const childId of node.children) {
-          traverse(childId, currentWorldMatrix, isNowDirty);
-        }
-      };
+        tNode.isDirty = false;
+        // Do NOT set isRenderDirty to false here, renderer clears it after sync
+      } else {
+        currentWorldMatrix = tNode.worldMatrix;
+      }
 
-      traverse(rootId, createMatrix(), false);
+      for (const childId of node.children) {
+        traverse(childId, currentWorldMatrix, isNowDirty);
+      }
+    };
 
-      return { nodes: newNodes };
-    });
+    traverse(rootId, createMatrix(), false);
   }
 }));

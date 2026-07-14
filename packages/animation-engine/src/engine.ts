@@ -143,7 +143,7 @@ export class AnimationEngine {
     let requiresMatrixUpdate = false;
 
     for (const [nodeId, nodeUpdates] of updates.entries()) {
-      storeState.updateNode(nodeId, nodeUpdates);
+      storeState.updateTransientNode(nodeId, nodeUpdates);
       requiresMatrixUpdate = true;
     }
 
