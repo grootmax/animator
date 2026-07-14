@@ -124,9 +124,22 @@ export class PixiBridge {
   }
 
   private syncNodes(nodes: Record<string, SceneNode>) {
+    const hasAnyChanged = Object.values(nodes).some(n => n.isChanged);
+    if (!hasAnyChanged) {
+      return;
+    }
+
     const usedPaths = new Set<string>();
 
     for (const [id, node] of Object.entries(nodes)) {
+      if (node.type === 'path' && node.pathData) {
+        usedPaths.add(node.pathData);
+      }
+
+      if (!node.isChanged) {
+        continue;
+      }
+
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
@@ -158,9 +171,7 @@ export class PixiBridge {
           this.viewport.container.addChild(pixiNode);
         }
       } else {
-        const expectedParent = node.parentId && this.pixiNodes.has(node.parentId) 
-          ? this.pixiNodes.get(node.parentId)! 
-          : this.viewport.container;
+        const expectedParent = (node.parentId && this.pixiNodes.get(node.parentId)) || this.viewport.container;
         if (pixiNode.parent !== expectedParent) {
           expectedParent.addChild(pixiNode);
         }
@@ -209,7 +220,6 @@ export class PixiBridge {
             }
           }
         } else if (node.type === 'path' && node.pathData) {
-          usedPaths.add(node.pathData);
           this.drawPath(pixiNode, node.pathData);
         }
 
@@ -257,5 +267,7 @@ export class PixiBridge {
         this.pathCache.delete(path);
       }
     }
+
+    this.store.getState().resetChangeFlags();
   }
 }
