@@ -10,6 +10,7 @@ import { Timeline } from './components/Timeline';
 import { DndProvider } from 'react-dnd';
 // @ts-ignore
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import { createAssetRegistryStore } from './store/assets';
 
 // Create singletons for the app
 const channel = new BroadcastChannel('scene-graph-sync');
@@ -22,6 +23,7 @@ channel.onmessage = (event) => {
   }
 };
 const engine = new AnimationEngine(store);
+const assetStore = createAssetRegistryStore();
 
 // Extend Window interface for Electron IPC
 declare global {
@@ -30,6 +32,9 @@ declare global {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
       exportSvg: (content: string) => Promise<boolean>;
+      openImage: () => Promise<any>;
+      saveProjectBundle: (content: string, assets: any[]) => Promise<boolean>;
+      openProjectBundle: () => Promise<{ sceneJson: string, assets: any[] } | null>;
     }
   }
 }
@@ -46,14 +51,20 @@ function App() {
   useEffect(() => {
     if (canvasRef.current) {
       // Initialize renderer
-      const bridge = new PixiBridge(canvasRef.current, store);
+      const bridge = new PixiBridge(canvasRef.current, store, assetStore);
       // We keep bridge instance alive
       (window as any).__bridge = bridge;
 
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
-        setStoreVersion(state.version);
+        setStoreVersion((state as any).version || 0);
+        
+        // Update asset usage
+        const usedAssets = Object.values(state.nodes)
+          .map(node => node.assetId)
+          .filter((id): id is string => !!id);
+        assetStore.getState().cleanupUnusedAssets(usedAssets);
       });
 
       return () => unsubscribe();
@@ -82,6 +93,105 @@ function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  const handleImportImage = async () => {
+    if (window.electronAPI) {
+      const assetData = await window.electronAPI.openImage();
+      if (assetData) {
+        const id = assetStore.getState().addAsset({
+          name: assetData.name,
+          mimeType: assetData.mimeType,
+          extension: assetData.extension,
+          data: assetData.data
+        });
+        
+        // Also add an image node to the scene
+        const imageId = `image_${Date.now()}`;
+        store.getState().addNode({
+          id: imageId,
+          type: 'image',
+          parentId: null,
+          children: [],
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          width: 200,
+          height: 200,
+          assetId: id
+        });
+        store.getState().recalculateMatrices();
+      }
+    } else {
+      alert("Electron API not available");
+    }
+  };
+
+  const handleOpenBundle = async () => {
+    if (window.electronAPI) {
+      const bundleData = await window.electronAPI.openProjectBundle();
+      if (bundleData) {
+        assetStore.getState().clear();
+        
+        for (const asset of bundleData.assets) {
+          assetStore.getState().addAsset({
+            name: asset.name,
+            mimeType: asset.mimeType,
+            extension: asset.extension,
+            data: asset.data
+          }, asset.id);
+        }
+        
+        try {
+          const exportData = JSON.parse(bundleData.sceneJson);
+          if (exportData.scene) {
+            // Load scene
+            const newNodes = exportData.scene;
+            Object.values(newNodes).forEach((node: any) => store.getState().addNode(node));
+          }
+        } catch (e) {
+          console.error("Failed to parse scene JSON", e);
+        }
+      }
+    } else {
+      alert("Electron API not available");
+    }
+  };
+
+  const handleSaveBundle = async () => {
+    if (window.electronAPI) {
+      const state = store.getState().nodes;
+
+      const cleanScene: Record<string, any> = {};
+      for (const [id, node] of Object.entries(state)) {
+        const cleanNode = { ...node };
+        delete (cleanNode as any).localMatrix;
+        delete (cleanNode as any).worldMatrix;
+        delete (cleanNode as any).isDirty;
+        cleanScene[id] = cleanNode;
+      }
+
+      const exportData = {
+        scene: cleanScene,
+        animations: engine.getTracks(),
+        metadata: {
+          version: "1.0.0",
+          duration: engine.getDuration()
+        }
+      };
+      
+      const assets = Object.values(assetStore.getState().assets).map(a => ({
+        id: a.id,
+        data: a.data,
+        extension: a.extension
+      }));
+
+      await window.electronAPI.saveProjectBundle(JSON.stringify(exportData, null, 2), assets);
+    } else {
+      alert("Electron API not available");
+    }
+  };
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
@@ -291,6 +401,9 @@ function App() {
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
+          onOpenBundle={handleOpenBundle}
+          onSaveBundle={handleSaveBundle}
+          onImportImage={handleImportImage}
         />
 
         <div className="flex flex-1 overflow-hidden">

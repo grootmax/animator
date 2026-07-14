@@ -10,10 +10,12 @@ export class PixiBridge {
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
+  private assetStore: any;
+  private textureCache: Map<string, PIXI.Texture> = new Map();
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>, assetStore?: any) {
     this.app = new PIXI.Application({
       view: canvas,
       resizeTo: window,
@@ -26,6 +28,7 @@ export class PixiBridge {
 
     this.viewport = new Viewport(this.app, store);
     this.handles = new TransformHandles(store, this.viewport);
+    this.assetStore = assetStore;
 
     this.remoteSelectionsContainer = new PIXI.Container();
     this.remoteSelectionsContainer.zIndex = 999;
@@ -55,6 +58,12 @@ export class PixiBridge {
         });
       }
     });
+    
+    if (this.assetStore) {
+      this.assetStore.subscribe(() => {
+        this.syncNodes(this.store.getState().nodes);
+      });
+    }
 
     this.app.ticker.add(() => {
         this.handles.update();
@@ -133,10 +142,7 @@ export class PixiBridge {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
         } else if (node.type === 'image') {
-          pixiNode = new PIXI.Container();
-          const sprite = new PIXI.Sprite();
-          sprite.anchor.set(0.5);
-          pixiNode.addChild(sprite);
+          pixiNode = new PIXI.Sprite();
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -216,36 +222,48 @@ export class PixiBridge {
         if (node.fill) {
             pixiNode.endFill();
         }
-      } else if (node.type === 'image') {
-        const sprite = (pixiNode as PIXI.Container).children[0] as PIXI.Sprite;
-        
-        if (node.src) {
-           const currentSrc = (sprite as any)._currentSrc;
-           if (currentSrc !== node.src) {
-               (sprite as any)._currentSrc = node.src;
-               const tex = PIXI.Texture.from(node.src);
-               sprite.texture = tex;
-               
-               if (!tex.valid) {
-                   (tex.baseTexture as any).once('loaded', () => {
-                       const n = this.store.getState().nodes[id];
-                       if (n && n.width !== undefined && n.height !== undefined && sprite.texture === tex) {
-                           sprite.width = n.width;
-                           sprite.height = n.height;
-                       }
-                   });
-               }
-           }
+      } else if (pixiNode instanceof PIXI.Sprite && node.type === 'image') {
+        pixiNode.anchor.set(0.5);
+        if (node.assetId && this.assetStore) {
+          const asset = this.assetStore.getState().assets[node.assetId];
+          if (asset) {
+            let texture = this.textureCache.get(node.assetId);
+            if (!texture) {
+              texture = PIXI.Texture.from(asset.objectUrl);
+              this.textureCache.set(node.assetId, texture);
+            }
+            pixiNode.texture = texture;
+            if (node.width) pixiNode.width = node.width;
+            if (node.height) pixiNode.height = node.height;
+          } else {
+            pixiNode.texture = PIXI.Texture.EMPTY;
+          }
+        } else if (node.src) {
+          const currentSrc = (pixiNode as any)._currentSrc;
+          if (currentSrc !== node.src) {
+            (pixiNode as any)._currentSrc = node.src;
+            const tex = PIXI.Texture.from(node.src);
+            pixiNode.texture = tex;
+            if (!tex.valid) {
+              (tex.baseTexture as any).once('loaded', () => {
+                const n = this.store.getState().nodes[id];
+                if (n && n.width !== undefined && n.height !== undefined && pixiNode.texture === tex) {
+                  pixiNode.width = n.width;
+                  pixiNode.height = n.height;
+                }
+              });
+            }
+          }
+          if (node.width !== undefined && node.height !== undefined && pixiNode.texture.valid) {
+            pixiNode.width = node.width;
+            pixiNode.height = node.height;
+          } else if (node.width === undefined || node.height === undefined) {
+            pixiNode.scale.set(1);
+          }
         } else {
-           sprite.texture = PIXI.Texture.EMPTY;
-           (sprite as any)._currentSrc = undefined;
+          pixiNode.texture = PIXI.Texture.EMPTY;
+          (pixiNode as any)._currentSrc = undefined;
         }
-
-        if (node.width !== undefined && node.height !== undefined && sprite.texture.valid) {
-           sprite.width = node.width;
-           sprite.height = node.height;
-        } else if (node.width === undefined || node.height === undefined) {
-           sprite.scale.set(1);
         }
       }
 

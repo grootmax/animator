@@ -37,6 +37,7 @@
     "react-dnd": "^16.0.1",
     "react-dnd-html5-backend": "^16.0.1",
     "react-dom": "^18.2.0",
+    "uuid": "^14.0.1",
     "zod": "^4.4.3",
     "zustand": "^4.4.1"
   },
@@ -44,6 +45,7 @@
     "@types/node": "^18.19.130",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
+    "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^4.0.3",
     "autoprefixer": "^10.4.15",
     "electron": "^25.3.0",
