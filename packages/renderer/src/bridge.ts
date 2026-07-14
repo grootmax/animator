@@ -2,7 +2,6 @@ import * as PIXI from 'pixi.js';
 import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
-import { Matrix3 } from '@monorepo/math';
 import { tokenizePath, PathToken } from '@monorepo/serialization';
 
 export class PixiBridge {
@@ -12,26 +11,27 @@ export class PixiBridge {
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
+  private pixiNodesByOffset: (PIXI.Container | undefined)[] = [];
+  private remoteSelectionsContainer: PIXI.Container;
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
       view: canvas,
-      resizeTo: window,
+      resizeTo: typeof window !== 'undefined' ? window : undefined,
       backgroundColor: 0x1a1a1a,
-      resolution: window.devicePixelRatio || 1,
+      resolution: typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1,
       autoDensity: true,
     });
 
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app, store);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id) => this.pixiNodes.get(id));
 
     this.remoteSelectionsContainer = new PIXI.Container();
     this.remoteSelectionsContainer.zIndex = 999;
     this.viewport.container.addChild(this.remoteSelectionsContainer);
 
-    // Add handles directly to the viewport so they pan and zoom with the nodes!
     this.viewport.container.addChild(this.handles.container);
 
     this.store = store;
@@ -57,17 +57,28 @@ export class PixiBridge {
     });
 
     this.app.ticker.add(() => {
+        const state = this.store.getState();
+        const buffer = state.nodeBuffer.buffer;
+        const count = state.nodeBuffer.nodeCount;
+        const NODE_STRIDE = 27; // Defined in buffer.ts
+        const OFFSET_LOCAL_MATRIX = 8;
+        const OFFSET_OPACITY = 7;
+
+        for (let i = 0; i < count; i++) {
+          const pixiNode = this.pixiNodesByOffset[i];
+          if (pixiNode) {
+            const offset = i * NODE_STRIDE;
+            this.applyMatrixFromBuffer(pixiNode, buffer, offset + OFFSET_LOCAL_MATRIX);
+            pixiNode.alpha = buffer[offset + OFFSET_OPACITY];
+          }
+        }
+
         this.handles.update();
     });
   }
 
-  private getMaterialHash(node: SceneNode): string {
-    if (node.type === 'container' || node.type === 'group') return 'container';
-    return `${node.fill || 'none'}_${node.stroke || 'none'}_${node.strokeWidth || 0}`;
-  }
-
-  private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
-    const a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4], tx = matrix[6], ty = matrix[7];
+  private applyMatrixFromBuffer(displayObject: PIXI.Container, buffer: Float32Array, offset: number) {
+    const a = buffer[offset], b = buffer[offset + 1], c = buffer[offset + 3], d = buffer[offset + 4], tx = buffer[offset + 6], ty = buffer[offset + 7];
     
     const scaleX = Math.sqrt(a * a + b * b);
     const rotation = Math.atan2(b, a);
@@ -151,6 +162,8 @@ export class PixiBridge {
         });
 
         this.pixiNodes.set(id, pixiNode);
+        const index = Math.floor(node.bufferOffset / 27);
+        this.pixiNodesByOffset[index] = pixiNode;
 
         if (node.parentId && this.pixiNodes.has(node.parentId)) {
           this.pixiNodes.get(node.parentId)!.addChild(pixiNode);
@@ -166,9 +179,7 @@ export class PixiBridge {
         }
       }
 
-      // Update visibility and opacity
       pixiNode.visible = node.visible !== false;
-      pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
       if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();
@@ -248,8 +259,6 @@ export class PixiBridge {
            sprite.scale.set(1);
         }
       }
-
-      this.applyMatrix(pixiNode, node.localMatrix);
     }
 
     for (const path of this.pathCache.keys()) {

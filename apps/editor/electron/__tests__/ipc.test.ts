@@ -5,12 +5,17 @@ vi.mock('electron', () => {
   class MockBrowserWindow {
     loadURL = vi.fn();
     loadFile = vi.fn();
+    webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
     static getAllWindows = vi.fn().mockReturnValue([]);
   }
 
   return {
     app: {
       whenReady: vi.fn().mockResolvedValue(undefined),
+      getAppPath: vi.fn().mockReturnValue('/mock/app/path'),
       on: vi.fn(),
       quit: vi.fn(),
     },

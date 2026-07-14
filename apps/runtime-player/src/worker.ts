@@ -44,9 +44,7 @@ self.onmessage = (e) => {
     case 'load': {
       const { data } = payload;
       if (data.scene) {
-        Object.values(data.scene).forEach(node => {
-          store.getState().addNode(node as any);
-        });
+        store.getState().addNodesBulk(Object.values(data.scene) as any[]);
         store.getState().recalculateMatrices();
       }
       if (data.metadata?.duration) {
