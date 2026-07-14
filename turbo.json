@@ -13,6 +13,9 @@
       "dependsOn": ["build"],
       "outputs": ["release/**"]
     },
-    "test": {}
+    "test": {},
+    "test:e2e": {
+      "dependsOn": ["build"]
+    }
   }
 }
