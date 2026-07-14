@@ -108,6 +108,44 @@ function App() {
     }
   };
 
+  const handleExportSequence = async () => {
+    try {
+      if (!('showDirectoryPicker' in window)) {
+        alert("Your browser does not support the File System Access API required for export.");
+        return;
+      }
+      const dirHandle = await (window as any).showDirectoryPicker();
+      
+      engine.pause();
+      const fps = engine.getFps();
+      const frameDuration = 1000 / fps;
+      const duration = engine.getDuration();
+      const totalFrames = Math.ceil(duration / frameDuration);
+      
+      const bridge = (window as any).__bridge as PixiBridge;
+      if (!bridge) return;
+
+      const storeState = store.getState();
+
+      for (let f = 0; f < totalFrames; f++) {
+        engine.seek(f * frameDuration);
+        storeState.recalculateMatrices();
+        
+        const blob = await bridge.getFrameBlob();
+        if (blob) {
+          const fileName = `frame_${String(f).padStart(4, '0')}.png`;
+          const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+        }
+      }
+      alert("Export complete!");
+    } catch (err) {
+      console.error("Export failed", err);
+    }
+  };
+
   const handleTestAnimation = () => {
     const state = store.getState();
     const nodeIds = Object.keys(state.nodes);
@@ -177,6 +215,7 @@ function App() {
           onImport={handleImportSvg}
           onExport={handleSaveState}
           onExportSvg={handleExportSvg}
+          onExportSequence={handleExportSequence}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
         />

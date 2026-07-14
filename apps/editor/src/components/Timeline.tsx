@@ -11,6 +11,7 @@ interface TimelineProps {
 export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
   const [playhead, setPlayhead] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [fps, setFps] = useState(engine.getFps());
   const duration = engine.getDuration();
   const tracks = engine.getTracks();
   const state = store.getState();
@@ -23,6 +24,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
     const update = () => {
       setPlayhead(engine.getPlayhead());
       setIsPlaying(engine.getIsPlaying());
+      setFps(engine.getFps());
       frame = requestAnimationFrame(update);
     };
     frame = requestAnimationFrame(update);
@@ -85,6 +87,19 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
            <button className="p-1 hover:text-white" onClick={togglePlay}>
               {isPlaying ? <Pause size={16} /> : <Play size={16} />}
            </button>
+           <select 
+             className="bg-gray-800 text-xs border border-gray-600 rounded px-1 py-0.5 ml-2"
+             value={fps}
+             onChange={(e) => {
+               const newFps = Number(e.target.value);
+               engine.setFps(newFps);
+               setFps(newFps);
+             }}
+           >
+             <option value={24}>24 FPS</option>
+             <option value={30}>30 FPS</option>
+             <option value={60}>60 FPS</option>
+           </select>
            <span className="font-mono text-xs ml-auto">{(playhead/1000).toFixed(2)}s</span>
         </div>
         <div className="flex-1 relative cursor-pointer" ref={rulerRef} onPointerDown={handlePointerDown}>

@@ -25,6 +25,14 @@ export class AnimationEngine {
   public loop = true;
   private duration = 5000; // ms
 
+  private currentFrame = 0;
+  private accumulator = 0;
+  private fps = 30;
+
+  public getFps() { return this.fps; }
+  public setFps(fps: number) { this.fps = fps; }
+  public getCurrentFrame() { return this.currentFrame; }
+
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
   public getIsPlaying() { return this.isPlaying; }
@@ -58,7 +66,10 @@ export class AnimationEngine {
   }
 
   public seek(time: number) {
-    this.playhead = time;
+    const frameDuration = 1000 / this.fps;
+    this.currentFrame = Math.round(time / frameDuration);
+    this.playhead = this.currentFrame * frameDuration;
+    this.accumulator = 0;
     this.updateNodes();
   }
 
@@ -69,18 +80,33 @@ export class AnimationEngine {
     const dt = now - this.lastTime;
     this.lastTime = now;
 
-    this.playhead += dt;
+    const frameDuration = 1000 / this.fps;
+    this.accumulator += dt;
+    let frameChanged = false;
 
-    if (this.playhead > this.duration) {
+    while (this.accumulator >= frameDuration) {
+      this.accumulator -= frameDuration;
+      this.currentFrame++;
+      frameChanged = true;
+    }
+
+    const totalFrames = Math.ceil(this.duration / frameDuration);
+
+    if (this.currentFrame >= totalFrames) {
       if (this.loop) {
-        this.playhead = this.playhead % this.duration;
+        this.currentFrame = this.currentFrame % totalFrames;
+        frameChanged = true;
       } else {
-        this.playhead = this.duration;
+        this.currentFrame = totalFrames - 1;
         this.pause();
+        frameChanged = true;
       }
     }
 
-    this.updateNodes();
+    if (frameChanged) {
+      this.playhead = this.currentFrame * frameDuration;
+      this.updateNodes();
+    }
 
     if (this.isPlaying) {
       this.rafId = requestAnimationFrame(this.tick);
