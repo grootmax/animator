@@ -38,19 +38,22 @@ export interface SceneNode {
   localMatrix: Matrix3;
   worldMatrix: Matrix3;
   isDirty: boolean;
+  isChanged: boolean;
 }
 
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
-  addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
-  updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty' | 'isChanged'>> & { id: string, type: NodeType }) => void;
+  updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty' | 'isChanged'>>) => void;
+  updateNodesBatch: (updates: Record<string, Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty' | 'isChanged'>>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
+  resetChangeFlags: () => void;
 }
 
-const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }): SceneNode => ({
+const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty' | 'isChanged'>> & { id: string, type: NodeType }): SceneNode => ({
   parentId: null,
   children: [],
   name: node.id,
@@ -65,7 +68,8 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
   ...node,
   localMatrix: createMatrix(),
   worldMatrix: createMatrix(),
-  isDirty: true
+  isDirty: true,
+  isChanged: true
 });
 
 export const createSceneGraphStore = () => createStore<SceneGraphState>((set, get) => ({
@@ -101,8 +105,31 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
 
       // O(1) dirty marking: just mark the current node.
       // The recalculate step will propagate this to children automatically!
-      const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
+      const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true, isChanged: true } };
 
+      return { nodes: newNodes };
+    });
+  },
+
+  updateNodesBatch: (updates) => {
+    set((state) => {
+      const newNodes = { ...state.nodes };
+      let updated = false;
+
+      for (const [id, nodeUpdates] of Object.entries(updates)) {
+        const node = newNodes[id];
+        if (node) {
+          newNodes[id] = {
+            ...node,
+            ...nodeUpdates,
+            isDirty: true,
+            isChanged: true
+          };
+          updated = true;
+        }
+      }
+
+      if (!updated) return state;
       return { nodes: newNodes };
     });
   },
@@ -138,7 +165,7 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
         };
       }
 
-      newNodes[id] = { ...node, parentId: newParentId, isDirty: true };
+      newNodes[id] = { ...node, parentId: newParentId, isDirty: true, isChanged: true };
 
       return { nodes: newNodes };
     });
@@ -150,7 +177,7 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       if (!node) return state;
 
       // O(1) dirty marking
-      const newNodes = { ...state.nodes, [id]: { ...node, isDirty: true } };
+      const newNodes = { ...state.nodes, [id]: { ...node, isDirty: true, isChanged: true } };
 
       return { nodes: newNodes };
     });
@@ -183,7 +210,8 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
             ...node,
             localMatrix,
             worldMatrix: currentWorldMatrix,
-            isDirty: false
+            isDirty: false,
+            isChanged: true
           };
         } else {
             currentWorldMatrix = node.worldMatrix;
@@ -196,6 +224,22 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
 
       traverse(rootId, createMatrix(), false);
 
+      return { nodes: newNodes };
+    });
+  },
+
+  resetChangeFlags: () => {
+    set((state) => {
+      let newNodes: Record<string, SceneNode> | null = null;
+      for (const [id, node] of Object.entries(state.nodes)) {
+        if (node.isChanged) {
+          if (!newNodes) {
+            newNodes = { ...state.nodes };
+          }
+          newNodes[id] = { ...node, isChanged: false };
+        }
+      }
+      if (!newNodes) return state;
       return { nodes: newNodes };
     });
   }
