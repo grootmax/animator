@@ -80,6 +80,7 @@ function createWindow() {
       preload: path.join(app.getAppPath(), 'dist-electron/preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      webSecurity: false
     },
   });
 
@@ -187,6 +188,18 @@ ipcMain.handle('dialog:openFile', async () => {
   });
   if (canceled) return null;
   return fs.promises.readFile(filePaths[0], 'utf-8');
+});
+
+ipcMain.handle('dialog:pickMediaFile', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [
+      { name: 'Media files', extensions: ['mp4', 'mov', 'png', 'jpg', 'jpeg'] },
+      { name: 'All files', extensions: ['*'] }
+    ]
+  });
+  if (canceled) return null;
+  return `file://${filePaths[0]}`;
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {

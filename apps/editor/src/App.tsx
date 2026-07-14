@@ -28,6 +28,7 @@ declare global {
   interface Window {
     electronAPI?: {
       openFile: () => Promise<string | null>;
+      pickMediaFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
       exportSvg: (content: string) => Promise<boolean>;
     }
@@ -82,6 +83,31 @@ function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  const handleImportMedia = async () => {
+    if (window.electronAPI && window.electronAPI.pickMediaFile) {
+      const mediaUri = await window.electronAPI.pickMediaFile();
+      if (mediaUri) {
+        const isVideo = mediaUri.toLowerCase().endsWith('.mp4') || mediaUri.toLowerCase().endsWith('.mov');
+        store.getState().addNode({
+          id: `media_${Date.now()}`,
+          type: 'media',
+          name: isVideo ? 'Video Asset' : 'Image Asset',
+          src: mediaUri,
+          mediaType: isVideo ? 'video' : 'image',
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+          width: 400,
+          height: 300,
+          playing: true,
+          loop: true
+        });
+        store.getState().recalculateMatrices();
+      }
+    } else {
+      alert("Electron API not available");
+    }
+  };
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
@@ -287,6 +313,7 @@ function App() {
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
           onImport={handleImportSvg}
+          onImportMedia={handleImportMedia}
           onExport={handleSaveState}
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
