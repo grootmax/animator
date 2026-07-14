@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
+import { RuntimePlayer } from '@monorepo/runtime-player';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
@@ -12,6 +12,8 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 // Create singletons for the app
 const store = createSceneGraphStore();
 const engine = new AnimationEngine(store);
+// We use the main thread engine just as a state container for the timeline UI.
+// Playback and rendering will be handled by the worker via RuntimePlayer.
 
 // Extend Window interface for Electron IPC
 declare global {
@@ -31,14 +33,21 @@ function App() {
 
   useEffect(() => {
     if (canvasRef.current) {
-      // Initialize renderer
-      const bridge = new PixiBridge(canvasRef.current, store);
-      // We keep bridge instance alive
-      (window as any).__bridge = bridge;
+      const player = new RuntimePlayer(canvasRef.current);
+      (window as any).__player = player;
 
       // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
+      let lastNodes = {};
+      const unsubscribe = store.subscribe((state: any) => {
         setNodesCount(Object.keys(state.nodes).length);
+        
+        // Very basic sync for edits (in a real app, we'd use fine-grained patches)
+        for (const [id, node] of Object.entries(state.nodes)) {
+          if ((lastNodes as any)[id] !== node) {
+             player.updateNode(id, node as any);
+          }
+        }
+        lastNodes = { ...state.nodes };
       });
 
       return () => unsubscribe();
@@ -48,7 +57,7 @@ function App() {
   useEffect(() => {
     let frame: number;
     const checkPlayState = () => {
-      setIsPlaying(engine.getIsPlaying());
+      // isPlaying state is managed via React state now, but we can poll if needed
       frame = requestAnimationFrame(checkPlayState);
     };
     frame = requestAnimationFrame(checkPlayState);
@@ -61,7 +70,16 @@ function App() {
       if (svgContent) {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+        nodes.forEach((node: any) => store.getState().addNode(node));
+        
+        const player = (window as any).__player;
+        if (player) {
+          player.load({
+            scene: store.getState().nodes,
+            animations: engine.getTracks(),
+            metadata: { duration: engine.getDuration() }
+          });
+        }
       }
     } else {
       alert("Electron API not available");
@@ -75,7 +93,7 @@ function App() {
       // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
       const cleanScene: Record<string, any> = {};
       for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
+        const cleanNode = { ...(node as any) };
         delete (cleanNode as any).localMatrix;
         delete (cleanNode as any).worldMatrix;
         delete (cleanNode as any).isDirty;
@@ -111,19 +129,9 @@ function App() {
   const handleTestAnimation = () => {
     const state = store.getState();
     const nodeIds = Object.keys(state.nodes);
-    if (nodeIds.length > 0) {
-      const testNodeId = nodeIds[0];
-      engine.addTrack({
-        nodeId: testNodeId,
-        property: 'rotation',
-        keyframes: [
-          { time: 0, value: 0, easing: 'linear' },
-          { time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          { time: 4000, value: 0, easing: 'easeInOutQuad' }
-        ]
-      });
-      engine.play();
-    } else {
+    let testNodeId = nodeIds[0];
+
+    if (!testNodeId) {
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
@@ -138,31 +146,70 @@ function App() {
         width: 100,
         height: 100,
         fill: '#ff0000'
-      });
+      } as any);
       state.recalculateMatrices();
+      testNodeId = 'test_rect';
+    }
+    
+    engine.addTrack({
+      nodeId: testNodeId,
+      property: 'rotation',
+      keyframes: [
+        { time: 0, value: 0, easing: 'linear' },
+        { time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+        { time: 4000, value: 0, easing: 'easeInOutQuad' }
+      ]
+    } as any);
+
+    const player = (window as any).__player;
+    if (player) {
+      player.load({
+        scene: store.getState().nodes,
+        animations: engine.getTracks(),
+        metadata: { duration: engine.getDuration() }
+      });
+      player.play();
+      setIsPlaying(true);
     }
   };
 
   const handleTogglePlay = () => {
-    if (engine.getIsPlaying()) engine.pause();
-    else engine.play();
+    const player = (window as any).__player;
+    if (isPlaying) {
+      if (player) player.pause();
+      setIsPlaying(false);
+    } else {
+      if (player) player.play();
+      setIsPlaying(true);
+    }
   };
 
   const handleZoomIn = () => {
-    const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x *= 1.2;
-      bridge.viewport.container.scale.y *= 1.2;
-      bridge.viewport.drawGrid();
+    // Zoom would need to be passed to player or we trigger a synthetic wheel event
+    const player = (window as any).__player;
+    if (player && player.worker) {
+        // Mock a wheel zoom in
+        player.worker.postMessage({
+            type: 'DOM_EVENT',
+            payload: {
+                eventName: 'wheel',
+                eventData: { clientX: window.innerWidth / 2, clientY: window.innerHeight / 2, deltaY: -100 }
+            }
+        });
     }
   };
 
   const handleZoomOut = () => {
-    const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x /= 1.2;
-      bridge.viewport.container.scale.y /= 1.2;
-      bridge.viewport.drawGrid();
+    const player = (window as any).__player;
+    if (player && player.worker) {
+        // Mock a wheel zoom out
+        player.worker.postMessage({
+            type: 'DOM_EVENT',
+            payload: {
+                eventName: 'wheel',
+                eventData: { clientX: window.innerWidth / 2, clientY: window.innerHeight / 2, deltaY: 100 }
+            }
+        });
     }
   };
 

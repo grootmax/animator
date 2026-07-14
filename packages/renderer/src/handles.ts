@@ -38,8 +38,10 @@ export class TransformHandles {
     }
 
     // Add global pointer move/up
-    window.addEventListener('pointermove', this.onDragMove.bind(this));
-    window.addEventListener('pointerup', this.onDragEnd.bind(this));
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pointermove', this.onPointerMove.bind(this));
+      window.addEventListener('pointerup', this.onPointerUp.bind(this));
+    }
   }
 
   public setSelectedNode(id: string | null) {
@@ -114,7 +116,7 @@ export class TransformHandles {
     this.startNodeState = { ...this.store.getState().nodes[this.selectedNodeId] } as SceneNode;
   }
 
-  private onDragMove(e: PointerEvent) {
+  public onPointerMove(e: any) {
     if (!this.isDragging || !this.selectedNodeId || !this.startNodeState) return;
 
     const dx = e.clientX - this.dragStartPos.x;
@@ -141,7 +143,7 @@ export class TransformHandles {
     this.store.getState().recalculateMatrices();
   }
 
-  private onDragEnd() {
+  public onPointerUp(e?: any) {
     this.isDragging = false;
     this.dragType = null;
     this.startNodeState = null;

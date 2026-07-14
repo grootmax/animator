@@ -5,6 +5,14 @@ import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
 import { tokenizePath } from '@monorepo/serialization';
 
+export interface PixiBridgeConfig {
+  canvas: HTMLCanvasElement | OffscreenCanvas | any;
+  width?: number;
+  height?: number;
+  devicePixelRatio?: number;
+  resizeTo?: HTMLElement | Window;
+}
+
 export class PixiBridge {
   private app: PIXI.Application;
   private viewport: Viewport;
@@ -12,12 +20,14 @@ export class PixiBridge {
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(config: PixiBridgeConfig, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
-      view: canvas,
-      resizeTo: window,
+      view: config.canvas as any,
+      resizeTo: config.resizeTo,
+      width: config.width || 800,
+      height: config.height || 600,
       backgroundColor: 0x1a1a1a,
-      resolution: window.devicePixelRatio || 1,
+      resolution: config.devicePixelRatio || 1,
       autoDensity: true,
     });
 
@@ -38,7 +48,7 @@ export class PixiBridge {
       }
     });
 
-    this.store.subscribe((state) => {
+    this.store.subscribe((state: any) => {
       this.syncNodes(state.nodes);
       this.handles.update();
     });
@@ -46,6 +56,43 @@ export class PixiBridge {
     this.app.ticker.add(() => {
         this.handles.update();
     });
+  }
+
+  public resize(width: number, height: number) {
+    this.app.renderer.resize(width, height);
+  }
+
+  public emitEvent(eventName: string, eventData: any) {
+    // Explicitly route common interactions 
+    if (eventName === 'pointerdown') {
+      this.viewport.onPointerDown(eventData);
+    } else if (eventName === 'pointermove') {
+      this.viewport.onPointerMove(eventData);
+      this.handles.onPointerMove(eventData);
+    } else if (eventName === 'pointerup') {
+      this.viewport.onPointerUp();
+      this.handles.onPointerUp();
+    } else if (eventName === 'wheel') {
+      this.viewport.onWheel(eventData);
+    }
+
+    // Also dispatch via PIXI events for node interactions
+    const fakeEvent = {
+        clientX: eventData.clientX,
+        clientY: eventData.clientY,
+        pointerId: 1,
+        type: eventName,
+        button: eventData.button || 0,
+        preventDefault: () => {},
+        stopPropagation: () => {},
+        deltaY: eventData.deltaY,
+        shiftKey: eventData.shiftKey
+    };
+
+    const events = this.app.renderer.events as any;
+    if (eventName === 'pointerdown') events.onPointerDown(fakeEvent);
+    else if (eventName === 'pointermove') events.onPointerMove(fakeEvent);
+    else if (eventName === 'pointerup') events.onPointerUp(fakeEvent);
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
