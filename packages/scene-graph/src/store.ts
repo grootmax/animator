@@ -2,7 +2,7 @@ import { generateKeyBetween } from '@monorepo/math';
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image';
+export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image' | 'media';
 
 export interface SceneNode {
   id: string;
@@ -34,7 +34,10 @@ export interface SceneNode {
   x2?: number;
   y2?: number;
   points?: string;
+  assetId?: string;
+  mediaType?: 'image' | 'video';
   src?: string;
+  currentTime?: number;
 
   // Internal state
   localMatrix: Matrix3;

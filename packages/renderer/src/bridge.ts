@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
+import { SceneNode, createSceneGraphStore, assetProvider } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
@@ -137,6 +137,9 @@ export class PixiBridge {
           const sprite = new PIXI.Sprite();
           sprite.anchor.set(0.5);
           pixiNode.addChild(sprite);
+        } else if (node.type === 'media') {
+          pixiNode = new PIXI.Sprite();
+          (pixiNode as PIXI.Sprite).anchor.set(0.5);
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -246,6 +249,54 @@ export class PixiBridge {
            sprite.height = node.height;
         } else if (node.width === undefined || node.height === undefined) {
            sprite.scale.set(1);
+      } else if (node.type === 'media' && pixiNode instanceof PIXI.Sprite) {
+        if (node.assetId) {
+          const asset = assetProvider.getAsset(node.assetId);
+          const pixiAny = pixiNode as any;
+          if (asset) {
+            if (!pixiNode.texture || pixiAny._assetId !== node.assetId) {
+               const url = typeof asset.data === 'string' ? asset.data : URL.createObjectURL(new Blob([asset.data as any], {type: asset.mimeType}));
+               
+               if (asset.type === 'video') {
+                 const video = document.createElement('video');
+                 video.src = url;
+                 video.muted = true;
+                 video.loop = true;
+                 // Prevent auto-playback of video so it syncs with timeline
+                 video.pause();
+                 pixiNode.texture = PIXI.Texture.from(video);
+                 pixiAny._video = video;
+               } else {
+                 pixiNode.texture = PIXI.Texture.from(url);
+                 pixiAny._video = null;
+               }
+               pixiAny._assetId = node.assetId;
+            }
+            
+            if (asset.type === 'video' && pixiAny._video) {
+               const video = pixiAny._video as HTMLVideoElement;
+               if (node.currentTime !== undefined) {
+                 if (Math.abs(video.currentTime - node.currentTime) > 0.1) {
+                    video.currentTime = node.currentTime;
+                 }
+               }
+               
+               // ensure texture updates
+               if (pixiNode.texture && pixiNode.texture.baseTexture) {
+                 pixiNode.texture.baseTexture.update();
+               }
+            }
+            
+            if (node.width && node.height) {
+              pixiNode.width = node.width;
+              pixiNode.height = node.height;
+            }
+          } else {
+             if (!pixiAny._warnedMissing) {
+                console.warn(`Asset with ID ${node.assetId} is missing from the local environment.`);
+                pixiAny._warnedMissing = true;
+             }
+          }
         }
       }
 

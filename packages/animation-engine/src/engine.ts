@@ -304,12 +304,30 @@ export class AnimationEngine {
     const storeState = this.store.getState();
     let requiresMatrixUpdate = false;
 
-    if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
-      for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
+    // Synchronize media nodes with global clock
+    const nodes = storeState.nodes;
+    for (const [nodeId, node] of Object.entries(nodes)) {
+      if (node.type === 'media' && node.mediaType === 'video') {
+        if (!updates.has(nodeId)) {
+          updates.set(nodeId, {});
+        }
+        // convert ms to seconds for video playback
+        updates.get(nodeId).currentTime = this.playhead / 1000;
       }
-      storeState.updateNodesBatch(batchUpdates);
+    }
+
+    if (updates.size > 0) {
+      if (typeof (storeState as any).updateNodesBatch === 'function') {
+        const batchUpdates: Record<string, any> = {};
+        for (const [nodeId, nodeUpdates] of updates.entries()) {
+          batchUpdates[nodeId] = nodeUpdates;
+        }
+        (storeState as any).updateNodesBatch(batchUpdates);
+      } else {
+        for (const [nodeId, nodeUpdates] of updates.entries()) {
+          storeState.updateNode(nodeId, nodeUpdates);
+        }
+      }
       requiresMatrixUpdate = true;
     }
 
