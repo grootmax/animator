@@ -4,7 +4,8 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/verify-bridge.js",
+    "test": "node scripts/verify-bridge.js",
     "package": "electron-builder build --mac --win --linux"
   },
   "build": {
