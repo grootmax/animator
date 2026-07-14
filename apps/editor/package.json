@@ -27,11 +27,11 @@
     }
   },
   "dependencies": {
-    "@monorepo/telemetry": "*",
     "@monorepo/animation-engine": "*",
     "@monorepo/renderer": "*",
     "@monorepo/scene-graph": "*",
     "@monorepo/serialization": "*",
+    "@monorepo/telemetry": "*",
     "lucide-react": "^0.279.0",
     "react": "^18.2.0",
     "react-dnd": "^16.0.1",
