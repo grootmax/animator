@@ -12,12 +12,13 @@ export class PixiBridge {
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, store: ReturnType<typeof createSceneGraphStore>, isWorker: boolean = false) {
+    const isBrowser = typeof window !== 'undefined';
     this.app = new PIXI.Application({
-      view: canvas,
-      resizeTo: window,
+      view: canvas as any,
+      resizeTo: (!isWorker && isBrowser) ? window : undefined,
       backgroundColor: 0x1a1a1a,
-      resolution: window.devicePixelRatio || 1,
+      resolution: (isBrowser ? window.devicePixelRatio : 1) || 1,
       autoDensity: true,
     });
 
@@ -46,6 +47,10 @@ export class PixiBridge {
     this.app.ticker.add(() => {
         this.handles.update();
     });
+  }
+
+  public destroy() {
+    this.app.destroy(true, { children: true, texture: true, baseTexture: true });
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
