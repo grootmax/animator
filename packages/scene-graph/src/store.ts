@@ -43,11 +43,13 @@ export interface SceneNode {
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
+  modifiedNodes: Set<string>;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
+  clearModifiedNodes: () => void;
 }
 
 const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }): SceneNode => ({
@@ -71,11 +73,14 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
 export const createSceneGraphStore = () => createStore<SceneGraphState>((set, get) => ({
   nodes: {},
   rootId: null,
+  modifiedNodes: new Set<string>(),
 
   addNode: (node) => {
     set((state) => {
       const newNode = getDefaultNode(node);
       const newNodes = { ...state.nodes, [node.id]: newNode };
+      const newModified = new Set(state.modifiedNodes);
+      newModified.add(node.id);
 
       if (node.parentId) {
         const parent = newNodes[node.parentId];
@@ -84,12 +89,14 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
             ...parent,
             children: [...parent.children, node.id]
           };
+          newModified.add(node.parentId);
         }
       }
 
       return {
         nodes: newNodes,
-        rootId: state.rootId || (node.parentId === null ? node.id : state.rootId)
+        rootId: state.rootId || (node.parentId === null ? node.id : state.rootId),
+        modifiedNodes: newModified
       };
     });
   },
@@ -99,11 +106,11 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       const node = state.nodes[id];
       if (!node) return state;
 
-      // O(1) dirty marking: just mark the current node.
-      // The recalculate step will propagate this to children automatically!
       const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
+      const newModified = new Set(state.modifiedNodes);
+      newModified.add(id);
 
-      return { nodes: newNodes };
+      return { nodes: newNodes, modifiedNodes: newModified };
     });
   },
 
@@ -113,21 +120,17 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       if (!node) return state;
 
       const newNodes = { ...state.nodes };
+      const newModified = new Set(state.modifiedNodes);
 
-      // Remove from old parent
       if (node.parentId && newNodes[node.parentId]) {
         const parent = newNodes[node.parentId];
         newNodes[node.parentId] = {
           ...parent,
           children: parent.children.filter(childId => childId !== id)
         };
-      } else if (!node.parentId && id !== state.rootId) {
-          // It was a root child, handle root node if we support multiple roots.
-          // In our setup rootId is one node. Wait, rootId might be a single node.
-          // We can assume scene has a main root container.
+        newModified.add(node.parentId);
       }
 
-      // Add to new parent
       if (newParentId && newNodes[newParentId]) {
         const newParent = newNodes[newParentId];
         const newChildren = [...newParent.children];
@@ -136,11 +139,13 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
           ...newParent,
           children: newChildren
         };
+        newModified.add(newParentId);
       }
 
       newNodes[id] = { ...node, parentId: newParentId, isDirty: true };
+      newModified.add(id);
 
-      return { nodes: newNodes };
+      return { nodes: newNodes, modifiedNodes: newModified };
     });
   },
 
@@ -149,11 +154,15 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       const node = state.nodes[id];
       if (!node) return state;
 
-      // O(1) dirty marking
       const newNodes = { ...state.nodes, [id]: { ...node, isDirty: true } };
-
+      // Not adding to modifiedNodes here because markDirty just recomputes matrix,
+      // it doesn't change serializable properties!
       return { nodes: newNodes };
     });
+  },
+
+  clearModifiedNodes: () => {
+    set({ modifiedNodes: new Set() });
   },
 
   recalculateMatrices: () => {
