@@ -108,6 +108,9 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'image' && node.assetId) {
+          pixiNode = PIXI.Sprite.from('asset:///?path=' + encodeURIComponent(node.assetId));
+          (pixiNode as PIXI.Sprite).anchor.set(0.5);
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -171,6 +174,9 @@ export class PixiBridge {
         if (node.fill) {
             pixiNode.endFill();
         }
+      } else if (pixiNode instanceof PIXI.Sprite) {
+        if (node.width !== undefined) pixiNode.width = node.width;
+        if (node.height !== undefined) pixiNode.height = node.height;
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);
