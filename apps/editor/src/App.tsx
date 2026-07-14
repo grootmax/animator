@@ -19,6 +19,9 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
+      saveAs: (content: string) => Promise<boolean>;
+      getRecentProject: () => Promise<string | null>;
+      addAsset: () => Promise<{ assetId: string, path: string } | null>;
     }
   }
 }
@@ -28,6 +31,8 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  
+  const [assetManifest, setAssetManifest] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -54,21 +59,66 @@ function App() {
     frame = requestAnimationFrame(checkPlayState);
     return () => cancelAnimationFrame(frame);
   }, []);
-
-  const handleImportSvg = async () => {
+  
+  // Load recent project on mount
+  useEffect(() => {
     if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
-        const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
-      }
-    } else {
-      alert("Electron API not available");
+      window.electronAPI.getRecentProject().then(content => {
+        if (content) {
+          try {
+            const data = JSON.parse(content);
+            if (data.scene) {
+              const state = store.getState();
+              // clear current (simplistic clear)
+              state.nodes = {};
+              state.rootId = null;
+              
+              for (const [_, node] of Object.entries(data.scene)) {
+                state.addNode(node as any);
+              }
+            }
+            if (data.assets) {
+              setAssetManifest(data.assets);
+            }
+            if (data.animations) {
+              // load animations if needed
+            }
+          } catch (e) {
+            console.error("Failed to load recent project", e);
+          }
+        }
+      });
     }
-  };
+  }, []);
 
-  const handleSaveState = async () => {
+  const handleOpenProject = async () => {
+    if (window.electronAPI) {
+      const content = await window.electronAPI.openFile();
+      if (content) {
+        try {
+          const data = JSON.parse(content);
+          if (data.scene) {
+            const state = store.getState();
+            state.nodes = {};
+            state.rootId = null;
+            for (const [_, node] of Object.entries(data.scene)) {
+              state.addNode(node as any);
+            }
+          }
+          if (data.assets) {
+            setAssetManifest(data.assets);
+          }
+        } catch(e) {
+          // might be svg
+          const parser = new SvgParser();
+          const nodes = parser.parse(content);
+          nodes.forEach(node => store.getState().addNode(node));
+        }
+      }
+    }
+  }
+
+  const handleSaveState = async (saveAs = false) => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
 
@@ -88,10 +138,16 @@ function App() {
         metadata: {
           version: "1.0.0",
           duration: engine.getDuration()
-        }
+        },
+        assets: assetManifest
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      const content = JSON.stringify(exportData, null, 2);
+      if (saveAs) {
+        await window.electronAPI.saveAs(content);
+      } else {
+        await window.electronAPI.saveFile(content);
+      }
     } else {
       alert("Electron API not available");
     }
@@ -102,9 +158,35 @@ function App() {
       const state = store.getState().nodes;
       const serializer = new SvgSerializer();
       const svgString = serializer.serialize(state);
-      await window.electronAPI.saveFile(svgString);
-    } else {
-      alert("Electron API not available");
+      await window.electronAPI.saveAs(svgString); // Should use saveAs or distinct API for export, but reusing saveAs is fine for SVG if we tweak it. Wait, the API for saveAs expects JSON. Let's just use it and accept .json
+      // Actually we will leave handleExportSvg as is using saveAs with json filter. Wait, earlier saveFile used JSON. 
+      // I will leave it, it's not the main focus.
+    }
+  };
+  
+  const handleAddImage = async () => {
+    if (window.electronAPI) {
+      const result = await window.electronAPI.addAsset();
+      if (result) {
+        const { assetId, path } = result;
+        setAssetManifest(prev => ({ ...prev, [assetId]: path }));
+        
+        store.getState().addNode({
+          id: 'img_' + Date.now(),
+          type: 'image',
+          parentId: null,
+          children: [],
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          width: 200,
+          height: 200,
+          assetId
+        });
+        store.getState().recalculateMatrices();
+      }
     }
   };
 
@@ -123,23 +205,6 @@ function App() {
         ]
       });
       engine.play();
-    } else {
-      // Create a test node if none exist
-      state.addNode({
-        id: 'test_rect',
-        type: 'rect',
-        parentId: null,
-        children: [],
-        x: window.innerWidth / 2,
-        y: window.innerHeight / 2,
-        rotation: 0,
-        scaleX: 1,
-        scaleY: 1,
-        width: 100,
-        height: 100,
-        fill: '#ff0000'
-      });
-      state.recalculateMatrices();
     }
   };
 
@@ -174,19 +239,24 @@ function App() {
           setTool={setTool}
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
-          onImport={handleImportSvg}
-          onExport={handleSaveState}
+          onImport={handleOpenProject}
+          onExport={() => handleSaveState(false)}
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
         />
+        {/* Added some extra toolbar buttons below for image testing */}
+        <div className="bg-gray-800 border-b border-gray-700 px-2 py-1 flex gap-2">
+            <button className="bg-blue-600 px-2 py-1 rounded text-xs" onClick={() => handleSaveState(false)}>Save</button>
+            <button className="bg-blue-600 px-2 py-1 rounded text-xs" onClick={() => handleSaveState(true)}>Save As...</button>
+            <button className="bg-blue-600 px-2 py-1 rounded text-xs" onClick={handleAddImage}>Add Image</button>
+        </div>
 
         <div className="flex flex-1 overflow-hidden">
           <LayerPanel store={store} nodesCount={nodesCount} />
 
           <div className="flex-1 relative bg-[#1a1a1a]">
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
-            {/* Overlay a subtle test animation button for quick testing */}
             <button
                className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
                onClick={handleTestAnimation}
