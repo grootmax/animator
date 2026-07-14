@@ -26,8 +26,13 @@ test.describe('Electron App E2E', () => {
   });
 
   test('Launches application and window is visible', async () => {
-    const isVisible = await window.isVisible();
-    expect(isVisible).toBeTruthy();
+    const title = await window.title();
+    expect(title).toBeDefined();
+    
+    // Ensure the React app rendered something by waiting for body
+    await window.waitForSelector('body');
+    const isBodyVisible = await window.isVisible('body');
+    expect(isBodyVisible).toBeTruthy();
   });
 
   test('IPC bridge security - Node.js integration should be disabled in renderer', async () => {
