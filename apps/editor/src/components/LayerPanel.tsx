@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-import { Eye, EyeOff, Lock, Unlock, ChevronRight, ChevronDown } from 'lucide-react';
-// @ts-ignore
+import { Eye, EyeOff, Lock, Unlock, ChevronRight, ChevronDown, Trash2 } from 'lucide-react';
 import { useDrag, useDrop } from 'react-dnd';
 
 interface LayerPanelProps {
@@ -33,19 +32,21 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
 
     const toggleVisible = (e: React.MouseEvent) => {
       e.stopPropagation();
-      store.getState().commitHistory();
       store.getState().updateNode(id, { visible: !node.visible });
     };
 
     const toggleLock = (e: React.MouseEvent) => {
       e.stopPropagation();
-      store.getState().commitHistory();
       store.getState().updateNode(id, { locked: !node.locked });
+    };
+
+    const handleDelete = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      store.getState().deleteNode(id);
     };
 
     const handleRename = () => {
       if (editName.trim() && editName !== node.name) {
-        store.getState().commitHistory();
         store.getState().updateNode(id, { name: editName });
       }
       setIsEditing(false);
@@ -68,19 +69,13 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
         const dragId = item.id;
         const dropId = id;
         if (dragId === dropId) return;
-
-        // basic drop logic to reorder / reparent - for now we just handle drop
       },
       drop(item: DragItem) {
          if (item.id === id) return;
-         // move item.id into 'id' group, or reorder.
-         // For a simple implementation, let's just make it a child of the drop target if it's a group
-         // or place it after the drop target
          const dragNode = store.getState().nodes[item.id];
          const dropNode = store.getState().nodes[id];
          if (!dragNode || !dropNode) return;
 
-         // Check if dropNode is a child of dragNode (prevent cycles)
          let curr = dropNode.parentId;
          while (curr) {
             if (curr === item.id) return;
@@ -95,7 +90,6 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
              siblingsNodes.sort((a,b) => (a.order || '').localeCompare(b.order || ''));
              const siblings = siblingsNodes.map(n => n.id);
              const dropIndex = siblings.indexOf(id);
-             store.getState().commitHistory();
              store.getState().reorderNode(item.id, parentId, dropIndex + 1);
          }
       }
@@ -135,6 +129,9 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
             </button>
             <button onClick={toggleVisible} className="p-1 hover:text-white" title={node.visible ? "Hide" : "Show"}>
               {node.visible ? <Eye size={14} /> : <EyeOff size={14} />}
+            </button>
+            <button onClick={handleDelete} className="p-1 hover:text-red-400 text-gray-400" title="Delete">
+              <Trash2 size={14} />
             </button>
           </div>
 
