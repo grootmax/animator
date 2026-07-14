@@ -18,6 +18,7 @@ declare global {
   interface Window {
     electronAPI?: {
       openFile: () => Promise<string | null>;
+      openImageFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
     }
   }
@@ -62,6 +63,32 @@ function App() {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
         nodes.forEach(node => store.getState().addNode(node));
+      }
+    } else {
+      alert("Electron API not available");
+    }
+  };
+
+  const handleImportImage = async () => {
+    if (window.electronAPI) {
+      const imagePath = await window.electronAPI.openImageFile();
+      if (imagePath) {
+        store.getState().addNode({
+          id: `image_${Date.now()}`,
+          type: 'image',
+          parentId: null,
+          children: [],
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          opacity: 1,
+          visible: true,
+          locked: false,
+          src: imagePath,
+        });
+        store.getState().recalculateMatrices();
       }
     } else {
       alert("Electron API not available");
@@ -175,6 +202,7 @@ function App() {
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
           onImport={handleImportSvg}
+          onImportImage={handleImportImage}
           onExport={handleSaveState}
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
