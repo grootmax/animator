@@ -25,6 +25,9 @@ export class AnimationEngine {
   public loop = true;
   private duration = 5000; // ms
 
+  // Reuse updates map and objects to avoid GC
+  private cachedUpdates: Map<string, Record<string, number>> = new Map();
+
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
   public getIsPlaying() { return this.isPlaying; }
@@ -118,9 +121,16 @@ export class AnimationEngine {
   }
 
   private updateNodes() {
-    const updates = new Map<string, any>();
+    // Clear the map but reuse objects
+    for (const [_, obj] of this.cachedUpdates) {
+      for (const k in obj) {
+        delete obj[k];
+      }
+    }
 
-    for (const track of this.tracks) {
+    let trackCount = this.tracks.length;
+    for (let i = 0; i < trackCount; i++) {
+      const track = this.tracks[i];
       const [start, end] = this.binarySearchKeyframes(track.keyframes, this.playhead);
 
       if (!start || !end) continue;
@@ -133,18 +143,23 @@ export class AnimationEngine {
         value = start.value + (end.value - start.value) * easedProgress;
       }
 
-      if (!updates.has(track.nodeId)) {
-        updates.set(track.nodeId, {});
+      let updatesObj = this.cachedUpdates.get(track.nodeId);
+      if (!updatesObj) {
+        updatesObj = {};
+        this.cachedUpdates.set(track.nodeId, updatesObj);
       }
-      updates.get(track.nodeId)[track.property] = value;
+      updatesObj[track.property] = value;
     }
 
     const storeState = this.store.getState();
     let requiresMatrixUpdate = false;
 
-    for (const [nodeId, nodeUpdates] of updates.entries()) {
-      storeState.updateNode(nodeId, nodeUpdates);
-      requiresMatrixUpdate = true;
+    // Use for-of on map to avoid generating iterator arrays
+    for (const [nodeId, nodeUpdates] of this.cachedUpdates.entries()) {
+      if (Object.keys(nodeUpdates).length > 0) {
+        storeState.updateNode(nodeId, nodeUpdates);
+        requiresMatrixUpdate = true;
+      }
     }
 
     if (requiresMatrixUpdate) {

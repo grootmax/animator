@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
+import { SceneNode, createSceneGraphStore, f32, i32, STRIDE, OFF_LM_START, OFF_FLAGS, OFF_OPACITY } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
@@ -7,7 +7,7 @@ import { tokenizePath } from '@monorepo/serialization';
 
 export class PixiBridge {
   private app: PIXI.Application;
-  private viewport: Viewport;
+  public viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
@@ -26,7 +26,6 @@ export class PixiBridge {
     this.viewport = new Viewport(this.app);
     this.handles = new TransformHandles(store, this.viewport);
 
-    // Add handles directly to the viewport so they pan and zoom with the nodes!
     this.viewport.container.addChild(this.handles.container);
 
     this.store = store;
@@ -39,36 +38,55 @@ export class PixiBridge {
     });
 
     this.store.subscribe((state) => {
+      // Full sync for structure/shapes
       this.syncNodes(state.nodes);
-      this.handles.update();
     });
 
+    // Pull-based synchronization
     this.app.ticker.add(() => {
+        const state = this.store.getState();
+        for (const [id, node] of Object.entries(state.nodes)) {
+          const pixiNode = this.pixiNodes.get(id);
+          if (pixiNode) {
+            const idxOffset = node.bufferIndex * STRIDE;
+            
+            // Extract from flat buffer
+            const flags = i32[idxOffset + OFF_FLAGS];
+            pixiNode.visible = (flags & 2) !== 0;
+            pixiNode.alpha = f32[idxOffset + OFF_OPACITY];
+
+            // Apply matrix
+            const a = f32[idxOffset + OFF_LM_START + 0];
+            const b = f32[idxOffset + OFF_LM_START + 1];
+            // skipped 2
+            const c = f32[idxOffset + OFF_LM_START + 3];
+            const d = f32[idxOffset + OFF_LM_START + 4];
+            // skipped 5
+            const tx = f32[idxOffset + OFF_LM_START + 6];
+            const ty = f32[idxOffset + OFF_LM_START + 7];
+
+            const scaleX = Math.sqrt(a * a + b * b);
+            const rotation = Math.atan2(b, a);
+            
+            const cosR = Math.cos(rotation);
+            const sinR = Math.sin(rotation);
+            const cR = c * cosR + d * sinR;
+            const dR = -c * sinR + d * cosR;
+            
+            const scaleY = Math.sqrt(cR * cR + dR * dR) * Math.sign(dR || 1);
+            const skewX = Math.atan2(cR, dR);
+            
+            pixiNode.setTransform(
+              tx, ty, 
+              scaleX, scaleY, 
+              rotation, 
+              skewX, 0,
+              0, 0
+            );
+          }
+        }
         this.handles.update();
     });
-  }
-
-  private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
-    const a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4], tx = matrix[6], ty = matrix[7];
-    
-    const scaleX = Math.sqrt(a * a + b * b);
-    const rotation = Math.atan2(b, a);
-    
-    const cosR = Math.cos(rotation);
-    const sinR = Math.sin(rotation);
-    const cR = c * cosR + d * sinR;
-    const dR = -c * sinR + d * cosR;
-    
-    const scaleY = Math.sqrt(cR * cR + dR * dR) * Math.sign(dR || 1);
-    const skewX = Math.atan2(cR, dR);
-    
-    displayObject.setTransform(
-      tx, ty, 
-      scaleX, scaleY, 
-      rotation, 
-      skewX, 0, // skewX, skewY
-      0, 0 // pivot
-    );
   }
 
   private drawPath(graphics: PIXI.Graphics, pathData: string) {
@@ -130,10 +148,6 @@ export class PixiBridge {
         }
       }
 
-      // Update visibility and opacity
-      pixiNode.visible = node.visible !== false;
-      pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
-
       if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();
 
@@ -172,8 +186,6 @@ export class PixiBridge {
             pixiNode.endFill();
         }
       }
-
-      this.applyMatrix(pixiNode, node.localMatrix);
     }
   }
 }
