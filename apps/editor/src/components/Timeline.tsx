@@ -11,6 +11,7 @@ interface TimelineProps {
 export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
   const [playhead, setPlayhead] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [fps, setFps] = useState(engine.getFps());
   const duration = engine.getDuration();
   const tracks = engine.getTracks();
   const state = store.getState();
@@ -23,6 +24,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
     const update = () => {
       setPlayhead(engine.getPlayhead());
       setIsPlaying(engine.getIsPlaying());
+      setFps(engine.getFps());
       frame = requestAnimationFrame(update);
     };
     frame = requestAnimationFrame(update);
@@ -40,7 +42,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
     const time = (x / rect.width) * duration;
     engine.seek(time);
-    setPlayhead(time);
+    setPlayhead(engine.getPlayhead());
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -86,6 +88,19 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
               {isPlaying ? <Pause size={16} /> : <Play size={16} />}
            </button>
            <span className="font-mono text-xs ml-auto">{(playhead/1000).toFixed(2)}s</span>
+           <select 
+              className="bg-gray-800 text-xs text-gray-300 border border-gray-600 rounded px-1 ml-2 outline-none"
+              value={fps}
+              onChange={(e) => {
+                engine.setFps(Number(e.target.value));
+                setFps(Number(e.target.value));
+                setPlayhead(engine.getPlayhead());
+              }}
+           >
+              <option value={24}>24 FPS</option>
+              <option value={30}>30 FPS</option>
+              <option value={60}>60 FPS</option>
+           </select>
         </div>
         <div className="flex-1 relative cursor-pointer" ref={rulerRef} onPointerDown={handlePointerDown}>
            {/* Timeline Ruler */}
