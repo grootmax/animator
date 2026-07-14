@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { ExportedProjectSchema } from '@monorepo/serialization';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -49,10 +50,27 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
+  let parsedContent;
+  try {
+    parsedContent = JSON.parse(content);
+  } catch (error) {
+    throw new Error('Invalid JSON content');
+  }
+
+  const validationResult = ExportedProjectSchema.safeParse(parsedContent);
+  if (!validationResult.success) {
+    throw new Error(`Validation failed: ${validationResult.error.message}`);
+  }
+
   const { canceled, filePath } = await dialog.showSaveDialog({
     filters: [{ name: 'JSON files', extensions: ['json'] }]
   });
   if (canceled || !filePath) return false;
+
+  if (!filePath.toLowerCase().endsWith('.json')) {
+    throw new Error('Invalid file extension. Only .json files are allowed.');
+  }
+
   await fs.promises.writeFile(filePath, content, 'utf-8');
   return true;
 });

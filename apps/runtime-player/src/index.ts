@@ -1,6 +1,7 @@
 import { createSceneGraphStore, SceneNode } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine, Track } from '@monorepo/animation-engine';
+import { ExportedProjectSchema } from '@monorepo/serialization';
 
 export interface ExportedProject {
   scene: Record<string, Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>>;
@@ -20,7 +21,7 @@ export class RuntimePlayer {
   }
 
   public load(json: string | ExportedProject) {
-    let data: ExportedProject;
+    let data: any;
     if (typeof json === 'string') {
       try {
         data = JSON.parse(json);
@@ -31,22 +32,28 @@ export class RuntimePlayer {
       data = json;
     }
 
+    const validationResult = ExportedProjectSchema.safeParse(data);
+    if (!validationResult.success) {
+      throw new Error(`Validation failed: ${validationResult.error.message}`);
+    }
+    const validData = validationResult.data;
+
     // Load scene
-    if (data.scene) {
-      Object.values(data.scene).forEach(node => {
+    if (validData.scene) {
+      Object.values(validData.scene).forEach(node => {
         this.store.getState().addNode(node as any);
       });
       this.store.getState().recalculateMatrices();
     }
 
     // Load metadata and animations
-    if (data.metadata?.duration) {
-      this.engine.setDuration(data.metadata.duration);
+    if (validData.metadata?.duration) {
+      this.engine.setDuration(validData.metadata.duration);
     }
 
-    if (data.animations) {
-      data.animations.forEach(track => {
-        this.engine.addTrack(track);
+    if (validData.animations) {
+      validData.animations.forEach(track => {
+        this.engine.addTrack(track as any);
       });
     }
   }
