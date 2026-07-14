@@ -12,6 +12,8 @@ export class PixiBridge {
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
+  private remoteSelectionsContainer: PIXI.Container;
+  private lastNodes: Record<string, SceneNode> = {};
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -43,17 +45,9 @@ export class PixiBridge {
       }
     });
 
-    let updateQueued = false;
-    this.store.subscribe(() => {
-      if (!updateQueued) {
-        updateQueued = true;
-        queueMicrotask(() => {
-          updateQueued = false;
-          const state = this.store.getState();
-          this.syncNodes(state.nodes);
-          this.handles.update();
-        });
-      }
+    this.store.subscribe((state) => {
+      this.syncNodes(state);
+      this.handles.update();
     });
 
     this.app.ticker.add(() => {
@@ -123,10 +117,16 @@ export class PixiBridge {
     }
   }
 
-  private syncNodes(nodes: Record<string, SceneNode>) {
-    const usedPaths = new Set<string>();
+  private syncNodes(state: any) {
+    const nodes = state.nodes || {};
+    const lastUpdated = state.lastUpdated;
+    const idsToUpdate = (lastUpdated && lastUpdated.length > 0) ? lastUpdated : Object.keys(nodes);
 
-    for (const [id, node] of Object.entries(nodes)) {
+    for (let i = 0; i < idsToUpdate.length; i++) {
+      const id = idsToUpdate[i];
+      const node = nodes[id];
+      if (!node) continue;
+
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
@@ -174,16 +174,16 @@ export class PixiBridge {
         pixiNode.clear();
 
         if (node.fill) {
-            const fill = typeof PIXI.utils?.string2hex === 'function' 
-              ? PIXI.utils.string2hex(node.fill) 
+            const fill = typeof (PIXI.utils as any)?.string2hex === 'function' 
+              ? (PIXI.utils as any).string2hex(node.fill) 
               : parseInt(node.fill.replace('#', '0x')) || 0;
             if (!isNaN(fill)) {
               pixiNode.beginFill(fill);
             }
         }
         if (node.stroke) {
-            const stroke = typeof PIXI.utils?.string2hex === 'function'
-              ? PIXI.utils.string2hex(node.stroke)
+            const stroke = typeof (PIXI.utils as any)?.string2hex === 'function'
+              ? (PIXI.utils as any).string2hex(node.stroke)
               : parseInt(node.stroke.replace('#', '0x')) || 0;
             const strokeWidth = node.strokeWidth !== undefined ? node.strokeWidth : 2;
             if (!isNaN(stroke)) {
@@ -209,7 +209,6 @@ export class PixiBridge {
             }
           }
         } else if (node.type === 'path' && node.pathData) {
-          usedPaths.add(node.pathData);
           this.drawPath(pixiNode, node.pathData);
         }
 
@@ -251,11 +250,7 @@ export class PixiBridge {
 
       this.applyMatrix(pixiNode, node.localMatrix);
     }
-
-    for (const path of this.pathCache.keys()) {
-      if (!usedPaths.has(path)) {
-        this.pathCache.delete(path);
-      }
-    }
+    
+    this.lastNodes = nodes;
   }
 }
