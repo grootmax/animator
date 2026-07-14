@@ -33,9 +33,7 @@ export class RuntimePlayer {
 
     // Load scene
     if (data.scene) {
-      Object.values(data.scene).forEach(node => {
-        this.store.getState().addNode(node as any);
-      });
+      this.store.getState().addNodes(Object.values(data.scene) as any);
       this.store.getState().recalculateMatrices();
     }
 

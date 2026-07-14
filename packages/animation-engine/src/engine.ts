@@ -142,8 +142,9 @@ export class AnimationEngine {
     const storeState = this.store.getState();
     let requiresMatrixUpdate = false;
 
-    for (const [nodeId, nodeUpdates] of updates.entries()) {
-      storeState.updateNode(nodeId, nodeUpdates);
+    if (updates.size > 0) {
+      const updateObj = Object.fromEntries(updates);
+      storeState.updateNodes(updateObj);
       requiresMatrixUpdate = true;
     }
 
