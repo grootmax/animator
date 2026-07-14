@@ -5,14 +5,19 @@ vi.mock('electron', () => {
   class MockBrowserWindow {
     loadURL = vi.fn();
     loadFile = vi.fn();
+    webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
     static getAllWindows = vi.fn().mockReturnValue([]);
   }
 
   return {
     app: {
-      whenReady: vi.fn().mockResolvedValue(undefined),
+      whenReady: vi.fn().mockImplementation(() => Promise.resolve()),
       on: vi.fn(),
       quit: vi.fn(),
+      getAppPath: vi.fn().mockReturnValue('/app'),
     },
     BrowserWindow: MockBrowserWindow,
     ipcMain: {
@@ -27,6 +32,16 @@ vi.mock('electron', () => {
     },
     ipcRenderer: {
       invoke: vi.fn(),
+    },
+    session: {
+      defaultSession: {
+        webRequest: {
+          onHeadersReceived: vi.fn(),
+        },
+      },
+    },
+    shell: {
+      openExternal: vi.fn(),
     },
   };
 });
@@ -59,13 +74,16 @@ describe('IPC Integrity Suite', () => {
     
     // Strict check for exactly what is exposed
     const exposedAPI = (contextBridge.exposeInMainWorld as any).mock.calls[0][1];
-    expect(Object.keys(exposedAPI)).toEqual(['openFile', 'saveFile']);
+    expect(Object.keys(exposedAPI)).toEqual(['openFile', 'saveFile', 'startSave', 'writeChunk', 'endSave']);
     
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledWith(
       'electronAPI',
       expect.objectContaining({
         openFile: expect.any(Function),
         saveFile: expect.any(Function),
+        startSave: expect.any(Function),
+        writeChunk: expect.any(Function),
+        endSave: expect.any(Function),
       })
     );
 
@@ -77,6 +95,15 @@ describe('IPC Integrity Suite', () => {
     
     await api.saveFile('test content');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('dialog:saveFile', 'test content');
+
+    await api.startSave();
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('startSave');
+
+    await api.writeChunk('save123', 'data');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('writeChunk', 'save123', 'data');
+
+    await api.endSave('save123', true);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('endSave', 'save123', true);
   });
 
   it('verifies all IPC channels defined for native file dialogs request/response integrity', async () => {

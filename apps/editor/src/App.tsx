@@ -29,7 +29,10 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
-      exportSvg: (content: string) => Promise<boolean>;
+      exportSvg?: (content: string) => Promise<boolean>;
+      startSave: () => Promise<string | null>;
+      writeChunk: (saveId: string, chunk: string) => Promise<boolean>;
+      endSave: (saveId: string, success: boolean) => Promise<boolean>;
     }
   }
 }
@@ -40,8 +43,10 @@ function App() {
   const [storeVersion, setStoreVersion] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [saveProgress, setSaveProgress] = useState<number | null>(null);
-  const [showSaveProgress, setShowSaveProgress] = useState(false);
+
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [saveProgress, setSaveProgress] = useState(0);
+  const [saveErrorMessage, setSaveErrorMessage] = useState('');
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -53,7 +58,7 @@ function App() {
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
-        setStoreVersion(state.version);
+        setStoreVersion((state as any).version || 0);
       });
 
       return () => unsubscribe();
@@ -61,7 +66,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    return engine.subscribeUI((state) => {
+    return (engine as any).subscribeUI?.((state: any) => {
       setIsPlaying(state.isPlaying);
     });
   }, []);
@@ -70,13 +75,13 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().undo();
+        (store.getState() as any).undo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -90,7 +95,7 @@ function App() {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
         if (nodes.length > 0) {
-          store.getState().commitHistory();
+          (store.getState() as any).commitHistory?.();
           nodes.forEach(node => store.getState().addNode(node));
         }
       }
@@ -100,82 +105,60 @@ function App() {
   };
 
   const handleSaveState = async () => {
-    if (window.electronAPI) {
+    if (saveStatus === 'saving') return;
+    if (window.electronAPI && window.electronAPI.startSave) {
+      const saveId = await window.electronAPI.startSave();
+      if (!saveId) return;
+
+      setSaveStatus('saving');
+      setSaveProgress(0);
+      setSaveErrorMessage('');
+
+      const worker = new Worker(new URL('./workers/save.worker.ts', import.meta.url), { type: 'module' });
+      
+      worker.onmessage = async (e) => {
+        const { type, chunk, progress, error } = e.data;
+        if (type === 'chunk') {
+          setSaveProgress(progress);
+          const success = await window.electronAPI!.writeChunk(saveId, chunk);
+          if (!success) {
+            worker.terminate();
+            await window.electronAPI!.endSave(saveId, false);
+            setSaveStatus('error');
+            setSaveErrorMessage('Failed to write chunk to disk');
+          }
+        } else if (type === 'complete') {
+          await window.electronAPI!.endSave(saveId, true);
+          setSaveStatus('success');
+          setTimeout(() => setSaveStatus('idle'), 3000);
+          worker.terminate();
+        } else if (type === 'error') {
+          await window.electronAPI!.endSave(saveId, false);
+          setSaveStatus('error');
+          setSaveErrorMessage(error || 'Unknown error occurred');
+          worker.terminate();
+        }
+      };
+
+      worker.onerror = async (err) => {
+        await window.electronAPI!.endSave(saveId, false);
+        setSaveStatus('error');
+        setSaveErrorMessage(err.message || 'Worker error');
+        worker.terminate();
+      };
+
       const state = store.getState().nodes;
-      const nodeKeys = Object.keys(state);
-      const totalNodes = nodeKeys.length;
-      
-      const cleanScene: Record<string, any> = {};
-      
-      let currentIndex = 0;
-      
-      const showProgressTimeout = setTimeout(() => {
-        setShowSaveProgress(true);
-      }, 500);
+      const animations = engine.getTracks();
+      const duration = engine.getDuration();
 
-      const processBatch = (deadline?: any) => {
-        const startTime = performance.now();
-        
-        while (currentIndex < totalNodes) {
-          if (deadline && deadline.timeRemaining) {
-            if (deadline.timeRemaining() < 2) break;
-          } else {
-            if (performance.now() - startTime > 10) break;
-          }
-          
-          const id = nodeKeys[currentIndex];
-          const node = state[id];
-          const cleanNode = { ...node };
-          delete (cleanNode as any).localMatrix;
-          delete (cleanNode as any).worldMatrix;
-          delete (cleanNode as any).isDirty;
-          cleanScene[id] = cleanNode;
-          
-          currentIndex++;
-        }
-        
-        setSaveProgress(Math.floor((currentIndex / totalNodes) * 100));
-
-        if (currentIndex < totalNodes) {
-          if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(processBatch);
-          } else {
-            setTimeout(processBatch, 0);
-          }
-        } else {
-          finishSave();
-        }
-      };
-
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
-          }
-        };
-
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
-      };
-      
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(processBatch);
-      } else {
-        setTimeout(processBatch, 0);
-      }
+      worker.postMessage({ nodes: state, animations, duration });
     } else {
       alert("Electron API not available");
     }
   };
 
   const handleExportSvg = async () => {
-    if (window.electronAPI) {
+    if (window.electronAPI && window.electronAPI.exportSvg) {
       const state = store.getState().nodes;
       const serializer = new SvgSerializer();
       const svgString = serializer.serialize(state);
@@ -193,15 +176,15 @@ function App() {
       engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: {
-          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
-          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
-        }
+        keyframes: [
+          { id: 'a', time: 0, value: 0, easing: 'linear' },
+          { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        ]
       });
       engine.play();
     } else {
-      store.getState().commitHistory();
+      (store.getState() as any).commitHistory?.();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
@@ -293,6 +276,32 @@ function App() {
           onZoomOut={handleZoomOut}
         />
 
+        {saveStatus !== 'idle' && (
+          <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-50 bg-gray-800 text-white px-6 py-3 rounded shadow-lg flex flex-col items-center border border-gray-700">
+            {saveStatus === 'saving' && (
+              <>
+                <div className="text-sm font-semibold mb-2">Saving Project...</div>
+                <div className="w-48 h-2 bg-gray-600 rounded overflow-hidden">
+                  <div 
+                    className="h-full bg-blue-500 transition-all duration-300" 
+                    style={{ width: `${Math.max(0, Math.min(100, saveProgress))}%` }}
+                  />
+                </div>
+                <div className="text-xs text-gray-400 mt-1">{Math.round(saveProgress)}%</div>
+              </>
+            )}
+            {saveStatus === 'success' && (
+              <div className="text-sm font-semibold text-green-400">Save Complete!</div>
+            )}
+            {saveStatus === 'error' && (
+              <div className="text-sm font-semibold text-red-400">
+                Save Failed: {saveErrorMessage}
+                <button className="ml-4 text-xs underline" onClick={() => setSaveStatus('idle')}>Dismiss</button>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex flex-1 overflow-hidden">
           <LayerPanel store={store} nodesCount={nodesCount} version={storeVersion} />
 
@@ -313,16 +322,6 @@ function App() {
         </div>
 
         <Timeline engine={engine} store={store} />
-
-        {showSaveProgress && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-gray-800 p-6 rounded-lg border border-gray-700 flex flex-col items-center gap-3">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-              <div className="text-sm font-medium">Saving Project...</div>
-              <div className="text-xs text-gray-400">{saveProgress}%</div>
-            </div>
-          </div>
-        )}
       </div>
     </DndProvider>
   );

@@ -4,7 +4,7 @@ const path = require('path');
 
 async function run() {
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  const viteProcess = spawn('npx', ['vite', '--port', '4173', '--strictPort'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
@@ -36,7 +36,26 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('console', async (msg) => {
+      console.log('BROWSER:', msg.type(), msg.text());
+      const args = msg.args();
+      for (let i = 0; i < args.length; i++) {
+        try {
+          const val = await args[i].jsonValue();
+          if (typeof val === 'object' && val !== null && Object.keys(val).length === 0) {
+            const text = await page.evaluate(arg => arg && (arg.stack || arg.message || String(arg)), args[i]);
+            console.log(`  arg[${i}]:`, text);
+          } else {
+            console.log(`  arg[${i}]:`, val);
+          }
+        } catch (e) {
+          console.log(`  arg[${i}]: <error serializing>`);
+        }
+      }
+    });
+    page.on('pageerror', (err) => {
+      console.error('BROWSER PAGE ERROR:', err);
+    });
 
     console.log('Navigating to http://localhost:4173 ...');
     await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
