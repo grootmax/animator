@@ -16,6 +16,13 @@ export interface Track {
   keyframes: Keyframe[];
 }
 
+export interface Heartbeat {
+  playhead: number;
+  isPlaying: boolean;
+}
+
+export type NetworkRole = 'leader' | 'follower' | 'standalone';
+
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
   let c = hex.substring(1).split('');
@@ -110,6 +117,9 @@ export class AnimationEngine {
   private heartbeatTimer: any = null;
   private heartbeatRate = 100;
   public driftThreshold = 150;
+
+  // Reuse updates map and objects to avoid GC
+  private cachedUpdates: Map<string, Record<string, any>> = new Map();
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
@@ -276,11 +286,18 @@ export class AnimationEngine {
   }
 
   private updateNodes() {
-    const updates = new Map<string, any>();
+    // Clear the map but reuse objects
+    for (const [_, obj] of this.cachedUpdates) {
+      for (const k in obj) {
+        delete obj[k];
+      }
+    }
 
-    for (const track of this.tracks) {
+    let trackCount = this.tracks.length;
+    for (let i = 0; i < trackCount; i++) {
+      const track = this.tracks[i];
       const keyframesArray = Object.values(track.keyframes).sort((a, b) => {
-        if (a.time === b.time) return a.id.localeCompare(b.id);
+        if (a.time === b.time) return (a.id || '').localeCompare(b.id || '');
         return a.time - b.time;
       });
       const [start, end] = this.binarySearchKeyframes(keyframesArray, this.playhead);
@@ -295,22 +312,23 @@ export class AnimationEngine {
         value = interpolateValue(start.value, end.value, easedProgress, track.property);
       }
 
-      if (!updates.has(track.nodeId)) {
-        updates.set(track.nodeId, {});
+      let updatesObj = this.cachedUpdates.get(track.nodeId);
+      if (!updatesObj) {
+        updatesObj = {};
+        this.cachedUpdates.set(track.nodeId, updatesObj);
       }
-      updates.get(track.nodeId)[track.property] = value;
+      updatesObj[track.property] = value;
     }
 
     const storeState = this.store.getState();
     let requiresMatrixUpdate = false;
 
-    if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
-      for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
+    // Use for-of on map to avoid generating iterator arrays
+    for (const [nodeId, nodeUpdates] of this.cachedUpdates.entries()) {
+      if (Object.keys(nodeUpdates).length > 0) {
+        storeState.updateNode(nodeId, nodeUpdates);
+        requiresMatrixUpdate = true;
       }
-      storeState.updateNodesBatch(batchUpdates);
-      requiresMatrixUpdate = true;
     }
 
     if (requiresMatrixUpdate) {
