@@ -1,20 +1,24 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
-import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { createSceneGraphStore, SPATIAL_X, SPATIAL_Y, SPATIAL_ROTATION, SPATIAL_SCALE_X, SPATIAL_SCALE_Y, SPATIAL_OPACITY, SPATIAL_IS_DIRTY } from '@monorepo/scene-graph';
+import type { EasingType, Keyframe, Track } from './types';
 
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
+export type { EasingType, Keyframe, Track };
 
-export interface Keyframe {
-  id: string;
-  time: number; // in milliseconds
-  value: number | string;
-  easing?: EasingType;
+export type NetworkRole = 'standalone' | 'leader' | 'follower';
+
+export interface Heartbeat {
+  playhead: number;
+  isPlaying: boolean;
 }
 
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
-}
+const PROPERTY_TO_OFFSET: Record<string, number> = {
+  'x': SPATIAL_X,
+  'y': SPATIAL_Y,
+  'rotation': SPATIAL_ROTATION,
+  'scaleX': SPATIAL_SCALE_X,
+  'scaleY': SPATIAL_SCALE_Y,
+  'opacity': SPATIAL_OPACITY
+};
 
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
@@ -117,6 +121,10 @@ export class AnimationEngine {
   public getDuration() { return this.duration; }
   public setDuration(d: number) { this.duration = d; }
   public setTracks(tracks: Track[]) { this.tracks = tracks; }
+
+  public subscribeUI(cb: (state: any) => void) {
+    return this.store.subscribe(cb);
+  }
 
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
@@ -276,14 +284,29 @@ export class AnimationEngine {
   }
 
   private updateNodes() {
-    const updates = new Map<string, any>();
+    const state = this.store.getState();
+    const buffer = state.spatialBuffer;
+    const nodeOffsetMap = state.nodeOffsetMap;
+    
+    let requiresMatrixUpdate = false;
 
-    for (const track of this.tracks) {
-      const keyframesArray = Object.values(track.keyframes).sort((a, b) => {
-        if (a.time === b.time) return a.id.localeCompare(b.id);
+    // Loop directly over tracks to avoid allocations
+    for (let i = 0; i < this.tracks.length; i++) {
+      const track = this.tracks[i];
+      const offset = nodeOffsetMap[track.nodeId];
+      
+      if (offset === undefined) continue;
+
+      const keyframesArray: Keyframe[] = Array.isArray(track.keyframes)
+        ? track.keyframes
+        : (Object.values(track.keyframes || {}) as Keyframe[]);
+
+      const sortedKeyframes = keyframesArray.slice().sort((a, b) => {
+        if (a.time === b.time) return ((a.id || '') as string).localeCompare(b.id || '');
         return a.time - b.time;
       });
-      const [start, end] = this.binarySearchKeyframes(keyframesArray, this.playhead);
+
+      const [start, end] = this.binarySearchKeyframes(sortedKeyframes, this.playhead);
 
       if (!start || !end) continue;
 
@@ -295,26 +318,24 @@ export class AnimationEngine {
         value = interpolateValue(start.value, end.value, easedProgress, track.property);
       }
 
-      if (!updates.has(track.nodeId)) {
-        updates.set(track.nodeId, {});
+      const propOffset = PROPERTY_TO_OFFSET[track.property];
+      
+      if (typeof value === 'number' && propOffset !== undefined) {
+        if (buffer[offset + propOffset] !== value) {
+          buffer[offset + propOffset] = value;
+          buffer[offset + SPATIAL_IS_DIRTY] = 1;
+          requiresMatrixUpdate = true;
+        }
+      } else {
+        const node = state.nodes[track.nodeId];
+        if (node && (node as any)[track.property] !== value) {
+          state.updateNode(track.nodeId, { [track.property]: value } as any);
+        }
       }
-      updates.get(track.nodeId)[track.property] = value;
-    }
-
-    const storeState = this.store.getState();
-    let requiresMatrixUpdate = false;
-
-    if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
-      for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
-      }
-      storeState.updateNodesBatch(batchUpdates);
-      requiresMatrixUpdate = true;
     }
 
     if (requiresMatrixUpdate) {
-      storeState.recalculateMatrices();
+      state.recalculateMatrices();
     }
   }
 }

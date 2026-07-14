@@ -1,115 +1,10 @@
-export type Matrix3 = [number, number, number, number, number, number, number, number, number];
+export type Matrix3 = Float32Array | number[];
 
-export const createMatrix = (): Matrix3 => [
+export const createMatrix = (): Matrix3 => new Float32Array([
   1, 0, 0,
   0, 1, 0,
   0, 0, 1
-];
-
-export const multiplyMatrix = (out: Matrix3, a: Matrix3, b: Matrix3): Matrix3 => {
-  const a00 = a[0], a01 = a[1], a02 = a[2];
-  const a10 = a[3], a11 = a[4], a12 = a[5];
-  const a20 = a[6], a21 = a[7], a22 = a[8];
-
-  const b00 = b[0], b01 = b[1], b02 = b[2];
-  const b10 = b[3], b11 = b[4], b12 = b[5];
-  const b20 = b[6], b21 = b[7], b22 = b[8];
-
-  out[0] = b00 * a00 + b01 * a10 + b02 * a20;
-  out[1] = b00 * a01 + b01 * a11 + b02 * a21;
-  out[2] = b00 * a02 + b01 * a12 + b02 * a22;
-  out[3] = b10 * a00 + b11 * a10 + b12 * a20;
-  out[4] = b10 * a01 + b11 * a11 + b12 * a21;
-  out[5] = b10 * a02 + b11 * a12 + b12 * a22;
-  out[6] = b20 * a00 + b21 * a10 + b22 * a20;
-  out[7] = b20 * a01 + b21 * a11 + b22 * a21;
-  out[8] = b20 * a02 + b21 * a12 + b22 * a22;
-
-  return out;
-};
-
-// We don't change translate/rotate/scale/skew internally but we inline them in getTransformMatrix
-// for zero allocations, avoiding intermediate arrays.
-export const getTransformMatrix = (
-  out: Matrix3,
-  x: number, 
-  y: number, 
-  rotation: number, 
-  scaleX: number, 
-  scaleY: number,
-  skewX: number = 0,
-  skewY: number = 0
-): Matrix3 => {
-  const c = Math.cos(rotation);
-  const s = Math.sin(rotation);
-  
-  let m00 = c;
-  let m01 = s;
-  let m10 = -s;
-  let m11 = c;
-  
-  if (skewX !== 0 || skewY !== 0) {
-    const tx = Math.tan(skewX);
-    const ty = Math.tan(skewY);
-    // Multiply by skew matrix [1, ty, 0, tx, 1, 0, 0, 0, 1]
-    const temp00 = m00 + m10 * ty;
-    const temp01 = m01 + m11 * ty;
-    const temp10 = m00 * tx + m10;
-    const temp11 = m01 * tx + m11;
-    m00 = temp00; m01 = temp01;
-    m10 = temp10; m11 = temp11;
-  }
-  
-  out[0] = m00 * scaleX;
-  out[1] = m01 * scaleX;
-  out[2] = 0;
-  out[3] = m10 * scaleY;
-  out[4] = m11 * scaleY;
-  out[5] = 0;
-  out[6] = x;
-  out[7] = y;
-  out[8] = 1;
-  
-  return out;
-};
-
-export const translateMatrix = (m: Matrix3, x: number, y: number): Matrix3 => {
-  const out = createMatrix();
-  return multiplyMatrix(out, m, [
-    1, 0, 0,
-    0, 1, 0,
-    x, y, 1
-  ]);
-};
-
-export const rotateMatrix = (m: Matrix3, angleRad: number): Matrix3 => {
-  const out = createMatrix();
-  const s = Math.sin(angleRad);
-  const c = Math.cos(angleRad);
-  return multiplyMatrix(out, m, [
-    c, s, 0,
-    -s, c, 0,
-    0, 0, 1
-  ]);
-};
-
-export const scaleMatrix = (m: Matrix3, sx: number, sy: number): Matrix3 => {
-  const out = createMatrix();
-  return multiplyMatrix(out, m, [
-    sx, 0, 0,
-    0, sy, 0,
-    0, 0, 1
-  ]);
-};
-
-export const skewMatrix = (m: Matrix3, skewXRad: number, skewYRad: number): Matrix3 => {
-  const out = createMatrix();
-  return multiplyMatrix(out, m, [
-    1, Math.tan(skewYRad), 0,
-    Math.tan(skewXRad), 1, 0,
-    0, 0, 1
-  ]);
-};
+]);
 
 export const copyMatrix = (out: Matrix3, a: Matrix3): Matrix3 => {
   for (let i = 0; i < 9; i++) out[i] = a[i];
@@ -123,27 +18,175 @@ export const identityMatrix = (out: Matrix3): Matrix3 => {
   return out;
 };
 
-export const multiplyMatrixMut = (out: Matrix3, a: Matrix3, b: Matrix3): Matrix3 => {
-  const a00 = a[0], a01 = a[1], a02 = a[2],
-        a10 = a[3], a11 = a[4], a12 = a[5],
-        a20 = a[6], a21 = a[7], a22 = a[8];
-  const b00 = b[0], b01 = b[1], b02 = b[2],
-        b10 = b[3], b11 = b[4], b12 = b[5],
-        b20 = b[6], b21 = b[7], b22 = b[8];
+export function multiplyMatrix(out: Matrix3, a: Matrix3, b?: Matrix3): Matrix3 {
+  let resOut: Matrix3;
+  let matA: Matrix3;
+  let matB: Matrix3;
+  if (b === undefined) {
+    resOut = createMatrix();
+    matA = out;
+    matB = a;
+  } else {
+    resOut = out;
+    matA = a;
+    matB = b;
+  }
 
-  out[0] = b00 * a00 + b01 * a10 + b02 * a20;
-  out[1] = b00 * a01 + b01 * a11 + b02 * a21;
-  out[2] = b00 * a02 + b01 * a12 + b02 * a22;
-  out[3] = b10 * a00 + b11 * a10 + b12 * a20;
-  out[4] = b10 * a01 + b11 * a11 + b12 * a21;
-  out[5] = b10 * a02 + b11 * a12 + b12 * a22;
-  out[6] = b20 * a00 + b21 * a10 + b22 * a20;
-  out[7] = b20 * a01 + b21 * a11 + b22 * a21;
-  out[8] = b20 * a02 + b21 * a12 + b22 * a22;
-  return out;
+  const a00 = matA[0], a01 = matA[1], a02 = matA[2];
+  const a10 = matA[3], a11 = matA[4], a12 = matA[5];
+  const a20 = matA[6], a21 = matA[7], a22 = matA[8];
+
+  const b00 = matB[0], b01 = matB[1], b02 = matB[2];
+  const b10 = matB[3], b11 = matB[4], b12 = matB[5];
+  const b20 = matB[6], b21 = matB[7], b22 = matB[8];
+
+  resOut[0] = b00 * a00 + b01 * a10 + b02 * a20;
+  resOut[1] = b00 * a01 + b01 * a11 + b02 * a21;
+  resOut[2] = b00 * a02 + b01 * a12 + b02 * a22;
+  resOut[3] = b10 * a00 + b11 * a10 + b12 * a20;
+  resOut[4] = b10 * a01 + b11 * a11 + b12 * a21;
+  resOut[5] = b10 * a02 + b11 * a12 + b12 * a22;
+  resOut[6] = b20 * a00 + b21 * a10 + b22 * a20;
+  resOut[7] = b20 * a01 + b21 * a11 + b22 * a21;
+  resOut[8] = b20 * a02 + b21 * a12 + b22 * a22;
+  return resOut;
+}
+
+const TEMP_TRANSFORM = new Float32Array(9);
+const TEMP_MATRIX = new Float32Array(9);
+
+export const translateMatrix = (outOrM: Matrix3, mOrX: Matrix3 | number, xOrY: number, yVal?: number): Matrix3 => {
+  if (typeof mOrX === 'number') {
+    const out = createMatrix();
+    identityMatrix(TEMP_TRANSFORM);
+    TEMP_TRANSFORM[6] = mOrX;
+    TEMP_TRANSFORM[7] = xOrY;
+    return multiplyMatrix(out, outOrM, TEMP_TRANSFORM);
+  } else {
+    identityMatrix(TEMP_TRANSFORM);
+    TEMP_TRANSFORM[6] = xOrY;
+    TEMP_TRANSFORM[7] = yVal!;
+    return multiplyMatrix(outOrM, mOrX, TEMP_TRANSFORM);
+  }
 };
 
-// Temporary matrices to avoid allocation
+export const rotateMatrix = (outOrM: Matrix3, mOrAngle: Matrix3 | number, angleVal?: number): Matrix3 => {
+  if (typeof mOrAngle === 'number') {
+    const out = createMatrix();
+    const s = Math.sin(mOrAngle);
+    const c = Math.cos(mOrAngle);
+    identityMatrix(TEMP_TRANSFORM);
+    TEMP_TRANSFORM[0] = c;
+    TEMP_TRANSFORM[1] = s;
+    TEMP_TRANSFORM[3] = -s;
+    TEMP_TRANSFORM[4] = c;
+    return multiplyMatrix(out, outOrM, TEMP_TRANSFORM);
+  } else {
+    const s = Math.sin(angleVal!);
+    const c = Math.cos(angleVal!);
+    identityMatrix(TEMP_TRANSFORM);
+    TEMP_TRANSFORM[0] = c;
+    TEMP_TRANSFORM[1] = s;
+    TEMP_TRANSFORM[3] = -s;
+    TEMP_TRANSFORM[4] = c;
+    return multiplyMatrix(outOrM, mOrAngle, TEMP_TRANSFORM);
+  }
+};
+
+export const scaleMatrix = (outOrM: Matrix3, mOrSx: Matrix3 | number, sxOrSy: number, syVal?: number): Matrix3 => {
+  if (typeof mOrSx === 'number') {
+    const out = createMatrix();
+    identityMatrix(TEMP_TRANSFORM);
+    TEMP_TRANSFORM[0] = mOrSx;
+    TEMP_TRANSFORM[4] = sxOrSy;
+    return multiplyMatrix(out, outOrM, TEMP_TRANSFORM);
+  } else {
+    identityMatrix(TEMP_TRANSFORM);
+    TEMP_TRANSFORM[0] = sxOrSy;
+    TEMP_TRANSFORM[4] = syVal!;
+    return multiplyMatrix(outOrM, mOrSx, TEMP_TRANSFORM);
+  }
+};
+
+export const skewMatrix = (outOrM: Matrix3, mOrSkewX: Matrix3 | number, skewXOrSkewY: number, skewYVal?: number): Matrix3 => {
+  if (typeof mOrSkewX === 'number') {
+    const out = createMatrix();
+    identityMatrix(TEMP_TRANSFORM);
+    TEMP_TRANSFORM[1] = Math.tan(skewXOrSkewY);
+    TEMP_TRANSFORM[3] = Math.tan(mOrSkewX);
+    return multiplyMatrix(out, outOrM, TEMP_TRANSFORM);
+  } else {
+    identityMatrix(TEMP_TRANSFORM);
+    TEMP_TRANSFORM[1] = Math.tan(skewYVal!);
+    TEMP_TRANSFORM[3] = Math.tan(skewXOrSkewY);
+    return multiplyMatrix(outOrM, mOrSkewX, TEMP_TRANSFORM);
+  }
+};
+
+export function getTransformMatrix(
+  outOrX: Matrix3 | number,
+  xOrY?: number,
+  yOrRot?: number,
+  rotOrScaleX?: number,
+  scaleXOrScaleY?: number,
+  scaleYOrSkewX?: number,
+  skewXOrSkewY?: number,
+  skewYVal?: number
+): Matrix3 {
+  let out: Matrix3;
+  let x: number;
+  let y: number;
+  let rotation: number;
+  let scaleX: number;
+  let scaleY: number;
+  let skewX: number;
+  let skewY: number;
+
+  if (typeof outOrX === 'number') {
+    out = createMatrix();
+    x = outOrX;
+    y = xOrY ?? 0;
+    rotation = yOrRot ?? 0;
+    scaleX = rotOrScaleX ?? 1;
+    scaleY = scaleXOrScaleY ?? 1;
+    skewX = scaleYOrSkewX ?? 0;
+    skewY = skewXOrSkewY ?? 0;
+  } else {
+    out = outOrX;
+    x = xOrY ?? 0;
+    y = yOrRot ?? 0;
+    rotation = rotOrScaleX ?? 0;
+    scaleX = scaleXOrScaleY ?? 1;
+    scaleY = scaleYOrSkewX ?? 1;
+    skewX = skewXOrSkewY ?? 0;
+    skewY = skewYVal ?? 0;
+  }
+
+  identityMatrix(out);
+  translateMatrix(out, out, x, y);
+
+  if (rotation !== 0) {
+    copyMatrix(TEMP_MATRIX, out);
+    rotateMatrix(out, TEMP_MATRIX, rotation);
+  }
+
+  if (skewX !== 0 || skewY !== 0) {
+    copyMatrix(TEMP_MATRIX, out);
+    skewMatrix(out, TEMP_MATRIX, skewX, skewY);
+  }
+
+  if (scaleX !== 1 || scaleY !== 1) {
+    copyMatrix(TEMP_MATRIX, out);
+    scaleMatrix(out, TEMP_MATRIX, scaleX, scaleY);
+  }
+
+  return out;
+}
+
+export const multiplyMatrixMut = (out: Matrix3, a: Matrix3, b: Matrix3): Matrix3 => {
+  return multiplyMatrix(out, a, b);
+};
+
 const _m1 = createMatrix();
 const _m2 = createMatrix();
 const _m3 = createMatrix();
@@ -179,8 +222,6 @@ export const skewMatrixMut = (out: Matrix3, m: Matrix3, skewXRad: number, skewYR
   return multiplyMatrixMut(out, m, _m4);
 };
 
-const _tmpTransform = createMatrix();
-
 export const getTransformMatrixMut = (
   out: Matrix3,
   x: number, 
@@ -191,15 +232,5 @@ export const getTransformMatrixMut = (
   skewX: number = 0,
   skewY: number = 0
 ): Matrix3 => {
-  identityMatrix(_tmpTransform);
-  translateMatrixMut(_tmpTransform, _tmpTransform, x, y);
-  rotateMatrixMut(_tmpTransform, _tmpTransform, rotation);
-  
-  if (skewX !== 0 || skewY !== 0) {
-    skewMatrixMut(_tmpTransform, _tmpTransform, skewX, skewY);
-  }
-  
-  scaleMatrixMut(_tmpTransform, _tmpTransform, scaleX, scaleY);
-  
-  return copyMatrix(out, _tmpTransform);
+  return getTransformMatrix(out, x, y, rotation, scaleX, scaleY, skewX, skewY);
 };

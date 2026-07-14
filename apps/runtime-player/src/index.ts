@@ -1,5 +1,5 @@
 import { SceneNode } from '@monorepo/scene-graph';
-import { Track } from '@monorepo/animation-engine';
+import type { Track } from '@monorepo/animation-engine';
 
 export interface ExportedProject {
   scene: Record<string, Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>>;

@@ -1,5 +1,6 @@
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-import { AnimationEngine, Track } from '@monorepo/animation-engine';
+import { AnimationEngine } from '@monorepo/animation-engine';
+import type { Track } from '@monorepo/animation-engine';
 import { PixiBridge } from '@monorepo/renderer';
 
 let store: ReturnType<typeof createSceneGraphStore>;

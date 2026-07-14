@@ -12,6 +12,7 @@ export class PixiBridge {
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
+  private remoteSelectionsContainer: PIXI.Container;
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -25,7 +26,7 @@ export class PixiBridge {
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app, store);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id) => this.pixiNodes.get(id));
 
     this.remoteSelectionsContainer = new PIXI.Container();
     this.remoteSelectionsContainer.zIndex = 999;
@@ -50,20 +51,31 @@ export class PixiBridge {
         queueMicrotask(() => {
           updateQueued = false;
           const state = this.store.getState();
-          this.syncNodes(state.nodes);
+          this.syncStructureAndShapes(state.nodes);
           this.handles.update();
         });
       }
     });
 
     this.app.ticker.add(() => {
-        this.handles.update();
+      this.syncSpatial();
+      this.handles.update();
     });
   }
 
   private getMaterialHash(node: SceneNode): string {
     if (node.type === 'container' || node.type === 'group') return 'container';
     return `${node.fill || 'none'}_${node.stroke || 'none'}_${node.strokeWidth || 0}`;
+  }
+
+  private syncSpatial() {
+    const nodes = this.store.getState().nodes;
+    for (const [id, pixiNode] of this.pixiNodes.entries()) {
+      const node = nodes[id];
+      if (!node) continue;
+      pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
+      this.applyMatrix(pixiNode, node.localMatrix);
+    }
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
@@ -123,7 +135,7 @@ export class PixiBridge {
     }
   }
 
-  private syncNodes(nodes: Record<string, SceneNode>) {
+  private syncStructureAndShapes(nodes: Record<string, SceneNode>) {
     const usedPaths = new Set<string>();
 
     for (const [id, node] of Object.entries(nodes)) {
@@ -166,9 +178,8 @@ export class PixiBridge {
         }
       }
 
-      // Update visibility and opacity
+      // Update visibility (opacity is handled by syncSpatial)
       pixiNode.visible = node.visible !== false;
-      pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
       if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();
@@ -248,8 +259,6 @@ export class PixiBridge {
            sprite.scale.set(1);
         }
       }
-
-      this.applyMatrix(pixiNode, node.localMatrix);
     }
 
     for (const path of this.pathCache.keys()) {

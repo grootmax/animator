@@ -79,7 +79,6 @@ export class SvgParser {
     const rootNodes: SceneNode[] = [];
     const viewportMatrix = this.calculateViewBoxTransform(svgElement);
 
-    let lastOrder = null;
     Array.from(svgElement.children).forEach(child => {
       this.processElement(child, null, rootNodes, viewportMatrix);
     });
@@ -193,8 +192,6 @@ export class SvgParser {
       case 'line': type = 'line'; break;
       case 'polyline': type = 'polyline'; break;
       case 'path': type = 'path'; break;
-      case 'ellipse': type = 'path'; break;
-      case 'line': type = 'path'; break;
       default: return; // Ignore unsupported
     }
 
@@ -214,12 +211,6 @@ export class SvgParser {
     } else if (type === 'circle' || type === 'ellipse') {
       xAttr = parseFloat(element.getAttribute('cx') || '0');
       yAttr = parseFloat(element.getAttribute('cy') || '0');
-    } else if (tagName === 'ellipse') {
-      xAttr = parseFloat(element.getAttribute('cx') || '0');
-      yAttr = parseFloat(element.getAttribute('cy') || '0');
-    } else if (tagName === 'line') {
-      xAttr = 0;
-      yAttr = 0;
     }
 
     const baseMatrix: Matrix3 = [
@@ -294,7 +285,7 @@ export class SvgParser {
     nodesList.push(sceneNode);
 
     Array.from(element.children).forEach(child => {
-      this.processElement(child, id, nodesList, finalMatrix);
+      this.processElement(child, id, nodesList, combinedMatrix);
     });
   }
 }
