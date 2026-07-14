@@ -4,7 +4,9 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "types": "tsc -b",
+    "assets": "vite build",
+    "main": "echo 'Main process compilation handled by vite-plugin-electron'",
     "package": "electron-builder build --mac --win --linux"
   },
   "build": {
@@ -43,7 +45,7 @@
     "@types/react-dom": "^18.2.7",
     "@vitejs/plugin-react": "^4.0.3",
     "autoprefixer": "^10.4.15",
-    "electron": "^25.3.0",
+    "electron": "25.3.0",
     "electron-builder": "^24.6.4",
     "postcss": "^8.4.29",
     "tailwindcss": "^3.3.3",
