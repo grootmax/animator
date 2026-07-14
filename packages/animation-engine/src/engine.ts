@@ -150,5 +150,10 @@ export class AnimationEngine {
     if (requiresMatrixUpdate) {
       storeState.recalculateMatrices();
     }
+    
+    // Always flush changes so listeners (like the renderer) are notified
+    if (storeState.flushChanges) {
+      storeState.flushChanges();
+    }
   }
 }

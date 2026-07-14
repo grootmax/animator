@@ -38,8 +38,11 @@ export class PixiBridge {
       }
     });
 
-    this.store.subscribe((state) => {
-      this.syncNodes(state.nodes);
+    // Initial sync of all nodes
+    this.syncNodes(this.store.getState().nodes);
+
+    this.store.getState().subscribeToChanges((changedNodes) => {
+      this.syncChangedNodes(changedNodes, this.store.getState().nodes);
       this.handles.update();
     });
 
@@ -48,7 +51,7 @@ export class PixiBridge {
     });
   }
 
-  private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
+  private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3 | Float32Array) {
     const a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4], tx = matrix[6], ty = matrix[7];
     
     const scaleX = Math.sqrt(a * a + b * b);
@@ -101,8 +104,22 @@ export class PixiBridge {
     }
   }
 
+  private syncChangedNodes(changedNodes: Set<string>, nodes: Record<string, SceneNode>) {
+    for (const id of changedNodes) {
+      const node = nodes[id];
+      if (node) {
+        this.syncSingleNode(id, node);
+      }
+    }
+  }
+
   private syncNodes(nodes: Record<string, SceneNode>) {
     for (const [id, node] of Object.entries(nodes)) {
+      this.syncSingleNode(id, node);
+    }
+  }
+
+  private syncSingleNode(id: string, node: SceneNode) {
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
@@ -176,4 +193,3 @@ export class PixiBridge {
       this.applyMatrix(pixiNode, node.localMatrix);
     }
   }
-}
