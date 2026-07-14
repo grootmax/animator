@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AnimationEngine, Track } from '@monorepo/animation-engine';
+import { Track } from '@monorepo/animation-engine';
+import { WorkerEngineProxy } from '../workers/WorkerEngineProxy';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { Play, Pause, SkipBack } from 'lucide-react';
 
 interface TimelineProps {
-  engine: AnimationEngine;
+  engine: WorkerEngineProxy | any;
   store: ReturnType<typeof createSceneGraphStore>;
 }
 
@@ -70,7 +71,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
 
   // Group tracks by node
   const tracksByNode: Record<string, Track[]> = {};
-  tracks.forEach(t => {
+  tracks.forEach((t: Track) => {
     if (!tracksByNode[t.nodeId]) tracksByNode[t.nodeId] = [];
     tracksByNode[t.nodeId].push(t);
   });
