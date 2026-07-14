@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 let mainWindow: BrowserWindow | null = null;
+let currentProjectRoot: string | null = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -55,4 +56,73 @@ ipcMain.handle('dialog:saveFile', async (_, content: string) => {
   if (canceled || !filePath) return false;
   await fs.promises.writeFile(filePath, content, 'utf-8');
   return true;
+});
+
+ipcMain.handle('project:open', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openDirectory']
+  });
+  if (canceled || filePaths.length === 0) return null;
+  const dirPath = filePaths[0];
+  const manifestPath = path.join(dirPath, 'manifest.json');
+  if (fs.existsSync(manifestPath)) {
+    currentProjectRoot = dirPath;
+    const manifest = await fs.promises.readFile(manifestPath, 'utf-8');
+    return { type: 'project', manifest, root: dirPath };
+  } else {
+    return { type: 'error', message: 'Not a valid project folder (missing manifest.json)' };
+  }
+});
+
+ipcMain.handle('project:create', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (canceled || filePaths.length === 0) return null;
+  const dirPath = filePaths[0];
+  currentProjectRoot = dirPath;
+  const assetsDir = path.join(dirPath, 'assets');
+  if (!fs.existsSync(assetsDir)) {
+    await fs.promises.mkdir(assetsDir, { recursive: true });
+  }
+  const manifest = JSON.stringify({ version: "1.0.0", assets: [], scene: {} });
+  await fs.promises.writeFile(path.join(dirPath, 'manifest.json'), manifest, 'utf-8');
+  return { type: 'project', manifest, root: dirPath };
+});
+
+ipcMain.handle('project:save', async (_, manifest: string) => {
+  if (!currentProjectRoot) return false;
+  const manifestPath = path.join(currentProjectRoot, 'manifest.json');
+  const tempPath = manifestPath + '.tmp';
+  // Atomic save
+  await fs.promises.writeFile(tempPath, manifest, 'utf-8');
+  await fs.promises.rename(tempPath, manifestPath);
+  return true;
+});
+
+ipcMain.on('project:saveAsset', (event, data) => {
+  const { filename } = data;
+  const port = event.ports[0];
+  if (!currentProjectRoot || !port) {
+    if (port) port.close();
+    return;
+  }
+
+  const destPath = path.join(currentProjectRoot, 'assets', filename);
+  const writeStream = fs.createWriteStream(destPath);
+
+  port.on('message', (msgEvent) => {
+    if (msgEvent.data === 'EOF') {
+      writeStream.end();
+      port.close();
+    } else {
+      writeStream.write(Buffer.from(msgEvent.data));
+    }
+  });
+  
+  writeStream.on('error', () => {
+    port.close();
+  });
+  
+  port.start();
 });

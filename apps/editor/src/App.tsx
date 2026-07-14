@@ -19,6 +19,10 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
+      openProject: () => Promise<{ type: string, manifest?: string, root?: string, message?: string } | null>;
+      createProject: () => Promise<{ type: string, manifest?: string, root?: string, message?: string } | null>;
+      saveProject: (manifest: string) => Promise<boolean>;
+      saveAssetStream: (filename: string, port: MessagePort) => void;
     }
   }
 }
@@ -28,6 +32,8 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [hasProject, setHasProject] = useState(false);
+  const [projectManifest, setProjectManifest] = useState<any>(null);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -54,6 +60,35 @@ function App() {
     frame = requestAnimationFrame(checkPlayState);
     return () => cancelAnimationFrame(frame);
   }, []);
+
+  const handleOpenProject = async () => {
+    if (window.electronAPI) {
+      const result = await window.electronAPI.openProject();
+      if (result && result.type === 'project' && result.manifest) {
+        setHasProject(true);
+        const manifest = JSON.parse(result.manifest);
+        setProjectManifest(manifest);
+        // Load scene from manifest
+        store.setState({ nodes: {}, rootId: null });
+        const newNodes = manifest.scene || {};
+        for (const [_, node] of Object.entries(newNodes)) {
+           store.getState().addNode(node as any);
+        }
+      } else if (result && result.type === 'error') {
+        alert(result.message);
+      }
+    }
+  };
+
+  const handleCreateProject = async () => {
+    if (window.electronAPI) {
+      const result = await window.electronAPI.createProject();
+      if (result && result.type === 'project' && result.manifest) {
+        setHasProject(true);
+        setProjectManifest(JSON.parse(result.manifest));
+      }
+    }
+  };
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
@@ -83,6 +118,7 @@ function App() {
       }
 
       const exportData = {
+        ...(projectManifest || {}),
         scene: cleanScene,
         animations: engine.getTracks(),
         metadata: {
@@ -91,10 +127,53 @@ function App() {
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      if (hasProject) {
+        await window.electronAPI.saveProject(JSON.stringify(exportData, null, 2));
+      } else {
+        await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      }
     } else {
       alert("Electron API not available");
     }
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    if (!hasProject || !window.electronAPI) return;
+
+    for (const file of Array.from(e.dataTransfer.files)) {
+      if (file.type.startsWith('image/') || file.type.startsWith('video/') || file.name.endsWith('.bin')) {
+        const channel = new MessageChannel();
+        window.electronAPI.saveAssetStream(file.name, channel.port2);
+
+        // Update manifest
+        const assetPath = `assets/${file.name}`;
+        setProjectManifest((prev: any) => {
+          const m = { ...prev };
+          if (!m.assets) m.assets = [];
+          if (!m.assets.includes(assetPath)) m.assets.push(assetPath);
+          return m;
+        });
+
+        // Stream file
+        const stream = file.stream();
+        const reader = stream.getReader();
+        
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            channel.port1.postMessage(value, [value.buffer]);
+          }
+        } finally {
+          channel.port1.postMessage('EOF');
+        }
+      }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
   };
 
   const handleExportSvg = async () => {
@@ -177,6 +256,10 @@ function App() {
           onImport={handleImportSvg}
           onExport={handleSaveState}
           onExportSvg={handleExportSvg}
+          onOpenProject={handleOpenProject}
+          onCreateProject={handleCreateProject}
+          onSaveProject={handleSaveState}
+          hasProject={hasProject}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
         />
@@ -184,7 +267,11 @@ function App() {
         <div className="flex flex-1 overflow-hidden">
           <LayerPanel store={store} nodesCount={nodesCount} />
 
-          <div className="flex-1 relative bg-[#1a1a1a]">
+          <div 
+            className="flex-1 relative bg-[#1a1a1a]"
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+          >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
             {/* Overlay a subtle test animation button for quick testing */}
             <button
