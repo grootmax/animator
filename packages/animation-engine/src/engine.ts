@@ -24,6 +24,7 @@ export class AnimationEngine {
   private rafId: number | null = null;
   public loop = true;
   private duration = 5000; // ms
+  public onTick?: (nodes: Record<string, any>, playhead: number) => void;
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
@@ -52,7 +53,8 @@ export class AnimationEngine {
   public pause() {
     this.isPlaying = false;
     if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
+      const caf = typeof cancelAnimationFrame !== 'undefined' ? cancelAnimationFrame : clearTimeout;
+      caf(this.rafId);
       this.rafId = null;
     }
   }
@@ -60,6 +62,9 @@ export class AnimationEngine {
   public seek(time: number) {
     this.playhead = time;
     this.updateNodes();
+    if (this.onTick) {
+      this.onTick(this.store.getState().nodes, this.playhead);
+    }
   }
 
   private tick = () => {
@@ -82,8 +87,13 @@ export class AnimationEngine {
 
     this.updateNodes();
 
+    if (this.onTick) {
+      this.onTick(this.store.getState().nodes, this.playhead);
+    }
+
     if (this.isPlaying) {
-      this.rafId = requestAnimationFrame(this.tick);
+      const raf = typeof requestAnimationFrame !== 'undefined' ? requestAnimationFrame : (cb: any) => setTimeout(() => cb(performance.now()), 1000 / 60);
+      this.rafId = raf(this.tick) as number;
     }
   }
 
