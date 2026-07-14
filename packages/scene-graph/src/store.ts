@@ -142,19 +142,17 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
 
   updateNodes: (updates) => {
     set((state) => {
-      const newNodes = { ...state.nodes };
-      let changed = false;
+      const newNodes = state.nodes;
 
       for (const [id, nodeUpdates] of Object.entries(updates)) {
         const node = newNodes[id];
         if (node) {
           newNodes[id] = { ...node, ...nodeUpdates, isDirty: true };
-          changed = true;
         }
       }
 
-      if (!changed) return state;
-      return { nodes: newNodes };
+      // Return state to prevent redundant subscriber notifications before recalculateMatrices
+      return state;
     });
   },
 
@@ -209,25 +207,25 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
 
   recalculateMatrices: () => {
     set((state) => {
-      const newNodes = { ...state.nodes };
+      const newNodes = state.nodes;
       const { rootId } = state;
 
       if (!rootId || !newNodes[rootId]) return state;
 
-      const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
+      const traverse = (nodeId: string, parentWorldMatrix: Matrix3) => {
         const node = newNodes[nodeId];
         if (!node) return;
 
-        const isNowDirty = node.isDirty || parentWasDirty;
         let currentWorldMatrix = parentWorldMatrix;
 
-        if (isNowDirty) {
+        if (node.isDirty) {
           const localMatrix = getTransformMatrix(
-            node.x, node.y, 
-            node.rotation, 
-            node.scaleX, node.scaleY,
-            node.skewX || 0, node.skewY || 0
-          );
+                node.x, node.y, 
+                node.rotation, 
+                node.scaleX, node.scaleY,
+                node.skewX || 0, node.skewY || 0
+              );
+          
           currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
 
           newNodes[nodeId] = {
@@ -236,16 +234,18 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
             worldMatrix: currentWorldMatrix,
             isDirty: false
           };
-        } else {
-            currentWorldMatrix = node.worldMatrix;
+        } else if (node.children.length > 0) {
+            // During playback, we skip eagerly recomputing the worldMatrix for clean nodes 
+            // since PixiJS natively handles the world transform cascade.
+            currentWorldMatrix = multiplyMatrix(parentWorldMatrix, node.localMatrix);
         }
 
         for (const childId of node.children) {
-          traverse(childId, currentWorldMatrix, isNowDirty);
+          traverse(childId, currentWorldMatrix);
         }
       };
 
-      traverse(rootId, createMatrix(), false);
+      traverse(rootId, createMatrix());
 
       return { nodes: newNodes };
     });

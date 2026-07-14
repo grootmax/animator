@@ -11,7 +11,8 @@
     "@monorepo/animation-engine": "*",
     "@monorepo/renderer": "*",
     "@monorepo/scene-graph": "*",
-    "@monorepo/runtime-player": "*"
+    "@monorepo/runtime-player": "*",
+    "@monorepo/math": "*"
   },
   "devDependencies": {
     "vite": "^4.4.5",
