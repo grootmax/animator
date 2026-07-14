@@ -45,7 +45,113 @@ export class PixiBridge {
 
     this.app.ticker.add(() => {
         this.handles.update();
+        this.updateMediaVisibility();
+        this.updateMediaPlayback();
     });
+  }
+
+  private updateMediaVisibility() {
+    const screenBounds = new PIXI.Rectangle(0, 0, this.app.screen.width, this.app.screen.height);
+
+    for (const [id, node] of Object.entries(this.store.getState().nodes)) {
+      if (node.type === 'media') {
+        const pixiNode = this.pixiNodes.get(id) as PIXI.Container;
+        if (!pixiNode) continue;
+
+        const bounds = pixiNode.getBounds();
+        const isVisible = node.visible &&
+          bounds.x < screenBounds.width && bounds.x + bounds.width > 0 &&
+          bounds.y < screenBounds.height && bounds.y + bounds.height > 0;
+
+        let mediaData = (pixiNode as any).mediaData;
+        if (!mediaData) {
+            mediaData = { state: 'unloaded', src: null, texture: null };
+            (pixiNode as any).mediaData = mediaData;
+        }
+
+        if (isVisible && node.src) {
+          if (mediaData.src !== node.src) {
+             mediaData.state = 'unloaded';
+             mediaData.src = node.src;
+             (pixiNode as any).mediaSprite.texture = PIXI.Texture.EMPTY;
+             (pixiNode as any).mediaPlaceholder.visible = true;
+          }
+          if (mediaData.state === 'unloaded') {
+            mediaData.state = 'loading';
+            PIXI.Assets.load(node.src).then(texture => {
+              if (mediaData.src === node.src) {
+                mediaData.state = 'loaded';
+                mediaData.texture = texture;
+                const sprite = (pixiNode as any).mediaSprite;
+                sprite.texture = texture;
+                
+                (pixiNode as any).mediaPlaceholder.visible = false;
+                
+                this.syncVideoState(node, texture);
+              }
+            }).catch(e => {
+              console.error("Failed to load media", e);
+              if (mediaData.src === node.src) {
+                  mediaData.state = 'error';
+                  (pixiNode as any).mediaPlaceholder.visible = true;
+              }
+            });
+          }
+        } else if (!isVisible && mediaData.state === 'loaded') {
+          mediaData.state = 'unloaded';
+          (pixiNode as any).mediaSprite.texture = PIXI.Texture.EMPTY;
+          (pixiNode as any).mediaPlaceholder.visible = true;
+          if (mediaData.src) {
+             PIXI.Assets.unload(mediaData.src);
+             mediaData.texture = null;
+          }
+        }
+      }
+    }
+  }
+
+  private syncVideoState(node: SceneNode, texture: PIXI.Texture) {
+      if (texture && texture.baseTexture && texture.baseTexture.resource instanceof PIXI.VideoResource) {
+          const video = (texture.baseTexture.resource as PIXI.VideoResource).source;
+          if (node.playing) {
+              video.play().catch(() => {});
+          } else {
+              video.pause();
+          }
+          if (node.volume !== undefined) video.volume = node.volume;
+          if (node.playbackRate !== undefined) video.playbackRate = node.playbackRate;
+          if (node.loop !== undefined) video.loop = node.loop;
+      }
+  }
+
+  private updateMediaPlayback() {
+      for (const [id, node] of Object.entries(this.store.getState().nodes)) {
+          if (node.type === 'media') {
+              const pixiNode = this.pixiNodes.get(id);
+              if (!pixiNode) continue;
+              const mediaData = (pixiNode as any).mediaData;
+              if (mediaData && mediaData.state === 'loaded' && mediaData.texture) {
+                  const texture = mediaData.texture;
+                  if (texture.baseTexture && texture.baseTexture.resource instanceof PIXI.VideoResource) {
+                      const video = (texture.baseTexture.resource as PIXI.VideoResource).source;
+                      
+                      if (node.playing && video.paused) {
+                          video.play().catch(() => {});
+                      } else if (!node.playing && !video.paused) {
+                          video.pause();
+                      }
+
+                      if (node.volume !== undefined) video.volume = node.volume;
+                      if (node.playbackRate !== undefined) video.playbackRate = node.playbackRate;
+                      if (node.loop !== undefined) video.loop = node.loop;
+                      
+                      if (node.currentTime !== undefined && Math.abs(video.currentTime - node.currentTime) > 0.5) {
+                          video.currentTime = node.currentTime;
+                      }
+                  }
+              }
+          }
+      }
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
@@ -110,6 +216,15 @@ export class PixiBridge {
           pixiNode = new PIXI.Graphics();
         } else {
           pixiNode = new PIXI.Container();
+          if (node.type === 'media') {
+            const sprite = new PIXI.Sprite();
+            const placeholder = new PIXI.Graphics();
+            sprite.anchor.set(0.5);
+            pixiNode.addChild(placeholder);
+            pixiNode.addChild(sprite);
+            (pixiNode as any).mediaSprite = sprite;
+            (pixiNode as any).mediaPlaceholder = placeholder;
+          }
         }
 
         pixiNode.interactive = true;
@@ -171,6 +286,25 @@ export class PixiBridge {
         if (node.fill) {
             pixiNode.endFill();
         }
+      } else if (node.type === 'media') {
+        const placeholder = (pixiNode as any).mediaPlaceholder as PIXI.Graphics;
+        placeholder.clear();
+        const w = node.width || 100;
+        const h = node.height || 100;
+        
+        placeholder.beginFill(0x333333);
+        placeholder.drawRect(-w/2, -h/2, w, h);
+        placeholder.endFill();
+        
+        placeholder.lineStyle(2, 0x888888);
+        placeholder.moveTo(-w/2, -h/2);
+        placeholder.lineTo(w/2, h/2);
+        placeholder.moveTo(w/2, -h/2);
+        placeholder.lineTo(-w/2, h/2);
+
+        const sprite = (pixiNode as any).mediaSprite as PIXI.Sprite;
+        sprite.width = w;
+        sprite.height = h;
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);
