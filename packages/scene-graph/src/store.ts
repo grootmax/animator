@@ -167,16 +167,20 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
         const node = newNodes[nodeId];
         if (!node) return;
 
-        const isNowDirty = node.isDirty || parentWasDirty;
+        const isWorldDirty = node.isDirty || parentWasDirty;
         let currentWorldMatrix = parentWorldMatrix;
 
-        if (isNowDirty) {
-          const localMatrix = getTransformMatrix(
-            node.x, node.y, 
-            node.rotation, 
-            node.scaleX, node.scaleY,
-            node.skewX || 0, node.skewY || 0
-          );
+        if (isWorldDirty) {
+          let localMatrix = node.localMatrix;
+
+          if (node.isDirty) {
+            localMatrix = getTransformMatrix(
+              node.x, node.y, 
+              node.rotation, 
+              node.scaleX, node.scaleY,
+              node.skewX || 0, node.skewY || 0
+            );
+          }
           currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
 
           newNodes[nodeId] = {
@@ -190,7 +194,7 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
         }
 
         for (const childId of node.children) {
-          traverse(childId, currentWorldMatrix, isNowDirty);
+          traverse(childId, currentWorldMatrix, isWorldDirty);
         }
       };
 
