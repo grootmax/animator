@@ -1,4 +1,3 @@
-import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
@@ -20,135 +19,105 @@ export class AnimationEngine {
   private tracks: Track[] = [];
   private playhead = 0;
   private isPlaying = false;
-  private lastTime = 0;
-  private rafId: number | null = null;
-  public loop = true;
   private duration = 5000; // ms
+  private worker: Worker;
+
+  public loop = true;
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
   public getIsPlaying() { return this.isPlaying; }
   public getDuration() { return this.duration; }
-  public setDuration(d: number) { this.duration = d; }
-  public setTracks(tracks: Track[]) { this.tracks = tracks; }
+  
+  public setDuration(d: number) { 
+    this.duration = d; 
+    this.worker.postMessage({ type: 'SET_DURATION', payload: { duration: d } });
+  }
+  
+  public setTracks(tracks: Track[]) { 
+    this.tracks = tracks; 
+    this.worker.postMessage({ type: 'SET_TRACKS', payload: { tracks } });
+  }
 
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
+    
+    // Initialize Web Worker
+    this.worker = new Worker(new URL('./engine.worker.js', import.meta.url), { type: 'module' });
+    
+    this.worker.onmessage = (e) => {
+      const msg = e.data;
+      if (msg.type === 'PLAYHEAD_UPDATE') {
+        this.playhead = msg.payload.playhead;
+      } else if (msg.type === 'STOPPED') {
+        this.isPlaying = false;
+        this.playhead = msg.payload.playhead;
+      } else if (msg.type === 'DELTA_UPDATES') {
+        const deltaUpdates = msg.payload;
+        
+        // Sync delta updates back to the main thread store without triggering O(N) matrix math
+        const currentState = this.store.getState();
+        const newNodes = { ...currentState.nodes };
+        let hasChanges = false;
+        
+        for (const update of deltaUpdates) {
+          const node = newNodes[update.id];
+          if (node) {
+            newNodes[update.id] = {
+              ...node,
+              ...update.updates,
+              localMatrix: update.localMatrix,
+              worldMatrix: update.worldMatrix,
+              isDirty: false // Worker already processed matrices!
+            };
+            hasChanges = true;
+          }
+        }
+        
+        if (hasChanges) {
+          // Note: Zustand requires us to use setState to trigger subscriptions
+          this.store.setState({ nodes: newNodes });
+        }
+      }
+    };
+    
+    // Subscribe to store changes (like adding nodes, changing properties via UI)
+    // and sync them down to the worker so it has an accurate tree for matrix logic
+    this.store.subscribe((state: any) => {
+      // Avoid sending matrix updates back to the worker if they came from the worker,
+      // but simpler: just send the whole state when something changes from the UI.
+      // For efficiency, in a production app we'd only sync what changed.
+      this.worker.postMessage({ type: 'SYNC_SCENE', payload: { nodes: state.nodes, rootId: state.rootId } });
+    });
+    
+    // Initial sync
+    const state = this.store.getState();
+    this.worker.postMessage({ type: 'SYNC_SCENE', payload: { nodes: state.nodes, rootId: state.rootId } });
   }
 
   public addTrack(track: Track) {
-    // Sort keyframes by time
     track.keyframes.sort((a, b) => a.time - b.time);
     this.tracks.push(track);
+    this.worker.postMessage({ type: 'ADD_TRACK', payload: { track } });
   }
 
   public play() {
     if (this.isPlaying) return;
     this.isPlaying = true;
-    this.lastTime = performance.now();
-    this.tick();
+    this.worker.postMessage({ type: 'PLAY' });
   }
 
   public pause() {
     this.isPlaying = false;
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
-    }
+    this.worker.postMessage({ type: 'PAUSE' });
+  }
+
+  public dispose() {
+    this.worker.terminate();
   }
 
   public seek(time: number) {
     this.playhead = time;
-    this.updateNodes();
-  }
-
-  private tick = () => {
-    if (!this.isPlaying) return;
-
-    const now = performance.now();
-    const dt = now - this.lastTime;
-    this.lastTime = now;
-
-    this.playhead += dt;
-
-    if (this.playhead > this.duration) {
-      if (this.loop) {
-        this.playhead = this.playhead % this.duration;
-      } else {
-        this.playhead = this.duration;
-        this.pause();
-      }
-    }
-
-    this.updateNodes();
-
-    if (this.isPlaying) {
-      this.rafId = requestAnimationFrame(this.tick);
-    }
-  }
-
-  private getEasingFunction(type: EasingType = 'linear') {
-    switch (type) {
-      case 'easeInQuad': return easeInQuad;
-      case 'easeOutQuad': return easeOutQuad;
-      case 'easeInOutQuad': return easeInOutQuad;
-      default: return linear;
-    }
-  }
-
-  private binarySearchKeyframes(keyframes: Keyframe[], time: number): [Keyframe | null, Keyframe | null] {
-    if (keyframes.length === 0) return [null, null];
-    if (time <= keyframes[0].time) return [keyframes[0], keyframes[0]];
-    if (time >= keyframes[keyframes.length - 1].time) return [keyframes[keyframes.length - 1], keyframes[keyframes.length - 1]];
-
-    let low = 0;
-    let high = keyframes.length - 1;
-
-    while (low <= high) {
-      const mid = Math.floor((low + high) / 2);
-      if (keyframes[mid].time === time) return [keyframes[mid], keyframes[mid]];
-      if (keyframes[mid].time < time) {
-        low = mid + 1;
-      } else {
-        high = mid - 1;
-      }
-    }
-
-    return [keyframes[high], keyframes[low]];
-  }
-
-  private updateNodes() {
-    const updates = new Map<string, any>();
-
-    for (const track of this.tracks) {
-      const [start, end] = this.binarySearchKeyframes(track.keyframes, this.playhead);
-
-      if (!start || !end) continue;
-
-      let value = start.value;
-      if (start !== end) {
-        const progress = (this.playhead - start.time) / (end.time - start.time);
-        const easingFn = this.getEasingFunction(start.easing);
-        const easedProgress = easingFn(progress);
-        value = start.value + (end.value - start.value) * easedProgress;
-      }
-
-      if (!updates.has(track.nodeId)) {
-        updates.set(track.nodeId, {});
-      }
-      updates.get(track.nodeId)[track.property] = value;
-    }
-
-    const storeState = this.store.getState();
-    let requiresMatrixUpdate = false;
-
-    for (const [nodeId, nodeUpdates] of updates.entries()) {
-      storeState.updateNode(nodeId, nodeUpdates);
-      requiresMatrixUpdate = true;
-    }
-
-    if (requiresMatrixUpdate) {
-      storeState.recalculateMatrices();
-    }
+    this.worker.postMessage({ type: 'SEEK', payload: { time } });
   }
 }
