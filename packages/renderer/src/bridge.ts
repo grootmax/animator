@@ -134,7 +134,23 @@ export class PixiBridge {
           pixiNode = new PIXI.Graphics();
         } else if (node.type === 'image') {
           pixiNode = new PIXI.Container();
+          
+          // Background placeholder (will show if missing)
+          const placeholder = new PIXI.Graphics();
+          placeholder.name = 'placeholder';
+          // Draw a clear visual placeholder: gray box with an 'X' or just a distinct colored box.
+          placeholder.beginFill(0x888888, 0.5);
+          placeholder.lineStyle(2, 0xff0000);
+          placeholder.drawRect(-50, -50, 100, 100);
+          placeholder.moveTo(-50, -50);
+          placeholder.lineTo(50, 50);
+          placeholder.moveTo(50, -50);
+          placeholder.lineTo(-50, 50);
+          placeholder.endFill();
+          pixiNode.addChild(placeholder);
+
           const sprite = new PIXI.Sprite();
+          sprite.name = 'imageSprite';
           sprite.anchor.set(0.5);
           pixiNode.addChild(sprite);
         } else {
@@ -169,6 +185,53 @@ export class PixiBridge {
       // Update visibility and opacity
       pixiNode.visible = node.visible !== false;
       pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
+
+      if (node.type === 'image' && pixiNode instanceof PIXI.Container) {
+        const sprite = pixiNode.getChildByName('imageSprite') as PIXI.Sprite;
+        const placeholder = pixiNode.getChildByName('placeholder') as PIXI.Graphics;
+        
+        if (sprite && node.src && (pixiNode as any)._currentSrc !== node.src) {
+          (pixiNode as any)._currentSrc = node.src;
+          // Prepend file:// if it's an absolute unix/windows path and not already a url
+          let url = node.src;
+          if (url.startsWith('/') || url.match(/^[a-zA-Z]:\\/)) {
+            url = 'file://' + url;
+          }
+          
+          PIXI.Assets.load(url).then((texture) => {
+            if (sprite.destroyed) return;
+            sprite.texture = texture;
+            
+            // If the node doesn't have dimensions, use the intrinsic texture size
+            if (node.width === undefined || node.height === undefined) {
+               this.store.getState().updateNode(id, { width: texture.width, height: texture.height });
+            } else {
+               sprite.width = node.width;
+               sprite.height = node.height;
+            }
+            placeholder.visible = false;
+          }).catch((err) => {
+            console.error('Failed to load image:', err);
+            placeholder.visible = true;
+            if (node.width !== undefined && node.height !== undefined) {
+               placeholder.clear();
+               placeholder.beginFill(0x888888, 0.5);
+               placeholder.lineStyle(2, 0xff0000);
+               placeholder.drawRect(-node.width/2, -node.height/2, node.width, node.height);
+               placeholder.moveTo(-node.width/2, -node.height/2);
+               placeholder.lineTo(node.width/2, node.height/2);
+               placeholder.moveTo(node.width/2, -node.height/2);
+               placeholder.lineTo(-node.width/2, node.height/2);
+               placeholder.endFill();
+            }
+          });
+        }
+        
+        if (sprite && sprite.texture && sprite.texture !== PIXI.Texture.EMPTY) {
+            if (node.width !== undefined) sprite.width = node.width;
+            if (node.height !== undefined) sprite.height = node.height;
+        }
+      }
 
       if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();
@@ -215,37 +278,6 @@ export class PixiBridge {
 
         if (node.fill) {
             pixiNode.endFill();
-        }
-      } else if (node.type === 'image') {
-        const sprite = (pixiNode as PIXI.Container).children[0] as PIXI.Sprite;
-        
-        if (node.src) {
-           const currentSrc = (sprite as any)._currentSrc;
-           if (currentSrc !== node.src) {
-               (sprite as any)._currentSrc = node.src;
-               const tex = PIXI.Texture.from(node.src);
-               sprite.texture = tex;
-               
-               if (!tex.valid) {
-                   (tex.baseTexture as any).once('loaded', () => {
-                       const n = this.store.getState().nodes[id];
-                       if (n && n.width !== undefined && n.height !== undefined && sprite.texture === tex) {
-                           sprite.width = n.width;
-                           sprite.height = n.height;
-                       }
-                   });
-               }
-           }
-        } else {
-           sprite.texture = PIXI.Texture.EMPTY;
-           (sprite as any)._currentSrc = undefined;
-        }
-
-        if (node.width !== undefined && node.height !== undefined && sprite.texture.valid) {
-           sprite.width = node.width;
-           sprite.height = node.height;
-        } else if (node.width === undefined || node.height === undefined) {
-           sprite.scale.set(1);
         }
       }
 
