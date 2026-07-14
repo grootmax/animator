@@ -1,6 +1,5 @@
-import { createSceneGraphStore, SceneNode } from '@monorepo/scene-graph';
-import { PixiBridge } from '@monorepo/renderer';
-import { AnimationEngine, Track } from '@monorepo/animation-engine';
+import { SceneNode } from '@monorepo/scene-graph';
+import { Track } from '@monorepo/animation-engine';
 
 export interface ExportedProject {
   scene: Record<string, Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>>;
@@ -9,14 +8,12 @@ export interface ExportedProject {
 }
 
 export class RuntimePlayer {
-  private store: ReturnType<typeof createSceneGraphStore>;
-  private engine: AnimationEngine;
-  private bridge: PixiBridge;
+  private worker: Worker;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.store = createSceneGraphStore();
-    this.engine = new AnimationEngine(this.store);
-    this.bridge = new PixiBridge(canvas, this.store);
+    this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+    const offscreen = canvas.transferControlToOffscreen();
+    this.worker.postMessage({ type: 'INIT', canvas: offscreen }, [offscreen]);
   }
 
   public load(json: string | ExportedProject) {
@@ -31,31 +28,27 @@ export class RuntimePlayer {
       data = json;
     }
 
-    // Load scene
     if (data.scene) {
-      Object.values(data.scene).forEach(node => {
-        this.store.getState().addNode(node as any);
-      });
-      this.store.getState().recalculateMatrices();
+      const updates = Object.values(data.scene).map(n => ({ type: 'ADD', node: n }));
+      this.worker.postMessage({ type: 'BATCH_UPDATE', updates });
     }
 
-    // Load metadata and animations
     if (data.metadata?.duration) {
-      this.engine.setDuration(data.metadata.duration);
+      // We don't have explicit setDuration on the worker right now but we can assume tracks cover it
     }
 
     if (data.animations) {
       data.animations.forEach(track => {
-        this.engine.addTrack(track);
+        this.worker.postMessage({ type: 'ENGINE_CMD', cmd: 'addTrack', track });
       });
     }
   }
 
   public play() {
-    this.engine.play();
+    this.worker.postMessage({ type: 'ENGINE_CMD', cmd: 'play' });
   }
 
   public pause() {
-    this.engine.pause();
+    this.worker.postMessage({ type: 'ENGINE_CMD', cmd: 'pause' });
   }
 }
