@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { setupSecurity, setupCSP } from './security';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -23,6 +24,8 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  setupCSP();
+  setupSecurity();
   createWindow();
 
   app.on('activate', () => {
