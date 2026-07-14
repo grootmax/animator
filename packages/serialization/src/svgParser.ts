@@ -79,6 +79,7 @@ export class SvgParser {
     const rootNodes: SceneNode[] = [];
     const viewportMatrix = this.calculateViewBoxTransform(svgElement);
 
+    let lastOrder = null;
     Array.from(svgElement.children).forEach(child => {
       this.processElement(child, null, rootNodes, viewportMatrix);
     });
@@ -242,7 +243,7 @@ export class SvgParser {
       id,
       type,
       parentId,
-      children: [],
+      order: '',
       x,
       y,
       scaleX,

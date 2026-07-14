@@ -10,7 +10,15 @@ import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 
 // Create singletons for the app
-const store = createSceneGraphStore();
+const channel = new BroadcastChannel('scene-graph-sync');
+const store = createSceneGraphStore((msg) => {
+  channel.postMessage(msg);
+});
+channel.onmessage = (event) => {
+  if (event.data && typeof (store as any).applyRemote === 'function') {
+    (store as any).applyRemote(event.data);
+  }
+};
 const engine = new AnimationEngine(store);
 
 // Extend Window interface for Electron IPC
@@ -164,11 +172,11 @@ function App() {
       engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: [
-          { time: 0, value: 0, easing: 'linear' },
-          { time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          { time: 4000, value: 0, easing: 'easeInOutQuad' }
-        ]
+        keyframes: {
+          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
+          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        }
       });
       engine.play();
     } else {
@@ -177,7 +185,7 @@ function App() {
         id: 'test_rect',
         type: 'rect',
         parentId: null,
-        children: [],
+        
         x: window.innerWidth / 2,
         y: window.innerHeight / 2,
         rotation: 0,
