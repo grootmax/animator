@@ -1,17 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { createSceneGraphStore } from '@monorepo/scene-graph';
-import { PixiBridge } from '@monorepo/renderer';
-import { AnimationEngine } from '@monorepo/animation-engine';
+import { RuntimePlayer } from '@monorepo/runtime-player';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-
-// Create singletons for the app
-const store = createSceneGraphStore();
-const engine = new AnimationEngine(store);
 
 // Extend Window interface for Electron IPC
 declare global {
@@ -24,39 +18,64 @@ declare global {
 }
 
 function App() {
+  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [player, setPlayer] = useState<RuntimePlayer | null>(null);
+
+  // We need to keep a store ref since other components use it directly
+  const store = player?.getStore();
+  const engine = player?.engine;
 
   useEffect(() => {
-    if (canvasRef.current) {
-      // Initialize renderer
-      const bridge = new PixiBridge(canvasRef.current, store);
-      // We keep bridge instance alive
-      (window as any).__bridge = bridge;
-
-      // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
+    if (canvasRef.current && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const newPlayer = new RuntimePlayer({
+        canvas: canvasRef.current,
+        width: rect.width,
+        height: rect.height,
+        resolution: window.devicePixelRatio || 1,
+      });
+      
+      setPlayer(newPlayer);
+      
+      const unsubscribe = newPlayer.getStore().subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
       });
 
-      return () => unsubscribe();
+      const onResize = () => {
+        if (containerRef.current) {
+          const newRect = containerRef.current.getBoundingClientRect();
+          newPlayer.resize(newRect.width, newRect.height, window.devicePixelRatio || 1);
+        }
+      };
+      
+      window.addEventListener('resize', onResize);
+
+      return () => {
+        unsubscribe();
+        window.removeEventListener('resize', onResize);
+        newPlayer.destroy();
+      };
     }
   }, []);
 
   useEffect(() => {
+    if (!player) return;
     let frame: number;
     const checkPlayState = () => {
-      setIsPlaying(engine.getIsPlaying());
+      setIsPlaying(player.getIsPlaying());
       frame = requestAnimationFrame(checkPlayState);
     };
     frame = requestAnimationFrame(checkPlayState);
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [player]);
 
   const handleImportSvg = async () => {
-    if (window.electronAPI) {
+    if (window.electronAPI && store) {
       const svgContent = await window.electronAPI.openFile();
       if (svgContent) {
         const parser = new SvgParser();
@@ -69,10 +88,9 @@ function App() {
   };
 
   const handleSaveState = async () => {
-    if (window.electronAPI) {
+    if (window.electronAPI && store && player) {
       const state = store.getState().nodes;
 
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
       const cleanScene: Record<string, any> = {};
       for (const [id, node] of Object.entries(state)) {
         const cleanNode = { ...node };
@@ -84,10 +102,10 @@ function App() {
 
       const exportData = {
         scene: cleanScene,
-        animations: engine.getTracks(),
+        animations: player.getTracks(),
         metadata: {
           version: "1.0.0",
-          duration: engine.getDuration()
+          duration: player.getDuration()
         }
       };
 
@@ -98,7 +116,7 @@ function App() {
   };
 
   const handleExportSvg = async () => {
-    if (window.electronAPI) {
+    if (window.electronAPI && store) {
       const state = store.getState().nodes;
       const serializer = new SvgSerializer();
       const svgString = serializer.serialize(state);
@@ -109,11 +127,12 @@ function App() {
   };
 
   const handleTestAnimation = () => {
+    if (!player || !store) return;
     const state = store.getState();
     const nodeIds = Object.keys(state.nodes);
     if (nodeIds.length > 0) {
       const testNodeId = nodeIds[0];
-      engine.addTrack({
+      player.setTracks([...player.getTracks(), {
         nodeId: testNodeId,
         property: 'rotation',
         keyframes: [
@@ -121,16 +140,15 @@ function App() {
           { time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
           { time: 4000, value: 0, easing: 'easeInOutQuad' }
         ]
-      });
-      engine.play();
+      }]);
+      player.play();
     } else {
-      // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
         type: 'rect',
         parentId: null,
         children: [],
-        x: window.innerWidth / 2,
+        x: window.innerWidth / 2, // OK in app code, not engine code
         y: window.innerHeight / 2,
         rotation: 0,
         scaleX: 1,
@@ -144,25 +162,24 @@ function App() {
   };
 
   const handleTogglePlay = () => {
-    if (engine.getIsPlaying()) engine.pause();
-    else engine.play();
+    if (!player) return;
+    if (player.getIsPlaying()) player.pause();
+    else player.play();
   };
 
   const handleZoomIn = () => {
-    const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x *= 1.2;
-      bridge.viewport.container.scale.y *= 1.2;
-      bridge.viewport.drawGrid();
+    if (player) {
+      player.renderer.viewport.container.scale.x *= 1.2;
+      player.renderer.viewport.container.scale.y *= 1.2;
+      player.renderer.viewport.drawGrid();
     }
   };
 
   const handleZoomOut = () => {
-    const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x /= 1.2;
-      bridge.viewport.container.scale.y /= 1.2;
-      bridge.viewport.drawGrid();
+    if (player) {
+      player.renderer.viewport.container.scale.x /= 1.2;
+      player.renderer.viewport.container.scale.y /= 1.2;
+      player.renderer.viewport.drawGrid();
     }
   };
 
@@ -182,11 +199,18 @@ function App() {
         />
 
         <div className="flex flex-1 overflow-hidden">
-          <LayerPanel store={store} nodesCount={nodesCount} />
+          {store && <LayerPanel store={store} nodesCount={nodesCount} />}
 
-          <div className="flex-1 relative bg-[#1a1a1a]">
+          <div 
+            ref={containerRef} 
+            className="flex-1 relative bg-[#1a1a1a]"
+            onPointerDown={(e) => player?.emitPointerDown(e.nativeEvent)}
+            onPointerMove={(e) => player?.emitPointerMove(e.nativeEvent)}
+            onPointerUp={(e) => player?.emitPointerUp(e.nativeEvent)}
+            onPointerLeave={(e) => player?.emitPointerUp(e.nativeEvent)}
+            onWheel={(e) => player?.emitWheel(e.nativeEvent)}
+          >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
-            {/* Overlay a subtle test animation button for quick testing */}
             <button
                className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
                onClick={handleTestAnimation}
@@ -196,7 +220,7 @@ function App() {
           </div>
         </div>
 
-        <Timeline engine={engine} store={store} />
+        {engine && store && <Timeline engine={engine} store={store} />}
       </div>
     </DndProvider>
   );

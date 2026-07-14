@@ -27,6 +27,7 @@
     }
   },
   "dependencies": {
+    "@monorepo/runtime-player": "*",
     "@monorepo/animation-engine": "*",
     "@monorepo/renderer": "*",
     "@monorepo/scene-graph": "*",

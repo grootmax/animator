@@ -37,9 +37,8 @@ export class TransformHandles {
       this.container.addChild(handle);
     }
 
-    // Add global pointer move/up
-    window.addEventListener('pointermove', this.onDragMove.bind(this));
-    window.addEventListener('pointerup', this.onDragEnd.bind(this));
+    // Add global pointer move/up managed by runtime player
+    // No window listeners here
   }
 
   public setSelectedNode(id: string | null) {
@@ -114,7 +113,7 @@ export class TransformHandles {
     this.startNodeState = { ...this.store.getState().nodes[this.selectedNodeId] } as SceneNode;
   }
 
-  private onDragMove(e: PointerEvent) {
+  public onPointerMove(e: { clientX: number, clientY: number }) {
     if (!this.isDragging || !this.selectedNodeId || !this.startNodeState) return;
 
     const dx = e.clientX - this.dragStartPos.x;
@@ -141,7 +140,7 @@ export class TransformHandles {
     this.store.getState().recalculateMatrices();
   }
 
-  private onDragEnd() {
+  public onPointerUp() {
     this.isDragging = false;
     this.dragType = null;
     this.startNodeState = null;
