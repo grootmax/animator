@@ -5,6 +5,7 @@ import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
+import { WorkspacePanel } from './components/WorkspacePanel';
 import { Timeline } from './components/Timeline';
 // @ts-ignore
 import { DndProvider } from 'react-dnd';
@@ -30,6 +31,11 @@ declare global {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
       exportSvg: (content: string) => Promise<boolean>;
+      openWorkspace: () => Promise<any>;
+      getLastActiveWorkspace: () => Promise<any>;
+      saveWorkspaceScene: (sceneData: any) => Promise<boolean>;
+      onWorkspaceUpdated: (callback: (manifest: any) => void) => void;
+      readFileBinary: (filePath: string) => Promise<any>;
     }
   }
 }
@@ -104,7 +110,6 @@ function App() {
       const state = store.getState().nodes;
       const nodeKeys = Object.keys(state);
       const totalNodes = nodeKeys.length;
-      
       const cleanScene: Record<string, any> = {};
       
       let currentIndex = 0;
@@ -161,6 +166,9 @@ function App() {
           }
         };
 
+        if (window.electronAPI?.saveWorkspaceScene) {
+          await window.electronAPI.saveWorkspaceScene(exportData);
+        }
         await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
       };
       
@@ -294,7 +302,10 @@ function App() {
         />
 
         <div className="flex flex-1 overflow-hidden">
-          <LayerPanel store={store} nodesCount={nodesCount} version={storeVersion} />
+          <div className="flex flex-col w-64 h-full">
+            <LayerPanel store={store} nodesCount={nodesCount} version={storeVersion} />
+            <WorkspacePanel store={store} />
+          </div>
 
           <div 
             className="flex-1 relative bg-[#1a1a1a]"

@@ -34,7 +34,7 @@ export interface SceneNode {
   x2?: number;
   y2?: number;
   points?: string;
-  src?: string;
+  src?: string; // For image nodes (e.g. asset:// protocol URLs)
 
   // Internal state
   localMatrix: Matrix3;
