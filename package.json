@@ -7,13 +7,12 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "turbo run build",
-    "dev": "turbo run dev",
-    "test": "turbo run test",
-    "package": "turbo run package"
+    "build": "npm run build --workspace=@monorepo/editor",
+    "dev": "npm run dev --workspace=@monorepo/editor",
+    "test": "npm run test --workspace=@monorepo/editor",
+    "package": "npm run package --workspace=@monorepo/editor"
   },
   "devDependencies": {
-    "turbo": "^1.10.0",
     "typescript": "^5.0.0"
   }
 }
