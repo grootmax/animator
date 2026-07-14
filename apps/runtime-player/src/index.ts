@@ -1,5 +1,6 @@
-import { SceneNode } from '@monorepo/scene-graph';
-import { Track } from '@monorepo/animation-engine';
+import { createSceneGraphStore, SceneNode } from '@monorepo/scene-graph';
+import { PixiBridge } from '@monorepo/renderer';
+import { AnimationEngine, Track } from '@monorepo/animation-engine';
 
 export interface ExportedProject {
   scene: Record<string, Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>>;
@@ -8,40 +9,97 @@ export interface ExportedProject {
 }
 
 export class RuntimePlayer {
-  private worker: Worker;
-  private sharedBuffer: SharedArrayBuffer;
-  private syncArray: Float32Array;
+  public worker?: Worker;
+
+  // Fallback properties
+  private store?: ReturnType<typeof createSceneGraphStore>;
+  private engine?: AnimationEngine;
+  private bridge?: PixiBridge;
 
   constructor(canvas: HTMLCanvasElement) {
-    // SharedArrayBuffer for node state sync (up to 100k nodes * 16 floats per node)
-    this.sharedBuffer = new SharedArrayBuffer(100000 * 16 * 4);
-    this.syncArray = new Float32Array(this.sharedBuffer);
+    const supportsOffscreen = 'OffscreenCanvas' in window && typeof (canvas as any).transferControlToOffscreen === 'function';
 
-    let offscreen: OffscreenCanvas | HTMLCanvasElement = canvas;
-    if ('transferControlToOffscreen' in canvas) {
-      offscreen = canvas.transferControlToOffscreen();
+    if (supportsOffscreen) {
+      try {
+        const offscreen = (canvas as any).transferControlToOffscreen();
+        this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+
+        this.worker.postMessage({
+          type: 'INIT',
+          payload: {
+            canvas: offscreen,
+            width: canvas.clientWidth || 800,
+            height: canvas.clientHeight || 600,
+            devicePixelRatio: window.devicePixelRatio || 1
+          }
+        }, [offscreen]);
+
+        this.bindCanvasEvents(canvas);
+      } catch (e) {
+        console.warn('Worker initialization failed, falling back to main thread:', e);
+        this.initMainThread(canvas);
+      }
+    } else {
+      this.initMainThread(canvas);
     }
-
-    this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-    this.worker.postMessage({
-      type: 'init',
-      payload: { canvas: offscreen, sharedBuffer: this.sharedBuffer }
-    }, offscreen instanceof OffscreenCanvas ? [offscreen] : []);
-
-    // Proxy viewport events to the worker
-    canvas.addEventListener('pointerdown', (e) => this.proxyEvent('pointerdown', e));
-    canvas.addEventListener('pointermove', (e) => this.proxyEvent('pointermove', e));
-    canvas.addEventListener('pointerup', (e) => this.proxyEvent('pointerup', e));
   }
 
-  private proxyEvent(type: string, e: PointerEvent) {
-    this.worker.postMessage({
-      type: 'interaction',
-      payload: {
-        eventType: type,
-        eventData: { clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId }
-      }
-    });
+  private initMainThread(canvas: HTMLCanvasElement) {
+    this.store = createSceneGraphStore();
+    this.engine = new AnimationEngine(this.store);
+    this.bridge = new PixiBridge({
+      canvas: canvas,
+      width: canvas.clientWidth || 800,
+      height: canvas.clientHeight || 600,
+      devicePixelRatio: window.devicePixelRatio || 1,
+      resizeTo: window as any
+    }, this.store);
+  }
+
+  private bindCanvasEvents(canvas: HTMLCanvasElement) {
+    const forwardEvent = (e: any) => {
+      if (!this.worker) return;
+      const rect = canvas.getBoundingClientRect();
+      const eventData = {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        globalX: e.clientX - rect.left,
+        globalY: e.clientY - rect.top,
+        button: e.button,
+        shiftKey: e.shiftKey,
+        deltaY: e.deltaY,
+      };
+
+      this.worker.postMessage({
+        type: 'DOM_EVENT',
+        payload: { eventName: e.type, eventData }
+      });
+    };
+
+    canvas.addEventListener('pointerdown', forwardEvent);
+    canvas.addEventListener('pointermove', forwardEvent);
+    window.addEventListener('pointerup', forwardEvent);
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      forwardEvent(e);
+    }, { passive: false });
+  }
+
+  public resize(width: number, height: number) {
+    if (this.worker) {
+      this.worker.postMessage({ type: 'RESIZE', payload: { width, height } });
+    } else if (this.bridge) {
+      this.bridge.resize(width, height);
+    }
+  }
+
+  public updateNode(nodeId: string, updates: Partial<SceneNode>) {
+    if (this.worker) {
+      this.worker.postMessage({ type: 'UPDATE_NODE', payload: { nodeId, updates } });
+    } else if (this.store) {
+      this.store.getState().updateNode(nodeId, updates);
+      this.store.getState().recalculateMatrices();
+    }
   }
 
   public load(json: string | ExportedProject) {
@@ -56,25 +114,47 @@ export class RuntimePlayer {
       data = json;
     }
 
-    this.worker.postMessage({
-      type: 'load',
-      payload: { data }
-    });
+    if (this.worker) {
+      this.worker.postMessage({ type: 'LOAD', payload: data });
+    } else if (this.store && this.engine) {
+      if (data.scene) {
+        Object.values(data.scene).forEach(node => {
+          this.store!.getState().addNode(node as any);
+        });
+        this.store!.getState().recalculateMatrices();
+      }
+      if (data.metadata?.duration) {
+        this.engine.setDuration(data.metadata.duration);
+      }
+      if (data.animations) {
+        data.animations.forEach(track => {
+          this.engine!.addTrack(track);
+        });
+      }
+    }
   }
 
   public play() {
-    this.worker.postMessage({ type: 'play' });
+    if (this.worker) {
+      this.worker.postMessage({ type: 'PLAY' });
+    } else if (this.engine) {
+      this.engine.play();
+    }
   }
 
   public pause() {
-    this.worker.postMessage({ type: 'pause' });
+    if (this.worker) {
+      this.worker.postMessage({ type: 'PAUSE' });
+    } else if (this.engine) {
+      this.engine.pause();
+    }
   }
 
   public seek(time: number) {
-    this.worker.postMessage({ type: 'seek', payload: { time } });
-  }
-
-  public updateNode(id: string, updates: any) {
-    this.worker.postMessage({ type: 'updateNode', payload: { id, updates } });
+    if (this.worker) {
+      this.worker.postMessage({ type: 'SEEK', payload: { time } });
+    } else if (this.engine) {
+      this.engine.seek(time);
+    }
   }
 }

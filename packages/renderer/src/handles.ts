@@ -47,8 +47,10 @@ export class TransformHandles {
     }
 
     // Add global pointer move/up
-    window.addEventListener('pointermove', this.onDragMove.bind(this));
-    window.addEventListener('pointerup', this.onDragEnd.bind(this));
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pointermove', this.onPointerMove.bind(this));
+      window.addEventListener('pointerup', this.onPointerUp.bind(this));
+    }
   }
 
   public setSelectedNode(id: string | null) {
@@ -90,7 +92,7 @@ export class TransformHandles {
     let maxY = h / 2;
 
     if (node.type === 'group' || node.type === 'container') {
-      const pixiNode = this.getPixiNode(this.selectedNodeId);
+      const pixiNode = this.getPixiNode(selectedNodeId);
       if (pixiNode && pixiNode.children.length > 0) {
         const bounds = pixiNode.getLocalBounds();
         if (bounds.width > 0 || bounds.height > 0) {
@@ -145,7 +147,7 @@ export class TransformHandles {
     this.startNodeState = { ...this.store.getState().nodes[selectedNodeId] } as SceneNode;
   }
 
-  private onDragMove(e: PointerEvent) {
+  public onPointerMove(e: any) {
     const selectedNodeId = this.store.getState().selectedNodeId;
     if (!this.isDragging || !selectedNodeId || !this.startNodeState) return;
 
@@ -181,7 +183,7 @@ export class TransformHandles {
     this.store.getState().recalculateMatrices();
   }
 
-  private onDragEnd() {
+  public onPointerUp(e?: any) {
     this.isDragging = false;
     this.hasMoved = false;
     this.dragType = null;

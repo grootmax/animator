@@ -127,7 +127,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
 
   // Group tracks by node
   const tracksByNode: Record<string, Track[]> = {};
-  tracks.forEach(t => {
+  tracks.forEach((t: any) => {
     if (!tracksByNode[t.nodeId]) tracksByNode[t.nodeId] = [];
     tracksByNode[t.nodeId].push(t);
   });

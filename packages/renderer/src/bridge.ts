@@ -5,6 +5,14 @@ import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
 import { tokenizePath, PathToken } from '@monorepo/serialization';
 
+export interface PixiBridgeConfig {
+  canvas: HTMLCanvasElement | OffscreenCanvas | any;
+  width?: number;
+  height?: number;
+  devicePixelRatio?: number;
+  resizeTo?: HTMLElement | Window;
+}
+
 export class PixiBridge {
   private app: PIXI.Application;
   private viewport: Viewport;
@@ -12,20 +20,23 @@ export class PixiBridge {
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
+  private remoteSelectionsContainer: PIXI.Container;
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(config: PixiBridgeConfig, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
-      view: canvas,
-      resizeTo: window,
+      view: config.canvas as any,
+      resizeTo: config.resizeTo,
+      width: config.width || 800,
+      height: config.height || 600,
       backgroundColor: 0x1a1a1a,
-      resolution: window.devicePixelRatio || 1,
+      resolution: config.devicePixelRatio || 1,
       autoDensity: true,
     });
 
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app, store);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id) => this.pixiNodes.get(id));
 
     this.remoteSelectionsContainer = new PIXI.Container();
     this.remoteSelectionsContainer.zIndex = 999;
@@ -66,6 +77,45 @@ export class PixiBridge {
     return `${node.fill || 'none'}_${node.stroke || 'none'}_${node.strokeWidth || 0}`;
   }
 
+  public resize(width: number, height: number) {
+    this.app.renderer.resize(width, height);
+  }
+
+  public emitEvent(eventName: string, eventData: any) {
+    // Explicitly route common interactions 
+    if (eventName === 'pointerdown') {
+      this.viewport.onPointerDown(eventData);
+    } else if (eventName === 'pointermove') {
+      this.viewport.onPointerMove(eventData);
+      this.handles.onPointerMove(eventData);
+    } else if (eventName === 'pointerup') {
+      this.viewport.onPointerUp();
+      this.handles.onPointerUp();
+    } else if (eventName === 'wheel') {
+      this.viewport.onWheel(eventData);
+    }
+
+    // Also dispatch via PIXI events for node interactions
+    const fakeEvent = {
+        clientX: eventData.clientX,
+        clientY: eventData.clientY,
+        pointerId: 1,
+        type: eventName,
+        button: eventData.button || 0,
+        preventDefault: () => {},
+        stopPropagation: () => {},
+        deltaY: eventData.deltaY,
+        shiftKey: eventData.shiftKey
+    };
+
+    const events = (this.app.renderer as any).events;
+    if (events) {
+      if (eventName === 'pointerdown') events.onPointerDown(fakeEvent);
+      else if (eventName === 'pointermove') events.onPointerMove(fakeEvent);
+      else if (eventName === 'pointerup') events.onPointerUp(fakeEvent);
+    }
+  }
+
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
     const a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4], tx = matrix[6], ty = matrix[7];
     
@@ -93,11 +143,12 @@ export class PixiBridge {
     let tokens = this.pathCache.get(pathData);
     if (!tokens) {
       tokens = tokenizePath(pathData);
-      this.pathCache.set(pathData, tokens);
+      this.pathCache.set(pathData, tokens as PathToken[]);
     }
+    const pathTokens: PathToken[] = tokens || [];
     let x = 0, y = 0;
 
-    for (const t of tokens) {
+    for (const t of pathTokens) {
       const p = t.args;
       switch (t.type) {
         case 'M': x = p[0]; y = p[1]; graphics.moveTo(x, y); break;

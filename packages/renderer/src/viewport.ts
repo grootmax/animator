@@ -36,7 +36,7 @@ export class Viewport {
     this.setupEvents();
     this.drawGrid();
     
-    this.store.subscribe((state) => {
+    this.store.subscribe((state: any) => {
       // In case viewport gets updated from outside (like remote sync or reset)
       // but to prevent feedback loops, we might skip applying if we are currently dragging.
       // For now, let's just make sure we are not overwriting our active state.
@@ -69,10 +69,10 @@ export class Viewport {
     }
   }
 
-  private drawGrid() {
+  public drawGrid() {
     this.grid.clear();
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const width = this.app.renderer.width / this.app.renderer.resolution;
+    const height = this.app.renderer.height / this.app.renderer.resolution;
 
     const gridSize = 50 * this.container.scale.x;
     const offsetX = this.container.x % gridSize;
@@ -92,22 +92,32 @@ export class Viewport {
   }
 
   private setupEvents() {
-    const canvas = this.app.view as HTMLCanvasElement;
-
-    canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
-    canvas.addEventListener('pointermove', this.onPointerMove.bind(this));
-    window.addEventListener('pointerup', this.onPointerUp.bind(this));
-    canvas.addEventListener('wheel', this.onWheel.bind(this), { passive: false });
+    const canvas = this.app.view as any;
+    // In worker, canvas might be OffscreenCanvas and not have addEventListener 
+    // or we might manually feed events. Let's still bind if available.
+    if (canvas && canvas.addEventListener) {
+        canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
+        canvas.addEventListener('pointermove', this.onPointerMove.bind(this));
+        canvas.addEventListener('wheel', this.onWheel.bind(this), { passive: false });
+    }
+    if (typeof window !== 'undefined') {
+        window.addEventListener('pointerup', this.onPointerUp.bind(this));
+    } else {
+        // Fallback for worker: attach pointerup to canvas if possible
+        if (canvas && canvas.addEventListener) {
+            canvas.addEventListener('pointerup', this.onPointerUp.bind(this));
+        }
+    }
   }
 
-  private onPointerDown(e: PointerEvent) {
+  public onPointerDown(e: any) {
     if (e.button === 1 || e.shiftKey) { // Middle click or shift+click for pan
       this.isDragging = true;
       this.lastPos = { x: e.clientX, y: e.clientY };
     }
   }
 
-  private onPointerMove(e: PointerEvent) {
+  public onPointerMove(e: any) {
     if (!this.isDragging) return;
 
     const dx = e.clientX - this.lastPos.x;
@@ -121,7 +131,7 @@ export class Viewport {
     this.syncStore();
   }
 
-  private onPointerUp() {
+  public onPointerUp() {
     if (this.isDragging) {
       this.isDragging = false;
       // Force sync on drag end
@@ -133,8 +143,8 @@ export class Viewport {
     }
   }
 
-  private onWheel(e: WheelEvent) {
-    e.preventDefault();
+  public onWheel(e: any) {
+    if (e.preventDefault) e.preventDefault();
 
     const zoomFactor = 1 - e.deltaY * 0.001;
     const localPos = this.container.toLocal(new PIXI.Point(e.clientX, e.clientY));
