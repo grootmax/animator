@@ -28,37 +28,37 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isSaving = false,
   saveProgress = 0
 }) => {
-  const ToolButton = ({ name, icon: Icon }: { name: string, icon: any }) => (
+  const ToolButton = ({ name }: { name: string }) => (
     <button
       className={`p-2 rounded-md hover:bg-gray-700 ${tool === name ? 'bg-blue-600' : ''}`}
       onClick={() => setTool(name)}
       title={name}
     >
-      <Icon size={20} />
+      {name}
     </button>
   );
 
   return (
     <div className="flex items-center gap-2 p-2 bg-gray-800 border-b border-gray-700 text-gray-200">
       <div className="flex gap-1 border-r border-gray-600 pr-2">
-        <ToolButton name="select" icon={MousePointer2} />
-        <ToolButton name="pan" icon={Hand} />
+        <ToolButton name="select" />
+        <ToolButton name="pan" />
       </div>
       <div className="flex gap-1 border-r border-gray-600 pr-2">
-        <ToolButton name="rect" icon={Square} />
-        <ToolButton name="circle" icon={Circle} />
+        <ToolButton name="rect" />
+        <ToolButton name="circle" />
       </div>
       <div className="flex gap-1 border-r border-gray-600 pr-2">
         <button className="p-2 rounded-md hover:bg-gray-700" onClick={togglePlay} title={isPlaying ? "Pause" : "Play"}>
-          {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+          {isPlaying ? "Pause" : "Play"}
         </button>
       </div>
       <div className="flex gap-1 border-r border-gray-600 pr-2">
         <button className="p-2 rounded-md hover:bg-gray-700" onClick={onZoomOut} title="Zoom Out">
-          <ZoomOut size={20} />
+          ZoomOut
         </button>
         <button className="p-2 rounded-md hover:bg-gray-700" onClick={onZoomIn} title="Zoom In">
-          <ZoomIn size={20} />
+          ZoomIn
         </button>
       </div>
       <div className="flex gap-1 ml-auto items-center">
@@ -68,14 +68,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <span>Saving... {Math.round(saveProgress * 100)}%</span>
           </div>
         )}
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG" disabled={isSaving}>
-          <Upload size={20} /> <span className="text-sm">Import</span>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Open File" disabled={isSaving}>
+          <Upload size={20} /> <span className="text-sm">Open</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON" disabled={isSaving}>
-          <Download size={20} /> <span className="text-sm">JSON</span>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Save" disabled={isSaving}>
+          <Download size={20} /> <span className="text-sm">Save</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG" disabled={isSaving}>
-          <Download size={20} /> <span className="text-sm">SVG</span>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Save As" disabled={isSaving}>
+          <Download size={20} /> <span className="text-sm">Save As</span>
         </button>
       </div>
     </div>

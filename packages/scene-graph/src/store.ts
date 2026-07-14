@@ -56,6 +56,7 @@ export interface SceneGraphState {
   setViewport: (viewport: { x: number; y: number; zoom: number }) => void;
   setSelectedNodeId: (id: string | null) => void;
   setRemoteSelection: (userId: string, nodeId: string | null, color?: string, userName?: string) => void;
+  loadState: (scene: Record<string, any>) => void;
 }
 
 const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }): SceneNode => ({
@@ -223,6 +224,21 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
       return { nodes: newNodes };
     });
+  },
+
+  loadState: (scene) => {
+    set(() => {
+      const newNodes: Record<string, SceneNode> = {};
+      let rootId = null;
+      for (const [id, node] of Object.entries(scene)) {
+        newNodes[id] = getDefaultNode(node as any);
+        if (newNodes[id].parentId === null) {
+          rootId = id;
+        }
+      }
+      return { nodes: newNodes, rootId };
+    });
+    get().recalculateMatrices();
   }
   });
   return createStore<SceneGraphState>(broadcastCb ? syncMiddleware(config as any, broadcastCb) as any : config as any);

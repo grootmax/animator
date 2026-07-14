@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { setupSecurity } from './security';
@@ -7,69 +7,27 @@ setupSecurity();
 
 let mainWindow: BrowserWindow | null = null;
 
-const DOMAIN_WHITELIST = [
-  'https://fonts.googleapis.com',
-  'https://fonts.gstatic.com'
-];
+const configPath = path.join(app.getPath('userData'), 'editor-config.json');
 
-function setupSecurity() {
-  const isDev = !!process.env.VITE_DEV_SERVER_URL;
-  const devUrl = isDev ? new URL(process.env.VITE_DEV_SERVER_URL!).origin : '';
+function getLastPath(): string | null {
+  try {
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      return config.lastPath || null;
+    }
+  } catch (e) {
+    console.error('Failed to read config', e);
+  }
+  return null;
+}
 
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const cspRules = [
-      `default-src 'self' ${isDev ? devUrl : ''}`,
-      `script-src 'self' ${isDev ? "'unsafe-inline' 'unsafe-eval' " + devUrl : ''}`,
-      `style-src 'self' 'unsafe-inline' ${DOMAIN_WHITELIST.join(' ')}`,
-      `font-src 'self' data: ${DOMAIN_WHITELIST.join(' ')}`,
-      `img-src 'self' data: blob: ${DOMAIN_WHITELIST.join(' ')} ${isDev ? devUrl : ''}`,
-      `connect-src 'self' ${isDev ? devUrl + " ws: wss:" : ''} ${DOMAIN_WHITELIST.join(' ')}`
-    ];
-
-    const csp = cspRules.map(rule => rule.trim()).filter(Boolean).join('; ');
-
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [csp]
-      }
-    });
-  });
-
-  app.on('web-contents-created', (event, contents) => {
-    contents.on('will-navigate', (event, navigationUrl) => {
-      try {
-        const parsedUrl = new URL(navigationUrl);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
-          event.preventDefault();
-          shell.openExternal(navigationUrl);
-        }
-      } catch (err) {
-        event.preventDefault();
-      }
-    });
-
-    contents.setWindowOpenHandler(({ url }) => {
-      try {
-        const parsedUrl = new URL(url);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
-          shell.openExternal(url);
-          return { action: 'deny' };
-        }
-        return { action: 'allow' };
-      } catch (err) {
-        return { action: 'deny' };
-      }
-    });
-  });
+function setLastPath(filePath: string | null) {
+  try {
+    const config = { lastPath: filePath };
+    fs.writeFileSync(configPath, JSON.stringify(config), 'utf-8');
+  } catch (e) {
+    console.error('Failed to write config', e);
+  }
 }
 
 function createWindow() {
@@ -183,29 +141,57 @@ app.on('window-all-closed', () => {
 ipcMain.handle('dialog:openFile', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
-    filters: [{ name: 'SVG files', extensions: ['svg'] }]
+    filters: [{ name: 'Project Files', extensions: ['json', 'svg', 'bin'] }]
   });
-  if (canceled) return null;
-  return fs.promises.readFile(filePaths[0], 'utf-8');
+  if (canceled || filePaths.length === 0) return null;
+  setLastPath(filePaths[0]);
+  const content = await fs.promises.readFile(filePaths[0]);
+  return { path: filePaths[0], content };
+});
+
+ipcMain.handle('file:getInitial', async () => {
+  const lastPath = getLastPath();
+  if (lastPath && fs.existsSync(lastPath)) {
+    const content = await fs.promises.readFile(lastPath); // Read as Buffer
+    return { path: lastPath, content };
+  }
+  return null;
+});
+
+ipcMain.handle('file:save', async (_, content: Buffer | Uint8Array | string) => {
+  const lastPath = getLastPath();
+  if (lastPath) {
+    await fs.promises.writeFile(lastPath, content);
+    return lastPath;
+  }
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    filters: [{ name: 'Project Files', extensions: ['bin', 'json'] }]
+  });
+  if (canceled || !filePath) return false;
+  setLastPath(filePath);
+  await fs.promises.writeFile(filePath, content);
+  return filePath;
+});
+
+ipcMain.handle('file:saveAs', async (_, content: Buffer | Uint8Array | string) => {
+  const lastPath = getLastPath();
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    defaultPath: lastPath || undefined,
+    filters: [{ name: 'Project Files', extensions: ['bin', 'json'] }]
+  });
+  if (canceled || !filePath) return false;
+  setLastPath(filePath);
+  await fs.promises.writeFile(filePath, content);
+  return filePath;
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
-  try {
-    JSON.parse(content);
-  } catch (error) {
-    return false;
-  }
-
   try {
     const { canceled, filePath } = await dialog.showSaveDialog({
       filters: [{ name: 'JSON files', extensions: ['json'] }]
     });
 
     if (canceled || !filePath) return false;
-
-    if (path.extname(filePath).toLowerCase() !== '.json') {
-      return false;
-    }
 
     await fs.promises.writeFile(filePath, content, 'utf-8');
     return true;

@@ -111,7 +111,7 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
         >
           <div className="w-4 h-4 flex items-center justify-center cursor-pointer" onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}>
-            {hasChildren ? (expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}
+            {hasChildren ? (expanded ? "v" : ">") : null}
           </div>
 
           {isEditing ? (
@@ -130,19 +130,15 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
           )}
 
           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button onClick={toggleLock} className="p-1 hover:text-white" title={node.locked ? "Unlock" : "Lock"}>
-              {node.locked ? <Lock size={14} /> : <Unlock size={14} />}
-            </button>
-            <button onClick={toggleVisible} className="p-1 hover:text-white" title={node.visible ? "Hide" : "Show"}>
-              {node.visible ? <Eye size={14} /> : <EyeOff size={14} />}
-            </button>
+            <button onClick={toggleVisible}>O</button>
+            <button onClick={toggleLock}>L</button>
           </div>
 
           {!node.visible && (
-            <div className="absolute right-8"><EyeOff size={14} className="text-gray-500" /></div>
+            <div className="absolute right-8">"-"</div>
           )}
           {node.locked && (
-            <div className="absolute right-2"><Lock size={14} className="text-gray-500" /></div>
+            <div className="absolute right-2">"L"</div>
           )}
         </div>
 
