@@ -1,5 +1,5 @@
 import React from 'react';
-import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download } from 'lucide-react';
+import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download, FolderOpen, Save, SaveAll } from 'lucide-react';
 
 interface ToolbarProps {
   tool: string;
@@ -9,6 +9,9 @@ interface ToolbarProps {
   onImport: () => void;
   onExport: () => void;
   onExportSvg: () => void;
+  onOpenProject: () => void;
+  onSaveProject: () => void;
+  onSaveProjectAs: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
 }
@@ -21,6 +24,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onImport,
   onExport,
   onExportSvg,
+  onOpenProject,
+  onSaveProject,
+  onSaveProjectAs,
   onZoomIn,
   onZoomOut
 }) => {
@@ -36,6 +42,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   return (
     <div className="flex items-center gap-2 p-2 bg-gray-800 border-b border-gray-700 text-gray-200">
+      <div className="flex gap-1 border-r border-gray-600 pr-2">
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onOpenProject} title="Open Project">
+          <FolderOpen size={20} /> <span className="text-sm">Open Project</span>
+        </button>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onSaveProject} title="Save Project">
+          <Save size={20} /> <span className="text-sm">Save</span>
+        </button>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onSaveProjectAs} title="Save Project As">
+          <SaveAll size={20} /> <span className="text-sm">Save As</span>
+        </button>
+      </div>
       <div className="flex gap-1 border-r border-gray-600 pr-2">
         <ToolButton name="select" icon={MousePointer2} />
         <ToolButton name="pan" icon={Hand} />

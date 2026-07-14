@@ -10,7 +10,7 @@ export class PixiBridge {
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -108,6 +108,22 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'image' || node.type === 'video') {
+          if (node.assetUrl) {
+            pixiNode = new PIXI.Sprite(PIXI.Texture.from(node.assetUrl));
+            (pixiNode as PIXI.Sprite).anchor.set(0.5);
+            if (node.type === 'video') {
+              const baseTex = (pixiNode as PIXI.Sprite).texture.baseTexture;
+              if (baseTex && baseTex.resource && (baseTex.resource as any).source) {
+                const source = (baseTex.resource as any).source;
+                source.loop = true;
+                if (source.play) source.play().catch(() => {});
+              }
+            }
+          } else {
+            pixiNode = new PIXI.Sprite();
+            (pixiNode as PIXI.Sprite).anchor.set(0.5);
+          }
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -171,6 +187,9 @@ export class PixiBridge {
         if (node.fill) {
             pixiNode.endFill();
         }
+      } else if (pixiNode instanceof PIXI.Sprite) {
+        if (node.width !== undefined) pixiNode.width = node.width;
+        if (node.height !== undefined) pixiNode.height = node.height;
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);
