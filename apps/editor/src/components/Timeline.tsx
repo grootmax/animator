@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AnimationEngine, Track } from '@monorepo/animation-engine';
+import { AnimationEngine } from '@monorepo/animation-engine';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { Play, Pause, SkipBack } from 'lucide-react';
 
@@ -126,14 +126,14 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
   }, [isScrubbing, duration, engine]);
 
   // Group tracks by node
-  const tracksByNode: Record<string, Track[]> = {};
+  const tracksByNode: Record<string, any[]> = {};
   tracks.forEach(t => {
     if (!tracksByNode[t.nodeId]) tracksByNode[t.nodeId] = [];
     tracksByNode[t.nodeId].push(t);
   });
 
   // Calculate rows for virtualization
-  const rows: Array<{ nodeId: string; nodeTracks: Track[]; top: number; height: number }> = [];
+  const rows: Array<{ nodeId: string; nodeTracks: any[]; top: number; height: number }> = [];
   let currentTop = 0;
   const entries = Object.entries(tracksByNode);
   for (const [nodeId, nodeTracks] of entries) {
@@ -198,7 +198,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
                          <div key={i} className="absolute left-0 right-0 h-8 flex items-center" style={{ top: i * 32 }}>
                             {/* We don't render a visual label here, just the keyframes */}
                             <div className="absolute left-0 -ml-60 text-xs text-gray-500 pointer-events-none">{track.property}</div>
-                            {track.keyframes.map((kf, j) => (
+                            {track.keyframes.map((kf: any, j: number) => (
                               <div key={j} className="absolute w-3 h-3 bg-blue-500 rotate-45 rounded-sm transform -translate-x-1/2 cursor-pointer hover:bg-blue-400 hover:scale-125 transition-transform" style={{ left: `${(kf.time/duration)*100}%` }} title={`${track.property}: ${kf.value}`}></div>
                             ))}
                          </div>

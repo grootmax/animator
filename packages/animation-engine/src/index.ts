@@ -1,3 +1,3 @@
 export * from './types';
-export * from './engine';
+export { AnimationEngine, NetworkRole, Heartbeat } from './engine';
 export * from './interpolators';

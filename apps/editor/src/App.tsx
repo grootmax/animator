@@ -30,6 +30,10 @@ declare global {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
       exportSvg: (content: string) => Promise<boolean>;
+      openProject: () => Promise<{ type: string, manifest?: string, root?: string, message?: string } | null>;
+      createProject: () => Promise<{ type: string, manifest?: string, root?: string, message?: string } | null>;
+      saveProject: (manifest: string) => Promise<boolean>;
+      saveAssetStream: (filename: string, port: MessagePort) => void;
     }
   }
 }
@@ -42,6 +46,8 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [showSaveProgress, setShowSaveProgress] = useState(false);
+  const [hasProject, setHasProject] = useState(false);
+  const [projectManifest, setProjectManifest] = useState<any>(null);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -51,9 +57,9 @@ function App() {
       (window as any).__bridge = bridge;
 
       // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
+      const unsubscribe = store.subscribe((state: any) => {
         setNodesCount(Object.keys(state.nodes).length);
-        setStoreVersion(state.version);
+        setStoreVersion(state.version || 0);
       });
 
       return () => unsubscribe();
@@ -61,27 +67,58 @@ function App() {
   }, []);
 
   useEffect(() => {
-    return engine.subscribeUI((state) => {
-      setIsPlaying(state.isPlaying);
-    });
+    if (typeof (engine as any).subscribeUI === 'function') {
+      return (engine as any).subscribeUI((state: any) => {
+        setIsPlaying(state.isPlaying);
+      });
+    }
   }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().undo();
+        (store.getState() as any).undo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  const handleOpenProject = async () => {
+    if (window.electronAPI) {
+      const result = await window.electronAPI.openProject();
+      if (result && result.type === 'project' && result.manifest) {
+        setHasProject(true);
+        const manifest = JSON.parse(result.manifest);
+        setProjectManifest(manifest);
+        // Load scene from manifest
+        store.setState({ nodes: {}, rootId: null });
+        const newNodes = manifest.scene || {};
+        for (const [_, node] of Object.entries(newNodes)) {
+           store.getState().addNode(node as any);
+        }
+      } else if (result && result.type === 'error') {
+        alert(result.message);
+      }
+    }
+  };
+
+  const handleCreateProject = async () => {
+    if (window.electronAPI) {
+      const result = await window.electronAPI.createProject();
+      if (result && result.type === 'project' && result.manifest) {
+        setHasProject(true);
+        setProjectManifest(JSON.parse(result.manifest));
+      }
+    }
+  };
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
@@ -90,7 +127,7 @@ function App() {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
         if (nodes.length > 0) {
-          store.getState().commitHistory();
+          (store.getState() as any).commitHistory?.();
           nodes.forEach(node => store.getState().addNode(node));
         }
       }
@@ -153,6 +190,7 @@ function App() {
         setSaveProgress(null);
         
         const exportData = {
+          ...(projectManifest || {}),
           scene: cleanScene,
           animations: engine.getTracks(),
           metadata: {
@@ -161,7 +199,11 @@ function App() {
           }
         };
 
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+        if (hasProject) {
+          await window.electronAPI!.saveProject(JSON.stringify(exportData, null, 2));
+        } else {
+          await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+        }
       };
       
       if ('requestIdleCallback' in window) {
@@ -172,6 +214,72 @@ function App() {
     } else {
       alert("Electron API not available");
     }
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
+
+    if (hasProject && window.electronAPI) {
+      for (const file of Array.from(e.dataTransfer.files)) {
+        if (file.type.startsWith('image/') || file.type.startsWith('video/') || file.name.endsWith('.bin')) {
+          const channel = new MessageChannel();
+          window.electronAPI.saveAssetStream(file.name, channel.port2);
+
+          // Update manifest
+          const assetPath = `assets/${file.name}`;
+          setProjectManifest((prev: any) => {
+            const m = { ...prev };
+            if (!m.assets) m.assets = [];
+            if (!m.assets.includes(assetPath)) m.assets.push(assetPath);
+            return m;
+          });
+
+          // Stream file
+          const stream = file.stream();
+          const reader = stream.getReader();
+          
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              channel.port1.postMessage(value, [value.buffer]);
+            }
+          } finally {
+            channel.port1.postMessage('EOF');
+          }
+        }
+      }
+    }
+
+    const file = e.dataTransfer.files[0];
+    if (file.type === 'image/png' || file.type === 'image/jpeg') {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const base64Src = ev.target?.result as string;
+        const img = new Image();
+        img.onload = () => {
+          const state = store.getState();
+          state.addNode({
+            id: `image_${Date.now()}`,
+            type: 'image',
+            src: base64Src,
+            x: e.clientX,
+            y: e.clientY,
+            width: img.width,
+            height: img.height,
+            parentId: null
+          });
+          state.recalculateMatrices();
+        };
+        img.src = base64Src;
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
   };
 
   const handleExportSvg = async () => {
@@ -193,15 +301,15 @@ function App() {
       engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: {
-          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
-          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
-        }
+        keyframes: [
+          { id: 'a', time: 0, value: 0, easing: 'linear' },
+          { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        ]
       });
       engine.play();
     } else {
-      store.getState().commitHistory();
+      (store.getState() as any).commitHistory?.();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
@@ -244,39 +352,7 @@ function App() {
     }
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      if (file.type === 'image/png' || file.type === 'image/jpeg') {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const base64Src = ev.target?.result as string;
-          const img = new Image();
-          img.onload = () => {
-            const state = store.getState();
-            state.addNode({
-              id: `image_${Date.now()}`,
-              type: 'image',
-              src: base64Src,
-              x: e.clientX,
-              y: e.clientY,
-              width: img.width,
-              height: img.height,
-              parentId: null
-            });
-            state.recalculateMatrices();
-          };
-          img.src = base64Src;
-        };
-        reader.readAsDataURL(file);
-      }
-    }
-  };
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-  };
 
   return (
     <DndProvider backend={HTML5Backend}>
@@ -289,6 +365,10 @@ function App() {
           onImport={handleImportSvg}
           onExport={handleSaveState}
           onExportSvg={handleExportSvg}
+          onOpenProject={handleOpenProject}
+          onCreateProject={handleCreateProject}
+          onSaveProject={handleSaveState}
+          hasProject={hasProject}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
         />

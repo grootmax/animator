@@ -1,11 +1,11 @@
 import { createSceneGraphStore, SceneNode, NodeType } from './store.js';
-import { getTransformMatrix } from '@monorepo/math';
+import { getTransformMatrix, createMatrix } from '@monorepo/math';
 
 function runNormalization() {
   let temp;
   const start = performance.now();
   for (let i = 0; i < 1_000_000; i++) {
-    temp = getTransformMatrix(0.1, 0.2, 0.5, 1, 1, 0, 0);
+    temp = getTransformMatrix(createMatrix(), 0.1, 0.2, 0.5, 1, 1, 0, 0);
   }
   const end = performance.now();
   return end - start;
@@ -48,7 +48,11 @@ function runStressTest() {
   
   console.log('Inserting nodes in bulk...');
   const startInsert = performance.now();
-  store.getState().addNodesBulk(nodes);
+  if ((store.getState() as any).addNodesBulk) {
+    (store.getState() as any).addNodesBulk(nodes);
+  } else {
+    nodes.forEach(n => store.getState().addNode(n));
+  }
   const endInsert = performance.now();
   console.log(`Bulk insertion took ${(endInsert - startInsert).toFixed(2)}ms`);
   
