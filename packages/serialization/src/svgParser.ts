@@ -1,8 +1,10 @@
-import { SceneNode, NodeType } from '@monorepo/scene-graph';
+import { SceneNode, NodeType, globalAssetRegistry } from '@monorepo/scene-graph';
 import { Matrix3, createMatrix, multiplyMatrix } from '@monorepo/math';
 
 let idCounter = 0;
 const generateId = () => `node_${idCounter++}`;
+let assetIdCounter = 0;
+const generateAssetId = () => `asset_${assetIdCounter++}`;
 
 export class SvgParser {
   public parse(svgString: string): SceneNode[] {
@@ -182,7 +184,16 @@ export class SvgParser {
     } else if (type === 'polyline') {
       node.points = element.getAttribute('points') || '';
     } else if (type === 'path') {
-      node.pathData = element.getAttribute('d') || '';
+      const pathData = element.getAttribute('d') || '';
+      if (pathData) {
+        const assetId = generateAssetId();
+        globalAssetRegistry.registerAsset({
+          id: assetId,
+          type: 'path',
+          data: pathData
+        });
+        node.assetId = assetId;
+      }
     }
 
     const sceneNode = node as SceneNode;

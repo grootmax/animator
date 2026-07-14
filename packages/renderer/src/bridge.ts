@@ -3,14 +3,15 @@ import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
-import { tokenizePath } from '@monorepo/serialization';
+import { AsyncTextureCache } from './textureCache';
 
 export class PixiBridge {
   private app: PIXI.Application;
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
+  private cache: AsyncTextureCache;
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -22,11 +23,11 @@ export class PixiBridge {
     });
 
     this.app.stage.sortableChildren = true;
+    this.cache = new AsyncTextureCache(this.app);
 
     this.viewport = new Viewport(this.app);
     this.handles = new TransformHandles(store, this.viewport);
 
-    // Add handles directly to the viewport so they pan and zoom with the nodes!
     this.viewport.container.addChild(this.handles.container);
 
     this.store = store;
@@ -48,7 +49,7 @@ export class PixiBridge {
     });
   }
 
-  private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
+  private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3, pivotX = 0, pivotY = 0) {
     const a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4], tx = matrix[6], ty = matrix[7];
     
     const scaleX = Math.sqrt(a * a + b * b);
@@ -67,38 +68,8 @@ export class PixiBridge {
       scaleX, scaleY, 
       rotation, 
       skewX, 0, // skewX, skewY
-      0, 0 // pivot
+      pivotX, pivotY // pivot
     );
-  }
-
-  private drawPath(graphics: PIXI.Graphics, pathData: string) {
-    const tokens = tokenizePath(pathData);
-    let x = 0, y = 0;
-
-    for (const t of tokens) {
-      const p = t.args;
-      switch (t.type) {
-        case 'M': x = p[0]; y = p[1]; graphics.moveTo(x, y); break;
-        case 'm': x += p[0]; y += p[1]; graphics.moveTo(x, y); break;
-        case 'L': x = p[0]; y = p[1]; graphics.lineTo(x, y); break;
-        case 'l': x += p[0]; y += p[1]; graphics.lineTo(x, y); break;
-        case 'H': x = p[0]; graphics.lineTo(x, y); break;
-        case 'h': x += p[0]; graphics.lineTo(x, y); break;
-        case 'V': y = p[0]; graphics.lineTo(x, y); break;
-        case 'v': y += p[0]; graphics.lineTo(x, y); break;
-        case 'C':
-          graphics.bezierCurveTo(p[0], p[1], p[2], p[3], p[4], p[5]);
-          x = p[4]; y = p[5];
-          break;
-        case 'c':
-          graphics.bezierCurveTo(x+p[0], y+p[1], x+p[2], y+p[3], x+p[4], y+p[5]);
-          x += p[4]; y += p[5];
-          break;
-        case 'Z': case 'z':
-          graphics.closePath();
-          break;
-      }
-    }
   }
 
   private syncNodes(nodes: Record<string, SceneNode>) {
@@ -106,8 +77,12 @@ export class PixiBridge {
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
-        if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
+        if (node.type === 'rect' || node.type === 'circle' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'path' || node.type === 'image') {
+          pixiNode = new PIXI.Sprite();
+          (pixiNode as any)._customOffsetX = 0;
+          (pixiNode as any)._customOffsetY = 0;
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -130,7 +105,6 @@ export class PixiBridge {
         }
       }
 
-      // Update visibility and opacity
       pixiNode.visible = node.visible !== false;
       pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
@@ -164,16 +138,31 @@ export class PixiBridge {
                 pixiNode.lineTo(pts[i], pts[i+1]);
             }
           }
-        } else if (node.type === 'path' && node.pathData) {
-          this.drawPath(pixiNode, node.pathData);
         }
 
         if (node.fill) {
             pixiNode.endFill();
         }
+      } else if (pixiNode instanceof PIXI.Sprite) {
+        if (node.assetId) {
+          this.cache.getTextureForAsset(node.assetId, node).then((cached) => {
+            if (cached && pixiNode instanceof PIXI.Sprite) {
+              pixiNode.texture = cached.texture;
+              (pixiNode as any)._customOffsetX = cached.offsetX;
+              (pixiNode as any)._customOffsetY = cached.offsetY;
+              
+              // Re-apply matrix immediately since dimensions changed asynchronously
+              const pX = -cached.offsetX;
+              const pY = -cached.offsetY;
+              this.applyMatrix(pixiNode, node.localMatrix, pX, pY);
+            }
+          });
+        }
       }
 
-      this.applyMatrix(pixiNode, node.localMatrix);
+      const pX = (pixiNode as any)._customOffsetX ? -(pixiNode as any)._customOffsetX : 0;
+      const pY = (pixiNode as any)._customOffsetY ? -(pixiNode as any)._customOffsetY : 0;
+      this.applyMatrix(pixiNode, node.localMatrix, pX, pY);
     }
   }
 }
