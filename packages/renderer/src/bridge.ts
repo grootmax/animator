@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
+import { SceneNode, createSceneGraphStore, assetRegistry } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
@@ -10,7 +10,8 @@ export class PixiBridge {
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container> = new Map();
+  private textureCache: Map<string, PIXI.Texture> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -102,12 +103,26 @@ export class PixiBridge {
   }
 
   private syncNodes(nodes: Record<string, SceneNode>) {
+    // Remove nodes that no longer exist
+    for (const [id, pixiNode] of this.pixiNodes.entries()) {
+      if (!nodes[id]) {
+        if (pixiNode.parent) {
+          pixiNode.parent.removeChild(pixiNode);
+        }
+        pixiNode.destroy({ children: true });
+        this.pixiNodes.delete(id);
+      }
+    }
+
     for (const [id, node] of Object.entries(nodes)) {
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'image' || node.type === 'video') {
+          pixiNode = new PIXI.Sprite();
+          (pixiNode as PIXI.Sprite).anchor.set(0.5);
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -134,7 +149,52 @@ export class PixiBridge {
       pixiNode.visible = node.visible !== false;
       pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
-      if (pixiNode instanceof PIXI.Graphics) {
+      if (pixiNode instanceof PIXI.Sprite && (node.type === 'image' || node.type === 'video')) {
+        if (node.assetId) {
+          const asset = assetRegistry.getAsset(node.assetId);
+          if (asset) {
+            let texture = this.textureCache.get(node.assetId);
+            if (!texture) {
+              texture = PIXI.Texture.from(asset.url);
+              texture.baseTexture.on('error', () => {
+                console.warn(`Failed to load asset: ${asset.url}`);
+                // Create a simple placeholder texture for missing asset
+                const g = new PIXI.Graphics();
+                g.beginFill(0xff0000, 0.5);
+                g.lineStyle(2, 0xff0000);
+                g.drawRect(0, 0, 100, 100);
+                g.moveTo(0, 0); g.lineTo(100, 100);
+                g.moveTo(100, 0); g.lineTo(0, 100);
+                g.endFill();
+                const placeholder = this.app.renderer.generateTexture(g);
+                this.textureCache.set(node.assetId!, placeholder);
+                if (pixiNode instanceof PIXI.Sprite) {
+                  pixiNode.texture = placeholder;
+                }
+              });
+              this.textureCache.set(node.assetId, texture);
+            }
+            if (pixiNode.texture !== texture) {
+              pixiNode.texture = texture;
+              // Ensure video plays
+              if (asset.type === 'video') {
+                const baseTexture = texture.baseTexture.resource as any;
+                if (baseTexture && baseTexture.source instanceof HTMLVideoElement) {
+                  const video = baseTexture.source;
+                  video.loop = true;
+                  video.muted = true;
+                  video.play().catch((e: any) => console.warn('Video auto-play failed', e));
+                }
+              }
+            }
+          }
+        }
+        
+        if (node.width && node.height) {
+          pixiNode.width = node.width;
+          pixiNode.height = node.height;
+        }
+      } else if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();
 
         if (node.fill) {

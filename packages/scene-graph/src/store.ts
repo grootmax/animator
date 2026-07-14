@@ -1,7 +1,8 @@
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
+import { assetRegistry } from './registry';
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline';
+export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image' | 'video';
 
 export interface SceneNode {
   id: string;
@@ -33,6 +34,9 @@ export interface SceneNode {
   x2?: number;
   y2?: number;
   points?: string;
+  
+  // Asset references
+  assetId?: string;
 
   // Internal state
   localMatrix: Matrix3;
@@ -45,6 +49,7 @@ export interface SceneGraphState {
   rootId: string | null;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  removeNode: (id: string) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
@@ -102,6 +107,54 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       // O(1) dirty marking: just mark the current node.
       // The recalculate step will propagate this to children automatically!
       const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
+
+      return { nodes: newNodes };
+    });
+  },
+
+  removeNode: (id) => {
+    set((state) => {
+      const node = state.nodes[id];
+      if (!node) return state;
+
+      const newNodes = { ...state.nodes };
+      
+      const removeRecursively = (nodeId: string) => {
+        const n = newNodes[nodeId];
+        if (!n) return;
+        
+        // Remove children first
+        for (const childId of n.children) {
+          removeRecursively(childId);
+        }
+        
+        // Check asset references before deleting node
+        if (n.assetId) {
+          let hasOtherReferences = false;
+          for (const otherId in newNodes) {
+            if (otherId !== nodeId && newNodes[otherId].assetId === n.assetId) {
+              hasOtherReferences = true;
+              break;
+            }
+          }
+          if (!hasOtherReferences) {
+            assetRegistry.removeAsset(n.assetId);
+          }
+        }
+        
+        delete newNodes[nodeId];
+      };
+
+      // Remove from parent
+      if (node.parentId && newNodes[node.parentId]) {
+        const parent = newNodes[node.parentId];
+        newNodes[node.parentId] = {
+          ...parent,
+          children: parent.children.filter(childId => childId !== id)
+        };
+      }
+      
+      removeRecursively(id);
 
       return { nodes: newNodes };
     });
