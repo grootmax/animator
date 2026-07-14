@@ -101,74 +101,76 @@ function App() {
 
   const handleSaveState = async () => {
     if (window.electronAPI) {
-      const state = store.getState().nodes;
-      const nodeKeys = Object.keys(state);
-      const totalNodes = nodeKeys.length;
-      
-      const cleanScene: Record<string, any> = {};
-      
-      let currentIndex = 0;
-      
+      // Snapshot the state to prevent mutation issues during async save
+      const stateSnapshot = { ...store.getState().nodes };
+      const animationsSnapshot = engine.getTracks();
+      const durationSnapshot = engine.getDuration();
+      const entries = Object.entries(stateSnapshot);
+
       const showProgressTimeout = setTimeout(() => {
         setShowSaveProgress(true);
       }, 500);
 
-      const processBatch = (deadline?: any) => {
-        const startTime = performance.now();
-        
-        while (currentIndex < totalNodes) {
-          if (deadline && deadline.timeRemaining) {
-            if (deadline.timeRemaining() < 2) break;
-          } else {
-            if (performance.now() - startTime > 10) break;
-          }
-          
-          const id = nodeKeys[currentIndex];
-          const node = state[id];
-          const cleanNode = { ...node };
-          delete (cleanNode as any).localMatrix;
-          delete (cleanNode as any).worldMatrix;
-          delete (cleanNode as any).isDirty;
-          cleanScene[id] = cleanNode;
-          
-          currentIndex++;
-        }
-        
-        setSaveProgress(Math.floor((currentIndex / totalNodes) * 100));
+      const chunks: string[] = ['{\n  "scene": {\n'];
 
-        if (currentIndex < totalNodes) {
-          if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(processBatch);
-          } else {
-            setTimeout(processBatch, 0);
-          }
+      const yieldToMain = () => new Promise<void>((resolve) => {
+        if (typeof window.requestIdleCallback === 'function') {
+          window.requestIdleCallback(() => resolve());
         } else {
-          finishSave();
+          window.setTimeout(resolve, 0);
         }
-      };
+      });
 
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
-          }
-        };
+      let startTime = performance.now();
 
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
-      };
-      
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(processBatch);
-      } else {
-        setTimeout(processBatch, 0);
+      for (let i = 0; i < entries.length; i++) {
+        const [id, node] = entries[i];
+
+        // Clean node - filter out internal state
+        const cleanNode = { ...node };
+        delete (cleanNode as any).localMatrix;
+        delete (cleanNode as any).worldMatrix;
+        delete (cleanNode as any).isDirty;
+
+        const nodeJson = JSON.stringify(cleanNode, null, 2);
+        const formattedNode = `    "${id}": ${nodeJson.replace(/\n/g, '\n    ')}`;
+        chunks.push(formattedNode);
+
+        if (i < entries.length - 1) {
+          chunks.push(',\n');
+        } else {
+          chunks.push('\n');
+        }
+
+        setSaveProgress(Math.floor(((i + 1) / entries.length) * 100));
+
+        // Yield to the main thread if processing this chunk took more than 10ms
+        // to maintain >30 FPS and keep UI responsive
+        if (performance.now() - startTime > 10) {
+          await yieldToMain();
+          startTime = performance.now();
+        }
       }
+
+      chunks.push('  },\n');
+
+      const animationsJson = JSON.stringify(animationsSnapshot, null, 2);
+      chunks.push(`  "animations": ${animationsJson.replace(/\n/g, '\n  ')},\n`);
+
+      const metadataJson = JSON.stringify({
+        version: "1.0.0",
+        duration: durationSnapshot
+      }, null, 2);
+      chunks.push(`  "metadata": ${metadataJson.replace(/\n/g, '\n  ')}\n`);
+
+      chunks.push('}');
+
+      clearTimeout(showProgressTimeout);
+      setShowSaveProgress(false);
+      setSaveProgress(null);
+
+      const finalJson = chunks.join('');
+      await window.electronAPI.saveFile(finalJson);
     } else {
       alert("Electron API not available");
     }
