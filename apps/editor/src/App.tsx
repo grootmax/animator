@@ -8,6 +8,7 @@ import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import { assetManager } from '@monorepo/renderer';
 
 // Create singletons for the app
 const store = createSceneGraphStore();
@@ -57,10 +58,34 @@ function App() {
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
+      const content = await window.electronAPI.openFile();
+      if (content) {
+        try {
+           const data = JSON.parse(content);
+           if (data.scene) {
+              if (data.assets) {
+                 assetManager.clear();
+                 for (const a of data.assets) {
+                    assetManager.registerAsset(a.id, a.url, a.type);
+                 }
+              }
+              const state = store.getState();
+              // Replace all nodes
+              state.loadProject(data.scene);
+              
+              // Load animations if any
+              if (data.animations) {
+                 engine.setTracks(data.animations);
+              }
+              state.recalculateMatrices();
+              return;
+           }
+        } catch (e) {
+           // Fallback to SVG parse
+        }
+        
         const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
+        const nodes = parser.parse(content);
         nodes.forEach(node => store.getState().addNode(node));
       }
     } else {
@@ -84,6 +109,7 @@ function App() {
 
       const exportData = {
         scene: cleanScene,
+        assets: assetManager.getAllAssets(),
         animations: engine.getTracks(),
         metadata: {
           version: "1.0.0",
@@ -166,9 +192,44 @@ function App() {
     }
   };
 
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+       for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+             const type = file.type.startsWith('video/') ? 'video' : 'image';
+             const url = URL.createObjectURL(file);
+             const id = 'asset_' + Math.random().toString(36).substring(2, 9);
+             assetManager.registerAsset(id, url, type);
+             
+             // Add node
+             const state = store.getState();
+             const nodeId = 'node_' + Math.random().toString(36).substring(2, 9);
+             
+             // Optionally extract width/height for videos/images, but since it's async, we can just start with default 400x400
+             state.addNode({
+                id: nodeId,
+                type: type,
+                x: window.innerWidth / 2,
+                y: window.innerHeight / 2,
+                width: 400,
+                height: 400,
+                assetId: id
+             });
+          }
+       }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+
   return (
     <DndProvider backend={HTML5Backend}>
-      <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden">
+      <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden" onDrop={handleDrop} onDragOver={handleDragOver}>
         <Toolbar
           tool={tool}
           setTool={setTool}

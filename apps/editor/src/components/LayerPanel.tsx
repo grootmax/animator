@@ -49,7 +49,7 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
     const [{ isDragging }, drag] = useDrag({
       type: 'LAYER',
       item: { id, type: 'LAYER' },
-      collect: monitor => ({
+      collect: (monitor: any) => ({
         isDragging: monitor.isDragging(),
       }),
     });

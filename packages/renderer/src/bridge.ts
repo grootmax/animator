@@ -4,6 +4,7 @@ import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
 import { tokenizePath } from '@monorepo/serialization';
+import { assetManager } from './assets';
 
 export class PixiBridge {
   private app: PIXI.Application;
@@ -11,6 +12,7 @@ export class PixiBridge {
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private nodeAssets: Map<string, string> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -102,15 +104,52 @@ export class PixiBridge {
   }
 
   private syncNodes(nodes: Record<string, SceneNode>) {
+    const currentNodes = new Set(Object.keys(nodes));
+    for (const id of this.pixiNodes.keys()) {
+      if (!currentNodes.has(id)) {
+        const pixiNode = this.pixiNodes.get(id);
+        if (pixiNode) {
+          pixiNode.parent?.removeChild(pixiNode);
+          pixiNode.destroy({ children: true });
+        }
+        this.pixiNodes.delete(id);
+        const assetId = this.nodeAssets.get(id);
+        if (assetId) {
+          assetManager.releaseAsset(assetId);
+          this.nodeAssets.delete(id);
+        }
+      }
+    }
+
     for (const [id, node] of Object.entries(nodes)) {
+      const oldAssetId = this.nodeAssets.get(id);
+      if (oldAssetId !== node.assetId) {
+        if (oldAssetId) assetManager.releaseAsset(oldAssetId);
+        if (node.assetId) {
+          assetManager.acquireAsset(node.assetId);
+          this.nodeAssets.set(id, node.assetId);
+        } else {
+          this.nodeAssets.delete(id);
+        }
+      }
+
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'image' || node.type === 'video') {
+          pixiNode = new PIXI.Container();
+          const placeholder = new PIXI.Graphics();
+          placeholder.name = 'placeholder';
+          const sprite = new PIXI.Sprite();
+          sprite.name = 'sprite';
+          pixiNode.addChild(placeholder);
+          pixiNode.addChild(sprite);
         } else {
           pixiNode = new PIXI.Container();
         }
+
 
         pixiNode.interactive = true;
         pixiNode.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
@@ -170,6 +209,49 @@ export class PixiBridge {
 
         if (node.fill) {
             pixiNode.endFill();
+        }
+      } else if (node.type === 'image' || node.type === 'video') {
+        const placeholder = pixiNode.getChildByName('placeholder') as PIXI.Graphics;
+        const sprite = pixiNode.getChildByName('sprite') as PIXI.Sprite;
+        
+        const w = node.width || 100;
+        const h = node.height || 100;
+        const hw = w / 2;
+        const hh = h / 2;
+        
+        let showPlaceholder = true;
+        if (node.assetId) {
+           const asset = assetManager.getAsset(node.assetId);
+           if (asset && asset.status === 'loaded' && asset.texture) {
+               showPlaceholder = false;
+               sprite.texture = asset.texture;
+               sprite.width = w;
+               sprite.height = h;
+               sprite.position.set(-hw, -hh);
+               sprite.visible = true;
+           } else if (asset && asset.status === 'loading') {
+               // Update on load
+               const onLoaded = () => {
+                 assetManager.removeListener(node.assetId!, onLoaded);
+                 // Trigger handles update when loaded, syncNodes will be called anyway by store
+                 this.handles.update();
+               };
+               assetManager.addListener(node.assetId, onLoaded);
+           }
+        }
+
+        if (showPlaceholder) {
+            sprite.visible = false;
+            placeholder.visible = true;
+            placeholder.clear();
+            placeholder.lineStyle(2, 0xaaaaaa, 1, 0.5, true);
+            placeholder.drawRect(-hw, -hh, w, h);
+            placeholder.moveTo(-hw, -hh);
+            placeholder.lineTo(hw, hh);
+            placeholder.moveTo(hw, -hh);
+            placeholder.lineTo(-hw, hh);
+        } else {
+            placeholder.visible = false;
         }
       }
 

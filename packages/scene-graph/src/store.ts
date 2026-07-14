@@ -1,7 +1,7 @@
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline';
+export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image' | 'video';
 
 export interface SceneNode {
   id: string;
@@ -21,6 +21,7 @@ export interface SceneNode {
   locked: boolean;
   width?: number;
   height?: number;
+  assetId?: string;
   radius?: number;
   pathData?: string;
   fill?: string;
@@ -45,6 +46,8 @@ export interface SceneGraphState {
   rootId: string | null;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  removeNode: (id: string) => void;
+  loadProject: (nodes: Record<string, SceneNode>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
@@ -105,6 +108,38 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
 
       return { nodes: newNodes };
     });
+  },
+
+  removeNode: (id) => {
+    set((state) => {
+      const newNodes = { ...state.nodes };
+      const node = newNodes[id];
+      if (!node) return state;
+      
+      const removeRecursive = (nodeId: string) => {
+        const n = newNodes[nodeId];
+        if (n) {
+          n.children.forEach(removeRecursive);
+          delete newNodes[nodeId];
+        }
+      };
+
+      if (node.parentId && newNodes[node.parentId]) {
+        const parent = newNodes[node.parentId];
+        newNodes[node.parentId] = {
+          ...parent,
+          children: parent.children.filter(childId => childId !== id)
+        };
+      }
+      
+      removeRecursive(id);
+      
+      return { nodes: newNodes, rootId: state.rootId === id ? null : state.rootId };
+    });
+  },
+
+  loadProject: (nodes) => {
+    set({ nodes, rootId: Object.values(nodes).find(n => n.parentId === null)?.id || null });
   },
 
   reorderNode: (id, newParentId, index) => {
