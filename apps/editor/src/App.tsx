@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
@@ -17,8 +17,11 @@ const engine = new AnimationEngine(store);
 declare global {
   interface Window {
     electronAPI?: {
-      openFile: () => Promise<string | null>;
-      saveFile: (content: string) => Promise<boolean>;
+      openFile: () => Promise<{filePath: string, content: string} | null>;
+      saveFile: (content: string, knownPath?: string) => Promise<{success: boolean, filePath?: string}>;
+      recoverSession: () => Promise<{filePath: string, content: string} | null>;
+      readBinary: (filePath: string) => Promise<Uint8Array | null>;
+      writeBinary: (filePath: string, buffer: Uint8Array) => Promise<boolean>;
     }
   }
 }
@@ -28,18 +31,42 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [activeProjectPath, setActiveProjectPath] = useState<string | undefined>(undefined);
 
+  // Initialize renderer and session recovery
   useEffect(() => {
     if (canvasRef.current) {
-      // Initialize renderer
       const bridge = new PixiBridge(canvasRef.current, store);
-      // We keep bridge instance alive
       (window as any).__bridge = bridge;
 
-      // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
       });
+
+      // Session recovery
+      if (window.electronAPI) {
+        window.electronAPI.recoverSession().then(result => {
+          if (result) {
+            setActiveProjectPath(result.filePath);
+            try {
+              if (result.filePath.endsWith('.json')) {
+                const data = JSON.parse(result.content);
+                if (data.scene) {
+                  Object.values(data.scene).forEach((node: any) => store.getState().addNode(node));
+                  store.getState().recalculateMatrices();
+                }
+              } else if (result.filePath.endsWith('.svg')) {
+                const parser = new SvgParser();
+                const nodes = parser.parse(result.content);
+                nodes.forEach(node => store.getState().addNode(node));
+                store.getState().recalculateMatrices();
+              }
+            } catch (err) {
+              console.error("Failed to parse recovered session", err);
+            }
+          }
+        });
+      }
 
       return () => unsubscribe();
     }
@@ -55,24 +82,76 @@ function App() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  // Handle Drag & Drop for High-Resolution Media
+  useEffect(() => {
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const file = e.dataTransfer?.files[0];
+      if (file && (file.type.startsWith('image/') || file.type.startsWith('video/'))) {
+        const filePath = (file as any).path; // Electron exposes the absolute path
+        if (filePath && window.electronAPI) {
+          const type = file.type.startsWith('video/') ? 'video' : 'image';
+          store.getState().addNode({
+            id: `asset_${Date.now()}`,
+            type,
+            src: `asset://${encodeURIComponent(filePath)}`,
+            parentId: null,
+            children: [],
+            x: window.innerWidth / 2,
+            y: window.innerHeight / 2,
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+          });
+          store.getState().recalculateMatrices();
+        }
+      }
+    };
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    window.addEventListener('drop', handleDrop);
+    window.addEventListener('dragover', handleDragOver);
+    return () => {
+      window.removeEventListener('drop', handleDrop);
+      window.removeEventListener('dragover', handleDragOver);
+    };
+  }, []);
+
   const handleImportSvg = async () => {
     if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
-        const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+      const result = await window.electronAPI.openFile();
+      if (result) {
+        setActiveProjectPath(result.filePath);
+        if (result.filePath.endsWith('.json')) {
+          try {
+            const data = JSON.parse(result.content);
+            if (data.scene) {
+              Object.values(data.scene).forEach((node: any) => store.getState().addNode(node));
+              store.getState().recalculateMatrices();
+            }
+          } catch (e) {
+            console.error("Error parsing JSON", e);
+          }
+        } else {
+          const parser = new SvgParser();
+          const nodes = parser.parse(result.content);
+          nodes.forEach(node => store.getState().addNode(node));
+          store.getState().recalculateMatrices();
+        }
       }
     } else {
       alert("Electron API not available");
     }
   };
 
-  const handleSaveState = async () => {
+  const handleSaveState = useCallback(async () => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
 
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
       const cleanScene: Record<string, any> = {};
       for (const [id, node] of Object.entries(state)) {
         const cleanNode = { ...node };
@@ -91,22 +170,38 @@ function App() {
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      const result = await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2), activeProjectPath);
+      if (result && result.success && result.filePath) {
+        setActiveProjectPath(result.filePath);
+      }
     } else {
       alert("Electron API not available");
     }
-  };
+  }, [activeProjectPath]);
 
   const handleExportSvg = async () => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
       const serializer = new SvgSerializer();
       const svgString = serializer.serialize(state);
+      // Exporting as SVG should probably prompt for a save, so we omit knownPath
       await window.electronAPI.saveFile(svgString);
     } else {
       alert("Electron API not available");
     }
   };
+
+  // Keyboard shortcut for silent save
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSaveState();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleSaveState]);
 
   const handleTestAnimation = () => {
     const state = store.getState();
@@ -124,7 +219,6 @@ function App() {
       });
       engine.play();
     } else {
-      // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
         type: 'rect',
@@ -186,7 +280,6 @@ function App() {
 
           <div className="flex-1 relative bg-[#1a1a1a]">
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
-            {/* Overlay a subtle test animation button for quick testing */}
             <button
                className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
                onClick={handleTestAnimation}
