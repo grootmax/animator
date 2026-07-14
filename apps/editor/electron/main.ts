@@ -39,12 +39,31 @@ app.on('window-all-closed', () => {
 });
 
 // IPC Handlers
+ipcMain.handle('dialog:openProject', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [{ name: 'Jules Project', extensions: ['jules', 'json'] }]
+  });
+  if (canceled || filePaths.length === 0) return null;
+  const buffer = await fs.promises.readFile(filePaths[0]);
+  return new Uint8Array(buffer);
+});
+
+ipcMain.handle('dialog:saveProject', async (_, content: Uint8Array) => {
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    filters: [{ name: 'Jules Project', extensions: ['jules'] }]
+  });
+  if (canceled || !filePath) return false;
+  await fs.promises.writeFile(filePath, content);
+  return true;
+});
+
 ipcMain.handle('dialog:openFile', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
     filters: [{ name: 'SVG files', extensions: ['svg'] }]
   });
-  if (canceled) return null;
+  if (canceled || filePaths.length === 0) return null;
   return fs.promises.readFile(filePaths[0], 'utf-8');
 });
 
