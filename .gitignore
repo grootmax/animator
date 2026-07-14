@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-electron/
+.turbo
 release
-dist
-dist-electron
+*.tsbuildinfo
+perf-results.json
