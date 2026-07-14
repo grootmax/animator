@@ -166,6 +166,40 @@ function App() {
     }
   };
 
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      if (file.type === 'image/png' || file.type === 'image/jpeg') {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const base64Src = ev.target?.result as string;
+          const img = new Image();
+          img.onload = () => {
+            const state = store.getState();
+            state.addNode({
+              id: `image_${Date.now()}`,
+              type: 'image',
+              src: base64Src,
+              x: e.clientX,
+              y: e.clientY,
+              width: img.width,
+              height: img.height,
+              parentId: null
+            });
+            state.recalculateMatrices();
+          };
+          img.src = base64Src;
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden">
@@ -184,7 +218,11 @@ function App() {
         <div className="flex flex-1 overflow-hidden">
           <LayerPanel store={store} nodesCount={nodesCount} />
 
-          <div className="flex-1 relative bg-[#1a1a1a]">
+          <div 
+            className="flex-1 relative bg-[#1a1a1a]"
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+          >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
             {/* Overlay a subtle test animation button for quick testing */}
             <button
