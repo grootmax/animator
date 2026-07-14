@@ -1,29 +1,37 @@
 {
   "name": "@monorepo/editor",
+  "productName": "Editor",
   "version": "1.0.0",
-  "main": "dist-electron/main.js",
+  "description": "High Performance Monorepo Editor",
+  "author": "Jules <jules@example.com>",
+  "homepage": "https://example.com",
+  "main": "dist/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "package": "electron-builder build --mac --win --linux"
+    "package": "electron-builder build"
   },
   "build": {
     "appId": "com.monorepo.editor",
+    "artifactName": "editor-${version}-${os}-${arch}.${ext}",
+    "electronVersion": "25.3.0",
     "directories": {
       "output": "release"
     },
     "files": [
-      "dist/**/*",
-      "dist-electron/**/*"
+      "dist/**/*"
     ],
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "icon": "build/icon.png"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.png"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "deb",
+      "icon": "build/icon.png"
     }
   },
   "dependencies": {
