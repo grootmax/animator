@@ -18,14 +18,16 @@ export interface Track {
 export class AnimationEngine {
   private store: ReturnType<typeof createSceneGraphStore>;
   private tracks: Track[] = [];
-  private playhead = 0;
+  public fps = 60; // Configured frame rate
+  private currentFrame = 0; // Primary source of truth for playhead
   private isPlaying = false;
   private lastTime = 0;
   private rafId: number | null = null;
   public loop = true;
   private duration = 5000; // ms
 
-  public getPlayhead() { return this.playhead; }
+  public getPlayhead() { return this.currentFrame * (1000 / this.fps); }
+  public getPlayheadFrame() { return this.currentFrame; }
   public getTracks() { return this.tracks; }
   public getIsPlaying() { return this.isPlaying; }
   public getDuration() { return this.duration; }
@@ -58,7 +60,16 @@ export class AnimationEngine {
   }
 
   public seek(time: number) {
-    this.playhead = time;
+    const msPerFrame = 1000 / this.fps;
+    this.currentFrame = Math.round(time / msPerFrame);
+    const totalFrames = Math.ceil(this.duration / msPerFrame);
+    this.currentFrame = Math.max(0, Math.min(this.currentFrame, totalFrames));
+    this.updateNodes();
+  }
+
+  public seekFrame(frame: number) {
+    const totalFrames = Math.ceil(this.duration / (1000 / this.fps));
+    this.currentFrame = Math.max(0, Math.min(Math.round(frame), totalFrames));
     this.updateNodes();
   }
 
@@ -66,21 +77,29 @@ export class AnimationEngine {
     if (!this.isPlaying) return;
 
     const now = performance.now();
-    const dt = now - this.lastTime;
-    this.lastTime = now;
+    const msPerFrame = 1000 / this.fps;
 
-    this.playhead += dt;
-
-    if (this.playhead > this.duration) {
-      if (this.loop) {
-        this.playhead = this.playhead % this.duration;
-      } else {
-        this.playhead = this.duration;
-        this.pause();
-      }
+    let framesToAdvance = 0;
+    while (this.lastTime + msPerFrame <= now) {
+      framesToAdvance++;
+      this.lastTime += msPerFrame;
     }
 
-    this.updateNodes();
+    if (framesToAdvance > 0) {
+      this.currentFrame += framesToAdvance;
+      const totalFrames = Math.ceil(this.duration / msPerFrame);
+
+      if (this.currentFrame > totalFrames) {
+        if (this.loop) {
+          this.currentFrame = this.currentFrame % totalFrames;
+        } else {
+          this.currentFrame = totalFrames;
+          this.pause();
+        }
+      }
+
+      this.updateNodes();
+    }
 
     if (this.isPlaying) {
       this.rafId = requestAnimationFrame(this.tick);
@@ -118,16 +137,17 @@ export class AnimationEngine {
   }
 
   private updateNodes() {
+    const time = this.currentFrame * (1000 / this.fps);
     const updates = new Map<string, any>();
 
     for (const track of this.tracks) {
-      const [start, end] = this.binarySearchKeyframes(track.keyframes, this.playhead);
+      const [start, end] = this.binarySearchKeyframes(track.keyframes, time);
 
       if (!start || !end) continue;
 
       let value = start.value;
       if (start !== end) {
-        const progress = (this.playhead - start.time) / (end.time - start.time);
+        const progress = (time - start.time) / (end.time - start.time);
         const easingFn = this.getEasingFunction(start.easing);
         const easedProgress = easingFn(progress);
         value = start.value + (end.value - start.value) * easedProgress;
@@ -152,3 +172,4 @@ export class AnimationEngine {
     }
   }
 }
+
