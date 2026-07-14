@@ -1,5 +1,6 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { VirtualClock, SystemClock } from './clock';
 
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
 
@@ -24,6 +25,7 @@ export class AnimationEngine {
   private rafId: number | null = null;
   public loop = true;
   private duration = 5000; // ms
+  private clock: VirtualClock = new SystemClock();
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
@@ -31,6 +33,11 @@ export class AnimationEngine {
   public getDuration() { return this.duration; }
   public setDuration(d: number) { this.duration = d; }
   public setTracks(tracks: Track[]) { this.tracks = tracks; }
+
+  public setClock(clock: VirtualClock) {
+    this.clock = clock;
+    this.lastTime = this.clock.now();
+  }
 
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
@@ -45,7 +52,7 @@ export class AnimationEngine {
   public play() {
     if (this.isPlaying) return;
     this.isPlaying = true;
-    this.lastTime = performance.now();
+    this.lastTime = this.clock.now();
     this.tick();
   }
 
@@ -61,16 +68,14 @@ export class AnimationEngine {
     this.playhead = time;
     this.updateNodes();
   }
-
-  private tick = () => {
-    if (!this.isPlaying) return;
-
-    const now = performance.now();
-    const dt = now - this.lastTime;
-    this.lastTime = now;
-
+  
+  public step(dt: number) {
     this.playhead += dt;
+    this.handlePlayheadBounds();
+    this.updateNodes();
+  }
 
+  private handlePlayheadBounds() {
     if (this.playhead > this.duration) {
       if (this.loop) {
         this.playhead = this.playhead % this.duration;
@@ -79,7 +84,17 @@ export class AnimationEngine {
         this.pause();
       }
     }
+  }
 
+  private tick = () => {
+    if (!this.isPlaying) return;
+
+    const now = this.clock.now();
+    const dt = now - this.lastTime;
+    this.lastTime = now;
+
+    this.playhead += dt;
+    this.handlePlayheadBounds();
     this.updateNodes();
 
     if (this.isPlaying) {

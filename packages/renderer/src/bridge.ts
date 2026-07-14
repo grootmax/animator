@@ -19,6 +19,7 @@ export class PixiBridge {
       backgroundColor: 0x1a1a1a,
       resolution: window.devicePixelRatio || 1,
       autoDensity: true,
+      preserveDrawingBuffer: true,
     });
 
     this.app.stage.sortableChildren = true;
