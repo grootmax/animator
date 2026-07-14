@@ -38,19 +38,36 @@ export interface SceneNode {
   localMatrix: Matrix3;
   worldMatrix: Matrix3;
   isDirty: boolean;
+  bufferIndex: number;
 }
 
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
-  addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
-  updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  sharedBuffer: SharedArrayBuffer | ArrayBuffer;
+  nextBufferIndex: number;
+  addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty' | 'bufferIndex'>> & { id: string, type: NodeType }) => void;
+  updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty' | 'bufferIndex'>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
 }
 
-const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }): SceneNode => ({
+const MAX_NODES = 100000;
+const FLOATS_PER_NODE = 18;
+const createBuffer = () => {
+  if (typeof SharedArrayBuffer !== 'undefined') {
+    try {
+      return new SharedArrayBuffer(MAX_NODES * FLOATS_PER_NODE * 4);
+    } catch (e) {
+      console.warn('Failed to create SharedArrayBuffer', e);
+    }
+  }
+  console.warn('SharedArrayBuffer not available, falling back to ArrayBuffer');
+  return new ArrayBuffer(MAX_NODES * FLOATS_PER_NODE * 4);
+};
+
+const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty' | 'bufferIndex'>> & { id: string, type: NodeType }, bufferIndex: number): SceneNode => ({
   parentId: null,
   children: [],
   name: node.id,
@@ -65,34 +82,43 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
   ...node,
   localMatrix: createMatrix(),
   worldMatrix: createMatrix(),
-  isDirty: true
+  isDirty: true,
+  bufferIndex
 });
 
-export const createSceneGraphStore = () => createStore<SceneGraphState>((set, get) => ({
-  nodes: {},
-  rootId: null,
+export const createSceneGraphStore = () => {
+  const initialBuffer = createBuffer();
+  const sharedMatrices = new Float32Array(initialBuffer);
 
-  addNode: (node) => {
-    set((state) => {
-      const newNode = getDefaultNode(node);
-      const newNodes = { ...state.nodes, [node.id]: newNode };
+  return createStore<SceneGraphState>((set, get) => ({
+    nodes: {},
+    rootId: null,
+    sharedBuffer: initialBuffer,
+    nextBufferIndex: 0,
 
-      if (node.parentId) {
-        const parent = newNodes[node.parentId];
-        if (parent) {
-          newNodes[node.parentId] = {
-            ...parent,
-            children: [...parent.children, node.id]
-          };
+    addNode: (node) => {
+      set((state) => {
+        const bufferIndex = state.nextBufferIndex;
+        const newNode = getDefaultNode(node, bufferIndex);
+        const newNodes = { ...state.nodes, [node.id]: newNode };
+
+        if (node.parentId) {
+          const parent = newNodes[node.parentId];
+          if (parent) {
+            newNodes[node.parentId] = {
+              ...parent,
+              children: [...parent.children, node.id]
+            };
+          }
         }
-      }
 
-      return {
-        nodes: newNodes,
-        rootId: state.rootId || (node.parentId === null ? node.id : state.rootId)
-      };
-    });
-  },
+        return {
+          nodes: newNodes,
+          rootId: state.rootId || (node.parentId === null ? node.id : state.rootId),
+          nextBufferIndex: bufferIndex + 1
+        };
+      });
+    },
 
   updateNode: (id, updates) => {
     set((state) => {
@@ -169,9 +195,10 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
 
         const isNowDirty = node.isDirty || parentWasDirty;
         let currentWorldMatrix = parentWorldMatrix;
+        let localMatrix = node.localMatrix;
 
         if (isNowDirty) {
-          const localMatrix = getTransformMatrix(
+          localMatrix = getTransformMatrix(
             node.x, node.y, 
             node.rotation, 
             node.scaleX, node.scaleY,
@@ -185,6 +212,11 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
             worldMatrix: currentWorldMatrix,
             isDirty: false
           };
+          
+          // Write directly to shared memory array
+          const offset = node.bufferIndex * FLOATS_PER_NODE;
+          sharedMatrices.set(localMatrix, offset);
+          sharedMatrices.set(currentWorldMatrix, offset + 9);
         } else {
             currentWorldMatrix = node.worldMatrix;
         }
@@ -200,3 +232,4 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
     });
   }
 }));
+};
