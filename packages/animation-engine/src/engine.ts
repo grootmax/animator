@@ -1,17 +1,18 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { getInterpolator } from './interpolators';
 
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
 
 export interface Keyframe {
   time: number; // in milliseconds
-  value: number;
+  value: any;
   easing?: EasingType;
 }
 
 export interface Track {
   nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity';
+  property: string;
   keyframes: Keyframe[];
 }
 
@@ -130,7 +131,8 @@ export class AnimationEngine {
         const progress = (this.playhead - start.time) / (end.time - start.time);
         const easingFn = this.getEasingFunction(start.easing);
         const easedProgress = easingFn(progress);
-        value = start.value + (end.value - start.value) * easedProgress;
+        const interpolator = getInterpolator(track.property, start.value);
+        value = interpolator(start.value, end.value, easedProgress);
       }
 
       if (!updates.has(track.nodeId)) {
