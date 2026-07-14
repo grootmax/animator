@@ -18,7 +18,7 @@ declare global {
   interface Window {
     electronAPI?: {
       openFile: () => Promise<string | null>;
-      saveFile: (content: string) => Promise<boolean>;
+      saveFile: (content: string) => Promise<{ success: boolean; canceled?: boolean; error?: string }>;
     }
   }
 }
@@ -91,7 +91,10 @@ function App() {
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      const result = await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      if (result && !result.success && result.error) {
+        alert("Save failed: " + result.error);
+      }
     } else {
       alert("Electron API not available");
     }
@@ -102,7 +105,10 @@ function App() {
       const state = store.getState().nodes;
       const serializer = new SvgSerializer();
       const svgString = serializer.serialize(state);
-      await window.electronAPI.saveFile(svgString);
+      const result = await window.electronAPI.saveFile(svgString);
+      if (result && !result.success && result.error) {
+        alert("Export failed: " + result.error);
+      }
     } else {
       alert("Electron API not available");
     }
