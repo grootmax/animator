@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
-import { SvgParser, SvgSerializer } from '@monorepo/serialization';
+import { SvgParser, SvgSerializer, generateSerializedProject } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
+// @ts-ignore
 import { DndProvider } from 'react-dnd';
+// @ts-ignore
 import { HTML5Backend } from 'react-dnd-html5-backend';
 
 // Create singletons for the app
@@ -28,6 +30,8 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveProgress, setSaveProgress] = useState(0);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -70,28 +74,36 @@ function App() {
 
   const handleSaveState = async () => {
     if (window.electronAPI) {
-      const state = store.getState().nodes;
-
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
-      }
-
-      const exportData = {
-        scene: cleanScene,
-        animations: engine.getTracks(),
-        metadata: {
+      if (isSaving) return;
+      
+      const previousTool = tool;
+      setTool('pan'); // Force pan tool so users can't edit
+      setIsSaving(true);
+      setSaveProgress(0);
+      
+      try {
+        const state = store.getState().nodes;
+        const animations = engine.getTracks();
+        const metadata = {
           version: "1.0.0",
           duration: engine.getDuration()
-        }
-      };
+        };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+        const chunks: string[] = [];
+        for await (const { chunk, progress } of generateSerializedProject(state, animations, metadata)) {
+          chunks.push(chunk);
+          setSaveProgress(progress);
+        }
+
+        const finalString = chunks.join('');
+        await window.electronAPI.saveFile(finalString);
+      } catch (error) {
+        console.error("Save failed:", error);
+        alert("Failed to save project");
+      } finally {
+        setIsSaving(false);
+        setTool(previousTool);
+      }
     } else {
       alert("Electron API not available");
     }
@@ -168,21 +180,36 @@ function App() {
 
   return (
     <DndProvider backend={HTML5Backend}>
-      <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden">
-        <Toolbar
-          tool={tool}
-          setTool={setTool}
-          isPlaying={isPlaying}
-          togglePlay={handleTogglePlay}
-          onImport={handleImportSvg}
-          onExport={handleSaveState}
-          onExportSvg={handleExportSvg}
-          onZoomIn={handleZoomIn}
-          onZoomOut={handleZoomOut}
-        />
+      <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden relative">
+        {isSaving && (
+          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 pointer-events-none">
+            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>Saving {Math.round(saveProgress * 100)}%</span>
+          </div>
+        )}
+        <div className="relative">
+          <Toolbar
+            tool={tool}
+            setTool={setTool}
+            isPlaying={isPlaying}
+            togglePlay={handleTogglePlay}
+            onImport={handleImportSvg}
+            onExport={handleSaveState}
+            onExportSvg={handleExportSvg}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+          />
+          {isSaving && <div className="absolute inset-0 z-50 cursor-not-allowed bg-black/20" title="Cannot edit while saving" />}
+        </div>
 
         <div className="flex flex-1 overflow-hidden">
-          <LayerPanel store={store} nodesCount={nodesCount} />
+          <div className="relative flex flex-col h-full">
+            <LayerPanel store={store} nodesCount={nodesCount} />
+            {isSaving && <div className="absolute inset-0 z-50 cursor-not-allowed bg-black/20" title="Cannot edit while saving" />}
+          </div>
 
           <div className="flex-1 relative bg-[#1a1a1a]">
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
