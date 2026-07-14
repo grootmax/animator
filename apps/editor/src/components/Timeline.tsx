@@ -33,7 +33,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
         playheadRef.current.style.left = `${(currentPlayhead / duration) * 100}%`;
       }
       if (timeDisplayRef.current) {
-        timeDisplayRef.current.textContent = `${(currentPlayhead / 1000).toFixed(2)}s`;
+        timeDisplayRef.current.textContent = `${(currentPlayhead / engine.getFps()).toFixed(2)}s`;
       }
 
       setIsPlaying((prev) => {
@@ -81,15 +81,15 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
     if (!rulerRef.current) return;
     const rect = rulerRef.current.getBoundingClientRect();
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const time = (x / rect.width) * duration;
-    engine.seek(time);
+    const targetFrame = Math.round((x / rect.width) * duration);
+    engine.seek(targetFrame);
 
     // Immediate DOM update for responsiveness during scrub
     if (playheadRef.current) {
-      playheadRef.current.style.left = `${(time / duration) * 100}%`;
+      playheadRef.current.style.left = `${(targetFrame / duration) * 100}%`;
     }
     if (timeDisplayRef.current) {
-      timeDisplayRef.current.textContent = `${(time / 1000).toFixed(2)}s`;
+      timeDisplayRef.current.textContent = `${(targetFrame / engine.getFps()).toFixed(2)}s`;
     }
   };
 
@@ -104,14 +104,14 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
          if (!rulerRef.current) return;
          const rect = rulerRef.current.getBoundingClientRect();
          const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-         const time = (x / rect.width) * duration;
-         engine.seek(time);
+         const targetFrame = Math.round((x / rect.width) * duration);
+         engine.seek(targetFrame);
          
          if (playheadRef.current) {
-           playheadRef.current.style.left = `${(time / duration) * 100}%`;
+           playheadRef.current.style.left = `${(targetFrame / duration) * 100}%`;
          }
          if (timeDisplayRef.current) {
-           timeDisplayRef.current.textContent = `${(time / 1000).toFixed(2)}s`;
+           timeDisplayRef.current.textContent = `${(targetFrame / engine.getFps()).toFixed(2)}s`;
          }
       }
     };
@@ -165,14 +165,14 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
            <button className="p-1 hover:text-white" onClick={togglePlay}>
               {isPlaying ? <Pause size={16} /> : <Play size={16} />}
            </button>
-           <span className="font-mono text-xs ml-auto" ref={timeDisplayRef}>{(engine.getPlayhead()/1000).toFixed(2)}s</span>
+           <span className="font-mono text-xs ml-auto" ref={timeDisplayRef}>{(engine.getPlayhead()/engine.getFps()).toFixed(2)}s</span>
         </div>
         <div className="flex-1 relative cursor-pointer" ref={rulerRef} onPointerDown={handlePointerDown}>
            {/* Timeline Ruler */}
            <div className="absolute inset-0 border-b border-gray-600 opacity-50">
               {Array.from({length: 11}).map((_, i) => (
                 <div key={i} className="absolute top-0 bottom-0 border-l border-gray-500 text-[10px] pl-1" style={{ left: `${(i/10)*100}%` }}>
-                  {((duration/1000) * (i/10)).toFixed(1)}s
+                  {((duration / engine.getFps()) * (i/10)).toFixed(1)}s
                 </div>
               ))}
            </div>
@@ -199,7 +199,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
                             {/* We don't render a visual label here, just the keyframes */}
                             <div className="absolute left-0 -ml-60 text-xs text-gray-500 pointer-events-none">{track.property}</div>
                             {track.keyframes.map((kf, j) => (
-                              <div key={j} className="absolute w-3 h-3 bg-blue-500 rotate-45 rounded-sm transform -translate-x-1/2 cursor-pointer hover:bg-blue-400 hover:scale-125 transition-transform" style={{ left: `${(kf.time/duration)*100}%` }} title={`${track.property}: ${kf.value}`}></div>
+                              <div key={j} className="absolute w-3 h-3 bg-blue-500 rotate-45 rounded-sm transform -translate-x-1/2 cursor-pointer hover:bg-blue-400 hover:scale-125 transition-transform" style={{ left: `${(kf.frame/duration)*100}%` }} title={`${track.property}: ${kf.value}`}></div>
                             ))}
                          </div>
                       ))}
