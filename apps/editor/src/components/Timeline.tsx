@@ -19,14 +19,10 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
   const [isScrubbing, setIsScrubbing] = useState(false);
 
   useEffect(() => {
-    let frame: number;
-    const update = () => {
-      setPlayhead(engine.getPlayhead());
-      setIsPlaying(engine.getIsPlaying());
-      frame = requestAnimationFrame(update);
-    };
-    frame = requestAnimationFrame(update);
-    return () => cancelAnimationFrame(frame);
+    return engine.subscribeUI((state) => {
+      setPlayhead(state.playhead);
+      setIsPlaying(state.isPlaying);
+    });
   }, [engine]);
 
   const togglePlay = () => {

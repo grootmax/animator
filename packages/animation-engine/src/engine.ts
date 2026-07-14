@@ -15,25 +15,126 @@ export interface Track {
   keyframes: Keyframe[];
 }
 
+const workerCode = `
+  let isPlaying = false;
+  let playhead = 0;
+  let duration = 5000;
+  let loop = true;
+  let lastTime = 0;
+  let tickInterval = null;
+  let broadcastInterval = null;
+
+  const TICK_RATE = 1000 / 60; 
+  const UI_SYNC_RATE = 1000 / 30; // 30fps UI batch rate
+
+  function tick() {
+    const now = performance.now();
+    const dt = now - lastTime;
+    lastTime = now;
+    playhead += dt;
+
+    if (playhead > duration) {
+      if (loop) {
+        playhead = playhead % duration;
+      } else {
+        playhead = duration;
+        isPlaying = false;
+        clearInterval(tickInterval);
+        clearInterval(broadcastInterval);
+        postMessage({ type: 'update', playhead, isPlaying });
+        postMessage({ type: 'renderTick', playhead });
+        return;
+      }
+    }
+    postMessage({ type: 'renderTick', playhead });
+  }
+
+  self.onmessage = (e) => {
+    const { type, payload } = e.data;
+    if (type === 'play') {
+      if (isPlaying) return;
+      isPlaying = true;
+      lastTime = performance.now();
+      tickInterval = setInterval(tick, TICK_RATE);
+      broadcastInterval = setInterval(() => {
+        postMessage({ type: 'update', playhead, isPlaying });
+      }, UI_SYNC_RATE);
+    } else if (type === 'pause') {
+      if (!isPlaying) return;
+      isPlaying = false;
+      clearInterval(tickInterval);
+      clearInterval(broadcastInterval);
+      postMessage({ type: 'update', playhead, isPlaying });
+    } else if (type === 'seek') {
+      playhead = payload;
+      if (isPlaying) {
+        lastTime = performance.now();
+      }
+      postMessage({ type: 'renderTick', playhead });
+      postMessage({ type: 'update', playhead, isPlaying });
+    } else if (type === 'setDuration') {
+      duration = payload;
+    } else if (type === 'setLoop') {
+      loop = payload;
+    }
+  };
+`;
+
 export class AnimationEngine {
   private store: ReturnType<typeof createSceneGraphStore>;
   private tracks: Track[] = [];
   private playhead = 0;
   private isPlaying = false;
-  private lastTime = 0;
-  private rafId: number | null = null;
-  public loop = true;
+  private loopState = true;
   private duration = 5000; // ms
+  private worker: Worker;
+  
+  private listeners: Set<(state: { playhead: number, isPlaying: boolean }) => void> = new Set();
+
+  public get loop() { return this.loopState; }
+  public set loop(val: boolean) { 
+    this.loopState = val;
+    this.worker.postMessage({ type: 'setLoop', payload: val });
+  }
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
   public getIsPlaying() { return this.isPlaying; }
   public getDuration() { return this.duration; }
-  public setDuration(d: number) { this.duration = d; }
+  public setDuration(d: number) { 
+    this.duration = d; 
+    this.worker.postMessage({ type: 'setDuration', payload: d });
+  }
   public setTracks(tracks: Track[]) { this.tracks = tracks; }
 
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    const workerUrl = URL.createObjectURL(blob);
+    this.worker = new Worker(workerUrl);
+    
+    this.worker.onmessage = (e) => {
+      const { type, playhead, isPlaying } = e.data;
+      if (type === 'renderTick') {
+        this.playhead = playhead;
+        this.updateNodes();
+      } else if (type === 'update') {
+        this.playhead = playhead;
+        this.isPlaying = isPlaying;
+        this.notifyListeners();
+      }
+    };
+  }
+
+  public subscribeUI(listener: (state: { playhead: number, isPlaying: boolean }) => void) {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
+  private notifyListeners() {
+    for (const listener of this.listeners) {
+      listener({ playhead: this.playhead, isPlaying: this.isPlaying });
+    }
   }
 
   public addTrack(track: Track) {
@@ -45,46 +146,20 @@ export class AnimationEngine {
   public play() {
     if (this.isPlaying) return;
     this.isPlaying = true;
-    this.lastTime = performance.now();
-    this.tick();
+    this.worker.postMessage({ type: 'play' });
+    this.notifyListeners();
   }
 
   public pause() {
+    if (!this.isPlaying) return;
     this.isPlaying = false;
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
-    }
+    this.worker.postMessage({ type: 'pause' });
+    this.notifyListeners();
   }
 
   public seek(time: number) {
     this.playhead = time;
-    this.updateNodes();
-  }
-
-  private tick = () => {
-    if (!this.isPlaying) return;
-
-    const now = performance.now();
-    const dt = now - this.lastTime;
-    this.lastTime = now;
-
-    this.playhead += dt;
-
-    if (this.playhead > this.duration) {
-      if (this.loop) {
-        this.playhead = this.playhead % this.duration;
-      } else {
-        this.playhead = this.duration;
-        this.pause();
-      }
-    }
-
-    this.updateNodes();
-
-    if (this.isPlaying) {
-      this.rafId = requestAnimationFrame(this.tick);
-    }
+    this.worker.postMessage({ type: 'seek', payload: time });
   }
 
   private getEasingFunction(type: EasingType = 'linear') {
