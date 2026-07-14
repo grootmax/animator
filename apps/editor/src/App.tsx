@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { createSceneGraphStore, assetRegistry } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
@@ -36,6 +36,7 @@ declare global {
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [nodesCount, setNodesCount] = useState(0);
   const [storeVersion, setStoreVersion] = useState(0);
   const [tool, setTool] = useState('select');
@@ -53,7 +54,7 @@ function App() {
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
-        setStoreVersion(state.version);
+        setStoreVersion(state.version ?? 0);
       });
 
       return () => unsubscribe();
@@ -61,7 +62,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    return engine.subscribeUI((state) => {
+    return engine.subscribeUI((state: { isPlaying: boolean }) => {
       setIsPlaying(state.isPlaying);
     });
   }, []);
@@ -70,18 +71,43 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().undo();
+        store.getState().undo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().redo();
+        store.getState().redo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        store.getState().redo();
+        store.getState().redo?.();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  const handleImportAsset = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      const assetId = await assetRegistry.register(file);
+      const isVideo = file.type.startsWith('video/');
+      const nodeType = isVideo ? 'video' : 'image';
+      
+      store.getState().addNode({
+        id: `${nodeType}_${Date.now()}`,
+        type: nodeType,
+        parentId: null,
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2,
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
+        assetId: assetId
+      });
+      store.getState().recalculateMatrices();
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
@@ -90,7 +116,7 @@ function App() {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
         if (nodes.length > 0) {
-          store.getState().commitHistory();
+          store.getState().commitHistory?.();
           nodes.forEach(node => store.getState().addNode(node));
         }
       }
@@ -155,6 +181,7 @@ function App() {
         const exportData = {
           scene: cleanScene,
           animations: engine.getTracks(),
+          assets: assetRegistry.getAllAssets(),
           metadata: {
             version: "1.0.0",
             duration: engine.getDuration()
@@ -201,7 +228,7 @@ function App() {
       });
       engine.play();
     } else {
-      store.getState().commitHistory();
+      store.getState().commitHistory?.();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
@@ -287,10 +314,19 @@ function App() {
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
           onImport={handleImportSvg}
+          onImportAsset={() => fileInputRef.current?.click()}
           onExport={handleSaveState}
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
+        />
+
+        <input 
+          type="file" 
+          ref={fileInputRef} 
+          style={{ display: 'none' }} 
+          accept="image/*,video/*" 
+          onChange={handleImportAsset} 
         />
 
         <div className="flex flex-1 overflow-hidden">
