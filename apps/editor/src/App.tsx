@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
-import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
@@ -10,6 +9,7 @@ import { Timeline } from './components/Timeline';
 import { DndProvider } from 'react-dnd';
 // @ts-ignore
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import { WorkerProxy } from './workerProxy';
 
 // Create singletons for the app
 const channel = new BroadcastChannel('scene-graph-sync');
@@ -21,7 +21,6 @@ channel.onmessage = (event) => {
     (store as any).applyRemote(event.data);
   }
 };
-const engine = new AnimationEngine(store);
 
 // Extend Window interface for Electron IPC
 declare global {
@@ -43,12 +42,12 @@ function App() {
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [showSaveProgress, setShowSaveProgress] = useState(false);
 
+  const [engineProxy, setEngineProxy] = useState<WorkerProxy | null>(null);
+
   useEffect(() => {
-    if (canvasRef.current) {
-      // Initialize renderer
-      const bridge = new PixiBridge(canvasRef.current, store);
-      // We keep bridge instance alive
-      (window as any).__bridge = bridge;
+    if (canvasRef.current && !engineProxy) {
+      const proxy = new WorkerProxy(store, canvasRef.current);
+      setEngineProxy(proxy);
 
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
@@ -61,10 +60,14 @@ function App() {
   }, []);
 
   useEffect(() => {
-    return engine.subscribeUI((state) => {
-      setIsPlaying(state.isPlaying);
-    });
-  }, []);
+    let frame: number;
+    const checkPlayState = () => {
+      if (engineProxy) setIsPlaying(engineProxy.getIsPlaying());
+      frame = requestAnimationFrame(checkPlayState);
+    };
+    frame = requestAnimationFrame(checkPlayState);
+    return () => cancelAnimationFrame(frame);
+  }, [engineProxy]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -91,7 +94,10 @@ function App() {
         const nodes = parser.parse(svgContent);
         if (nodes.length > 0) {
           store.getState().commitHistory();
-          nodes.forEach(node => store.getState().addNode(node));
+          nodes.forEach(node => {
+            store.getState().addNode(node);
+            if (engineProxy) engineProxy.syncNodeUpdate(node.id, node);
+          });
         }
       }
     } else {
@@ -112,6 +118,23 @@ function App() {
       const showProgressTimeout = setTimeout(() => {
         setShowSaveProgress(true);
       }, 500);
+
+      const finishSave = async () => {
+        clearTimeout(showProgressTimeout);
+        setShowSaveProgress(false);
+        setSaveProgress(null);
+        
+        const exportData = {
+          scene: cleanScene,
+          animations: engineProxy?.getTracks() || [],
+          metadata: {
+            version: "1.0.0",
+            duration: engineProxy?.getDuration() || 5000
+          }
+        };
+
+        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+      };
 
       const processBatch = (deadline?: any) => {
         const startTime = performance.now();
@@ -146,23 +169,6 @@ function App() {
           finishSave();
         }
       };
-
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
-          }
-        };
-
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
-      };
       
       if ('requestIdleCallback' in window) {
         (window as any).requestIdleCallback(processBatch);
@@ -186,11 +192,12 @@ function App() {
   };
 
   const handleTestAnimation = () => {
+    if (!engineProxy) return;
     const state = store.getState();
     const nodeIds = Object.keys(state.nodes);
     if (nodeIds.length > 0) {
       const testNodeId = nodeIds[0];
-      engine.addTrack({
+      engineProxy.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
         keyframes: {
@@ -199,11 +206,11 @@ function App() {
           'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
         }
       });
-      engine.play();
+      engineProxy.play();
     } else {
       store.getState().commitHistory();
       // Create a test node if none exist
-      state.addNode({
+      const node = {
         id: 'test_rect',
         type: 'rect',
         parentId: null,
@@ -216,32 +223,25 @@ function App() {
         width: 100,
         height: 100,
         fill: '#ff0000'
-      });
+      };
+      state.addNode(node as any);
       state.recalculateMatrices();
+      engineProxy.syncNodeUpdate(node.id, node);
     }
   };
 
   const handleTogglePlay = () => {
-    if (engine.getIsPlaying()) engine.pause();
-    else engine.play();
+    if (!engineProxy) return;
+    if (engineProxy.getIsPlaying()) engineProxy.pause();
+    else engineProxy.play();
   };
 
   const handleZoomIn = () => {
-    const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x *= 1.2;
-      bridge.viewport.container.scale.y *= 1.2;
-      bridge.viewport.drawGrid();
-    }
+    if (engineProxy) engineProxy.zoomIn();
   };
 
   const handleZoomOut = () => {
-    const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x /= 1.2;
-      bridge.viewport.container.scale.y /= 1.2;
-      bridge.viewport.drawGrid();
-    }
+    if (engineProxy) engineProxy.zoomOut();
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -312,7 +312,7 @@ function App() {
           </div>
         </div>
 
-        <Timeline engine={engine} store={store} />
+        {engineProxy && <Timeline engine={engineProxy as any} store={store} />}
 
         {showSaveProgress && (
           <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
