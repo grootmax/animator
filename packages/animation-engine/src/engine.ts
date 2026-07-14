@@ -1,20 +1,7 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
-
-export interface Keyframe {
-  id: string;
-  time: number; // in milliseconds
-  value: number | string;
-  easing?: EasingType;
-}
-
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
-}
+import { VirtualClock, SystemClock } from './clock';
+import { EasingType, Keyframe, Track, Heartbeat, NetworkRole } from './types';
 
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
@@ -104,6 +91,7 @@ export class AnimationEngine {
   private rafId: number | null = null;
   public loop = true;
   private duration = 5000; // ms
+  private clock: VirtualClock = new SystemClock();
 
   public role: NetworkRole = 'standalone';
   public onHeartbeat?: (heartbeat: Heartbeat) => void;
@@ -111,12 +99,30 @@ export class AnimationEngine {
   private heartbeatRate = 100;
   public driftThreshold = 150;
 
+  private listeners: Set<(state: { playhead: number, isPlaying: boolean }) => void> = new Set();
+
+  public subscribeUI(listener: (state: { playhead: number, isPlaying: boolean }) => void) {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
+  private notifyListeners() {
+    for (const listener of this.listeners) {
+      listener({ playhead: this.playhead, isPlaying: this.isPlaying });
+    }
+  }
+
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
   public getIsPlaying() { return this.isPlaying; }
   public getDuration() { return this.duration; }
   public setDuration(d: number) { this.duration = d; }
   public setTracks(tracks: Track[]) { this.tracks = tracks; }
+
+  public setClock(clock: VirtualClock) {
+    this.clock = clock;
+    this.lastTime = this.clock.now();
+  }
 
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
@@ -129,7 +135,7 @@ export class AnimationEngine {
   public play() {
     if (this.isPlaying) return;
     this.isPlaying = true;
-    this.lastTime = performance.now();
+    this.lastTime = this.clock.now();
     this.drift = 0;
     this.tick();
 
@@ -215,20 +221,13 @@ export class AnimationEngine {
       this.pause();
     }
   }
+  public step(dt: number) {
+    this.playhead += dt;
+    this.handlePlayheadBounds();
+    this.updateNodes();
+  }
 
-  private tick = () => {
-    if (!this.isPlaying) return;
-
-    const now = performance.now();
-    const dt = now - this.lastTime;
-    this.lastTime = now;
-
-    const exactDt = dt + this.drift;
-    const quantizedDt = Math.round(exactDt / 16.67) * 16.67;
-    this.drift = exactDt - quantizedDt;
-
-    this.playhead += quantizedDt;
-
+  private handlePlayheadBounds() {
     if (this.playhead > this.duration) {
       if (this.loop) {
         this.playhead = this.playhead % this.duration;
@@ -237,7 +236,17 @@ export class AnimationEngine {
         this.pause();
       }
     }
+  }
 
+  private tick = () => {
+    if (!this.isPlaying) return;
+
+    const now = this.clock.now();
+    const dt = now - this.lastTime;
+    this.lastTime = now;
+
+    this.playhead += dt;
+    this.handlePlayheadBounds();
     this.updateNodes();
 
     if (this.isPlaying) {
@@ -280,7 +289,7 @@ export class AnimationEngine {
 
     for (const track of this.tracks) {
       const keyframesArray = Object.values(track.keyframes).sort((a, b) => {
-        if (a.time === b.time) return a.id.localeCompare(b.id);
+        if (a.time === b.time) return (a.id || '').localeCompare(b.id || '');
         return a.time - b.time;
       });
       const [start, end] = this.binarySearchKeyframes(keyframesArray, this.playhead);

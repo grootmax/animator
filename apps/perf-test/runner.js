@@ -4,7 +4,8 @@ const path = require('path');
 
 async function run() {
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  const viteBin = path.resolve(__dirname, '../../node_modules/vite/bin/vite.js');
+  const viteProcess = spawn(process.execPath, [viteBin, '--port', '4173', '--strictPort'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
@@ -32,11 +33,15 @@ async function run() {
   try {
     browser = await puppeteer.launch({
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--enable-blink-features=SharedArrayBuffer'],
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('console', async (msg) => {
+      const args = await Promise.all(msg.args().map(arg => arg.jsonValue().catch(() => arg.toString())));
+      console.log('BROWSER:', msg.text(), args);
+    });
+    page.on('pageerror', (err) => console.error('PAGE ERROR:', err));
 
     console.log('Navigating to http://localhost:4173 ...');
     await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
@@ -99,7 +104,13 @@ async function run() {
     process.exitCode = 1;
   } finally {
     if (browser) await browser.close();
-    viteProcess.kill();
+    if (viteProcess) {
+      viteProcess.kill('SIGTERM');
+      await new Promise((resolve) => {
+        viteProcess.on('exit', resolve);
+        setTimeout(resolve, 1000);
+      });
+    }
     process.exit();
   }
 }
