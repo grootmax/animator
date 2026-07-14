@@ -15,6 +15,8 @@ export interface Track {
   keyframes: Keyframe[];
 }
 
+const FIXED_STEP = 1000 / 60; // 16.666... ms
+
 export class AnimationEngine {
   private store: ReturnType<typeof createSceneGraphStore>;
   private tracks: Track[] = [];
@@ -24,6 +26,9 @@ export class AnimationEngine {
   private rafId: number | null = null;
   public loop = true;
   private duration = 5000; // ms
+
+  private accumulator = 0;
+  private currentStep = 0;
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
@@ -46,6 +51,7 @@ export class AnimationEngine {
     if (this.isPlaying) return;
     this.isPlaying = true;
     this.lastTime = performance.now();
+    this.accumulator = 0;
     this.tick();
   }
 
@@ -58,7 +64,16 @@ export class AnimationEngine {
   }
 
   public seek(time: number) {
-    this.playhead = time;
+    this.currentStep = Math.round(time / FIXED_STEP);
+    this.playhead = this.currentStep * FIXED_STEP;
+
+    if (this.playhead > this.duration) {
+      this.playhead = this.duration;
+    } else if (this.playhead < 0) {
+      this.playhead = 0;
+      this.currentStep = 0;
+    }
+
     this.updateNodes();
   }
 
@@ -69,18 +84,34 @@ export class AnimationEngine {
     const dt = now - this.lastTime;
     this.lastTime = now;
 
-    this.playhead += dt;
+    this.accumulator += dt;
 
-    if (this.playhead > this.duration) {
-      if (this.loop) {
-        this.playhead = this.playhead % this.duration;
+    let steps = 0;
+    while (this.accumulator >= FIXED_STEP) {
+      this.accumulator -= FIXED_STEP;
+      this.currentStep++;
+      
+      let nextPlayhead = this.currentStep * FIXED_STEP;
+      
+      if (nextPlayhead > this.duration + 0.0001) {
+        if (this.loop) {
+          this.currentStep = 0;
+          this.playhead = 0;
+        } else {
+          this.playhead = this.duration;
+          this.pause();
+          break;
+        }
       } else {
-        this.playhead = this.duration;
-        this.pause();
+        this.playhead = nextPlayhead;
       }
+      
+      steps++;
     }
 
-    this.updateNodes();
+    if (steps > 0 || !this.isPlaying) {
+      this.updateNodes();
+    }
 
     if (this.isPlaying) {
       this.rafId = requestAnimationFrame(this.tick);
@@ -118,7 +149,7 @@ export class AnimationEngine {
   }
 
   private updateNodes() {
-    const updates = new Map<string, any>();
+    const updates: Record<string, any> = {};
 
     for (const track of this.tracks) {
       const [start, end] = this.binarySearchKeyframes(track.keyframes, this.playhead);
@@ -133,22 +164,28 @@ export class AnimationEngine {
         value = start.value + (end.value - start.value) * easedProgress;
       }
 
-      if (!updates.has(track.nodeId)) {
-        updates.set(track.nodeId, {});
+      if (!updates[track.nodeId]) {
+        updates[track.nodeId] = {};
       }
-      updates.get(track.nodeId)[track.property] = value;
+      updates[track.nodeId][track.property] = value;
     }
 
     const storeState = this.store.getState();
-    let requiresMatrixUpdate = false;
 
-    for (const [nodeId, nodeUpdates] of updates.entries()) {
-      storeState.updateNode(nodeId, nodeUpdates);
-      requiresMatrixUpdate = true;
-    }
+    if (Object.keys(updates).length > 0) {
+      if (typeof storeState.batchUpdateAndRecalculate === 'function') {
+        storeState.batchUpdateAndRecalculate(updates);
+      } else {
+        let requiresMatrixUpdate = false;
+        for (const [nodeId, nodeUpdates] of Object.entries(updates)) {
+          storeState.updateNode(nodeId, nodeUpdates);
+          requiresMatrixUpdate = true;
+        }
 
-    if (requiresMatrixUpdate) {
-      storeState.recalculateMatrices();
+        if (requiresMatrixUpdate) {
+          storeState.recalculateMatrices();
+        }
+      }
     }
   }
 }
