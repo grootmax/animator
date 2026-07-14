@@ -2,7 +2,7 @@ import { generateKeyBetween } from '@monorepo/math';
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image';
+export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image' | 'video';
 
 export interface SceneNode {
   id: string;
@@ -22,6 +22,7 @@ export interface SceneNode {
   locked: boolean;
   width?: number;
   height?: number;
+  assetId?: string;
   radius?: number;
   pathData?: string;
   fill?: string;
@@ -50,6 +51,8 @@ export interface SceneGraphState {
   remoteSelections: Record<string, { nodeId: string; color: string; userName?: string }>;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  removeNode: (id: string) => void;
+  loadProject: (nodes: Record<string, SceneNode>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
@@ -87,11 +90,11 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
   selectedNodeId: null,
   remoteSelections: {},
 
-  setViewport: (viewport) => set({ viewport }),
+  setViewport: (viewport: any) => set({ viewport }),
   
-  setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+  setSelectedNodeId: (selectedNodeId: any) => set({ selectedNodeId }),
   
-  setRemoteSelection: (userId, nodeId, color, userName) => set((state) => {
+  setRemoteSelection: (userId: any, nodeId: any, color: any, userName: any) => set((state: any) => {
     const newRemoteSelections = { ...state.remoteSelections };
     if (nodeId === null) {
       delete newRemoteSelections[userId];
@@ -134,6 +137,30 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
       return { nodes: newNodes };
     }, false, { type: 'updateNode', payload: { id, updates } });
+  },
+
+  removeNode: (id: string) => {
+    set((state: SceneGraphState) => {
+      const newNodes = { ...state.nodes };
+      if (!newNodes[id]) return state;
+
+      const deleteRecursive = (nodeId: string) => {
+        Object.values(newNodes).forEach(n => {
+          if (n.parentId === nodeId) {
+            deleteRecursive(n.id);
+          }
+        });
+        delete newNodes[nodeId];
+      };
+
+      deleteRecursive(id);
+
+      return { nodes: newNodes, rootId: state.rootId === id ? null : state.rootId };
+    });
+  },
+
+  loadProject: (nodes: Record<string, SceneNode>) => {
+    set({ nodes, rootId: Object.values(nodes).find(n => n.parentId === null)?.id || null });
   },
 
   reorderNode: (id: string, newParentId: string | null, index: number) => {
@@ -214,7 +241,7 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
             currentWorldMatrix = node.worldMatrix;
         }
 
-        for (const childId of node.children) {
+        for (const childId of (childrenMap[nodeId] || [])) {
           traverse(childId, currentWorldMatrix, isWorldDirty);
         }
       };

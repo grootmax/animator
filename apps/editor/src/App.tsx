@@ -10,6 +10,7 @@ import { Timeline } from './components/Timeline';
 import { DndProvider } from 'react-dnd';
 // @ts-ignore
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import { assetManager } from '@monorepo/renderer';
 
 // Create singletons for the app
 const channel = new BroadcastChannel('scene-graph-sync');
@@ -51,7 +52,7 @@ function App() {
       (window as any).__bridge = bridge;
 
       // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
+      const unsubscribe = store.subscribe((state: any) => {
         setNodesCount(Object.keys(state.nodes).length);
         setStoreVersion(state.version);
       });
@@ -70,13 +71,13 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().undo();
+        (store.getState() as any).undo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -85,12 +86,38 @@ function App() {
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
+      const content = await window.electronAPI.openFile();
+      if (content) {
+        try {
+           const data = JSON.parse(content);
+           if (data.scene) {
+              if (data.assets) {
+                 assetManager.clear();
+                 for (const a of data.assets) {
+                    assetManager.registerAsset(a.id, a.url, a.type);
+                 }
+              }
+              const state = store.getState();
+              // Replace all nodes
+              state.loadProject(data.scene);
+              
+              // Load animations if any
+              if (data.animations) {
+                 engine.setTracks(data.animations);
+              }
+              state.recalculateMatrices();
+              return;
+           }
+        } catch (e) {
+           // Fallback to SVG parse
+        }
+        
         const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
+        const nodes = parser.parse(content);
         if (nodes.length > 0) {
-          store.getState().commitHistory();
+          if (typeof (store.getState() as any).commitHistory === 'function') {
+            (store.getState() as any).commitHistory();
+          }
           nodes.forEach(node => store.getState().addNode(node));
         }
       }
@@ -112,6 +139,24 @@ function App() {
       const showProgressTimeout = setTimeout(() => {
         setShowSaveProgress(true);
       }, 500);
+
+      const finishSave = async () => {
+        clearTimeout(showProgressTimeout);
+        setShowSaveProgress(false);
+        setSaveProgress(null);
+        
+        const exportData = {
+          scene: cleanScene,
+          assets: assetManager.getAllAssets(),
+          animations: engine.getTracks(),
+          metadata: {
+            version: "1.0.0",
+            duration: engine.getDuration()
+          }
+        };
+
+        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+      };
 
       const processBatch = (deadline?: any) => {
         const startTime = performance.now();
@@ -145,23 +190,6 @@ function App() {
         } else {
           finishSave();
         }
-      };
-
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
-          }
-        };
-
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
       };
       
       if ('requestIdleCallback' in window) {
@@ -201,7 +229,9 @@ function App() {
       });
       engine.play();
     } else {
-      store.getState().commitHistory();
+      if (typeof (state as any).commitHistory === 'function') {
+        (state as any).commitHistory();
+      }
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
@@ -246,31 +276,33 @@ function App() {
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      if (file.type === 'image/png' || file.type === 'image/jpeg') {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const base64Src = ev.target?.result as string;
-          const img = new Image();
-          img.onload = () => {
-            const state = store.getState();
-            state.addNode({
-              id: `image_${Date.now()}`,
-              type: 'image',
-              src: base64Src,
-              x: e.clientX,
-              y: e.clientY,
-              width: img.width,
-              height: img.height,
-              parentId: null
-            });
-            state.recalculateMatrices();
-          };
-          img.src = base64Src;
-        };
-        reader.readAsDataURL(file);
-      }
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+       for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+             const type = file.type.startsWith('video/') ? 'video' : 'image';
+             const url = URL.createObjectURL(file);
+             const id = 'asset_' + Math.random().toString(36).substring(2, 9);
+             assetManager.registerAsset(id, url, type);
+             
+             // Add node
+             const state = store.getState();
+             const nodeId = 'node_' + Math.random().toString(36).substring(2, 9);
+             
+             // Optionally extract width/height for videos/images, but since it's async, we can just start with default 400x400
+             state.addNode({
+                id: nodeId,
+                type: type,
+                parentId: null,
+                x: window.innerWidth / 2,
+                y: window.innerHeight / 2,
+                width: 400,
+                height: 400,
+                assetId: id
+             });
+          }
+       }
     }
   };
 
@@ -280,7 +312,7 @@ function App() {
 
   return (
     <DndProvider backend={HTML5Backend}>
-      <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden relative">
+      <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden relative" onDrop={handleDrop} onDragOver={handleDragOver}>
         <Toolbar
           tool={tool}
           setTool={setTool}
