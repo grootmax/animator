@@ -7,17 +7,24 @@ import { tokenizePath } from '@monorepo/serialization';
 
 export class PixiBridge {
   private app: PIXI.Application;
-  private viewport: Viewport;
+  public viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(
+    canvas: HTMLCanvasElement | OffscreenCanvas,
+    store: ReturnType<typeof createSceneGraphStore>,
+    options?: { width?: number; height?: number; resolution?: number }
+  ) {
+    const isWorker = typeof window === 'undefined';
     this.app = new PIXI.Application({
-      view: canvas,
-      resizeTo: window,
+      view: canvas as any,
+      width: options?.width || 800,
+      height: options?.height || 600,
+      resizeTo: isWorker ? undefined : (window as any),
       backgroundColor: 0x1a1a1a,
-      resolution: window.devicePixelRatio || 1,
+      resolution: options?.resolution || (isWorker ? 1 : window.devicePixelRatio || 1),
       autoDensity: true,
     });
 

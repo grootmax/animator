@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
-import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import { WorkerProxy } from './workerProxy';
 
 // Create singletons for the app
 const store = createSceneGraphStore();
-const engine = new AnimationEngine(store);
 
 // Extend Window interface for Electron IPC
 declare global {
@@ -29,12 +28,12 @@ function App() {
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
 
+  const [engineProxy, setEngineProxy] = useState<WorkerProxy | null>(null);
+
   useEffect(() => {
-    if (canvasRef.current) {
-      // Initialize renderer
-      const bridge = new PixiBridge(canvasRef.current, store);
-      // We keep bridge instance alive
-      (window as any).__bridge = bridge;
+    if (canvasRef.current && !engineProxy) {
+      const proxy = new WorkerProxy(store, canvasRef.current);
+      setEngineProxy(proxy);
 
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
@@ -48,7 +47,7 @@ function App() {
   useEffect(() => {
     let frame: number;
     const checkPlayState = () => {
-      setIsPlaying(engine.getIsPlaying());
+      if (engineProxy) setIsPlaying(engineProxy.getIsPlaying());
       frame = requestAnimationFrame(checkPlayState);
     };
     frame = requestAnimationFrame(checkPlayState);
@@ -61,7 +60,10 @@ function App() {
       if (svgContent) {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+        nodes.forEach(node => {
+          store.getState().addNode(node);
+          if (engineProxy) engineProxy.syncNodeUpdate(node.id, node);
+        });
       }
     } else {
       alert("Electron API not available");
@@ -84,10 +86,10 @@ function App() {
 
       const exportData = {
         scene: cleanScene,
-        animations: engine.getTracks(),
+        animations: engineProxy?.getTracks() || [],
         metadata: {
           version: "1.0.0",
-          duration: engine.getDuration()
+          duration: engineProxy?.getDuration() || 5000
         }
       };
 
@@ -109,11 +111,12 @@ function App() {
   };
 
   const handleTestAnimation = () => {
+    if (!engineProxy) return;
     const state = store.getState();
     const nodeIds = Object.keys(state.nodes);
     if (nodeIds.length > 0) {
       const testNodeId = nodeIds[0];
-      engine.addTrack({
+      engineProxy.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
         keyframes: [
@@ -122,10 +125,10 @@ function App() {
           { time: 4000, value: 0, easing: 'easeInOutQuad' }
         ]
       });
-      engine.play();
+      engineProxy.play();
     } else {
       // Create a test node if none exist
-      state.addNode({
+      const node = {
         id: 'test_rect',
         type: 'rect',
         parentId: null,
@@ -138,32 +141,25 @@ function App() {
         width: 100,
         height: 100,
         fill: '#ff0000'
-      });
+      };
+      state.addNode(node as any);
       state.recalculateMatrices();
+      engineProxy.syncNodeUpdate(node.id, node);
     }
   };
 
   const handleTogglePlay = () => {
-    if (engine.getIsPlaying()) engine.pause();
-    else engine.play();
+    if (!engineProxy) return;
+    if (engineProxy.getIsPlaying()) engineProxy.pause();
+    else engineProxy.play();
   };
 
   const handleZoomIn = () => {
-    const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x *= 1.2;
-      bridge.viewport.container.scale.y *= 1.2;
-      bridge.viewport.drawGrid();
-    }
+    if (engineProxy) engineProxy.zoomIn();
   };
 
   const handleZoomOut = () => {
-    const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x /= 1.2;
-      bridge.viewport.container.scale.y /= 1.2;
-      bridge.viewport.drawGrid();
-    }
+    if (engineProxy) engineProxy.zoomOut();
   };
 
   return (
@@ -196,7 +192,7 @@ function App() {
           </div>
         </div>
 
-        <Timeline engine={engine} store={store} />
+        {engineProxy && <Timeline engine={engineProxy as any} store={store} />}
       </div>
     </DndProvider>
   );

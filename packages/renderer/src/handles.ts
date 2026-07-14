@@ -37,9 +37,11 @@ export class TransformHandles {
       this.container.addChild(handle);
     }
 
-    // Add global pointer move/up
-    window.addEventListener('pointermove', this.onDragMove.bind(this));
-    window.addEventListener('pointerup', this.onDragEnd.bind(this));
+    // Add global pointer move/up if window exists
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pointermove', this.onDragMove.bind(this));
+      window.addEventListener('pointerup', this.onDragEnd.bind(this));
+    }
   }
 
   public setSelectedNode(id: string | null) {
