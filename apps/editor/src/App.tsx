@@ -8,6 +8,8 @@ import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import { createWorkerTask } from './utils/workerUtils';
+import SerializationWorker from './workers/serialization.worker?worker';
 
 // Create singletons for the app
 const store = createSceneGraphStore();
@@ -28,6 +30,7 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -70,28 +73,25 @@ function App() {
 
   const handleSaveState = async () => {
     if (window.electronAPI) {
-      const state = store.getState().nodes;
+      setIsSaving(true);
+      try {
+        const state = store.getState().nodes;
+        const animations = engine.getTracks();
+        const duration = engine.getDuration();
+        
+        const serializationTask = createWorkerTask<any, string>(() => new SerializationWorker());
+        const jsonString = await serializationTask.run({
+          state,
+          animations,
+          duration
+        });
 
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
+        await window.electronAPI.saveFile(jsonString);
+      } catch (error: any) {
+        alert("Save failed: " + (error.message || "Unknown error"));
+      } finally {
+        setIsSaving(false);
       }
-
-      const exportData = {
-        scene: cleanScene,
-        animations: engine.getTracks(),
-        metadata: {
-          version: "1.0.0",
-          duration: engine.getDuration()
-        }
-      };
-
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
     } else {
       alert("Electron API not available");
     }
@@ -186,6 +186,12 @@ function App() {
 
           <div className="flex-1 relative bg-[#1a1a1a]">
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+            {isSaving && (
+              <div className="absolute top-4 left-4 bg-gray-800 border border-gray-600 px-4 py-2 rounded shadow-lg text-sm flex items-center space-x-2 z-10">
+                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <span>Saving in background...</span>
+              </div>
+            )}
             {/* Overlay a subtle test animation button for quick testing */}
             <button
                className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
