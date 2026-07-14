@@ -5,6 +5,68 @@ let idCounter = 0;
 const generateId = () => `node_${idCounter++}`;
 
 export class SvgParser {
+  private calculateViewBoxTransform(svgElement: Element): Matrix3 {
+    const matrix: Matrix3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    
+    const viewBox = svgElement.getAttribute('viewBox');
+    const widthAttr = svgElement.getAttribute('width');
+    const heightAttr = svgElement.getAttribute('height');
+    
+    if (!viewBox) return matrix;
+    
+    const vbParts = viewBox.split(/[\s,]+/).filter(Boolean).map(parseFloat);
+    if (vbParts.length !== 4 || vbParts.some(isNaN)) return matrix;
+    
+    const [minX, minY, vbWidth, vbHeight] = vbParts;
+    if (vbWidth <= 0 || vbHeight <= 0) return matrix;
+    
+    let w = vbWidth;
+    let h = vbHeight;
+    
+    if (widthAttr && !widthAttr.endsWith('%')) {
+      w = parseFloat(widthAttr) || vbWidth;
+    }
+    if (heightAttr && !heightAttr.endsWith('%')) {
+      h = parseFloat(heightAttr) || vbHeight;
+    }
+    
+    const preserveAspectRatio = svgElement.getAttribute('preserveAspectRatio') || 'xMidYMid meet';
+    const parts = preserveAspectRatio.trim().split(/[\s]+/);
+    const align = parts[0] || 'xMidYMid';
+    const meetOrSlice = parts[1] || 'meet';
+    
+    let scaleX = w / vbWidth;
+    let scaleY = h / vbHeight;
+    
+    if (align !== 'none') {
+      const uniformScale = meetOrSlice === 'slice' ? Math.max(scaleX, scaleY) : Math.min(scaleX, scaleY);
+      scaleX = uniformScale;
+      scaleY = uniformScale;
+    }
+    
+    let translateX = 0;
+    let translateY = 0;
+    
+    if (align !== 'none') {
+      const xAlign = align.includes('xMin') ? 'Min' : align.includes('xMax') ? 'Max' : 'Mid';
+      const yAlign = align.includes('yMin') ? 'Min' : align.includes('yMax') ? 'Max' : 'Mid';
+      
+      const extraWidth = w - vbWidth * scaleX;
+      if (xAlign === 'Mid') translateX = extraWidth / 2;
+      else if (xAlign === 'Max') translateX = extraWidth;
+      
+      const extraHeight = h - vbHeight * scaleY;
+      if (yAlign === 'Mid') translateY = extraHeight / 2;
+      else if (yAlign === 'Max') translateY = extraHeight;
+    }
+    
+    return [
+      scaleX, 0, 0,
+      0, scaleY, 0,
+      translateX - minX * scaleX, translateY - minY * scaleY, 1
+    ];
+  }
+
   public parse(svgString: string): SceneNode[] {
     const parser = new DOMParser();
     const doc = parser.parseFromString(svgString, 'image/svg+xml');
@@ -15,9 +77,10 @@ export class SvgParser {
 
     const svgElement = doc.documentElement;
     const rootNodes: SceneNode[] = [];
+    const viewportMatrix = this.calculateViewBoxTransform(svgElement);
 
     Array.from(svgElement.children).forEach(child => {
-      this.processElement(child, null, rootNodes, createMatrix());
+      this.processElement(child, null, rootNodes, viewportMatrix);
     });
 
     return rootNodes;
@@ -128,8 +191,15 @@ export class SvgParser {
 
     let xAttr = parseFloat(element.getAttribute('x') || '0');
     let yAttr = parseFloat(element.getAttribute('y') || '0');
+    let width = 0;
+    let height = 0;
 
-    if (type === 'circle' || type === 'ellipse') {
+    if (type === 'rect') {
+      width = parseFloat(element.getAttribute('width') || '0');
+      height = parseFloat(element.getAttribute('height') || '0');
+      xAttr += width / 2;
+      yAttr += height / 2;
+    } else if (type === 'circle' || type === 'ellipse') {
       xAttr = parseFloat(element.getAttribute('cx') || '0');
       yAttr = parseFloat(element.getAttribute('cy') || '0');
     }
@@ -140,7 +210,11 @@ export class SvgParser {
       xAttr, yAttr, 1
     ];
 
-    const combinedMatrix = multiplyMatrix(localTransformMatrix, baseMatrix);
+    const localMatrix = multiplyMatrix(localTransformMatrix, baseMatrix);
+    const combinedMatrix = parentId === null 
+      ? multiplyMatrix(parentMatrix, localMatrix) 
+      : localMatrix;
+
     const { x, y, scaleX, scaleY, rotation, skewX, skewY } = this.extractTransformProperties(combinedMatrix);
 
     const opacityStr = element.getAttribute('opacity');
