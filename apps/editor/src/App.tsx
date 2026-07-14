@@ -19,6 +19,11 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
+      projectSaveStart: () => Promise<string | null>;
+      projectSaveChunk: (filePath: string, chunk: Uint8Array) => Promise<boolean>;
+      projectLoadStart: () => Promise<{filePath: string, size: number} | null>;
+      projectLoadChunk: (filePath: string, start: number, length: number) => Promise<Uint8Array>;
+      readTextFile: (filePath: string) => Promise<string>;
     }
   }
 }
@@ -37,7 +42,7 @@ function App() {
       (window as any).__bridge = bridge;
 
       // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
+      const unsubscribe = store.subscribe((state: any) => {
         setNodesCount(Object.keys(state.nodes).length);
       });
 
@@ -55,45 +60,93 @@ function App() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const handleImportSvg = async () => {
-    if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
-        const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+  const handleOpenProject = async () => {
+    if (!window.electronAPI) return alert("Electron API not available");
+    const result = await window.electronAPI.projectLoadStart();
+    if (!result) return;
+    const { filePath, size } = result;
+
+    if (filePath.endsWith('.svg')) {
+      const content = await window.electronAPI.readTextFile(filePath);
+      const parser = new SvgParser();
+      const nodes = parser.parse(content);
+      nodes.forEach((node: any) => store.getState().addNode(node));
+    } else if (filePath.endsWith('.json')) {
+      const content = await window.electronAPI.readTextFile(filePath);
+      const data = JSON.parse(content);
+      if (data.scene) {
+        Object.values(data.scene).forEach((node: any) => store.getState().addNode(node));
+      }
+      if (data.animations) {
+        data.animations.forEach((track: any) => engine.addTrack(track));
       }
     } else {
-      alert("Electron API not available");
-    }
-  };
+      // Chunked binary load
+      const worker = new Worker(new URL('./workers/load.worker.ts', import.meta.url), { type: 'module' });
+      worker.postMessage({ type: 'start' });
 
-  const handleSaveState = async () => {
-    if (window.electronAPI) {
-      const state = store.getState().nodes;
-
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
-      }
-
-      const exportData = {
-        scene: cleanScene,
-        animations: engine.getTracks(),
-        metadata: {
-          version: "1.0.0",
-          duration: engine.getDuration()
+      worker.onmessage = (e) => {
+        if (e.data.type === 'success') {
+          const { scene, animations } = e.data.payload;
+          Object.values(scene).forEach((node: any) => store.getState().addNode(node));
+          if (animations) {
+            animations.forEach((track: any) => engine.addTrack(track));
+          }
+          worker.terminate();
+        } else if (e.data.type === 'error') {
+          alert('Error loading project: ' + e.data.error);
+          worker.terminate();
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      const CHUNK_SIZE = 5 * 1024 * 1024;
+      for (let start = 0; start < size; start += CHUNK_SIZE) {
+        const chunk = await window.electronAPI.projectLoadChunk(filePath, start, Math.min(CHUNK_SIZE, size - start));
+        worker.postMessage({ type: 'chunk', data: chunk }, [chunk.buffer]);
+      }
+      worker.postMessage({ type: 'done' });
+    }
+  };
+
+  const handleSaveProject = async () => {
+    if (!window.electronAPI) return alert("Electron API not available");
+    const filePath = await window.electronAPI.projectSaveStart();
+    if (!filePath) return;
+
+    const state = store.getState().nodes;
+    const exportData = {
+      scene: state,
+      animations: engine.getTracks(),
+      metadata: { version: "1.0.0", duration: engine.getDuration() }
+    };
+
+    if (filePath.endsWith('.json')) {
+      const cleanScene: Record<string, any> = {};
+      for (const [id, node] of Object.entries(state)) {
+        const cleanNode = { ...(node as any) };
+        delete cleanNode.localMatrix;
+        delete cleanNode.worldMatrix;
+        delete cleanNode.isDirty;
+        cleanScene[id] = cleanNode;
+      }
+      exportData.scene = cleanScene;
+      
+      const content = JSON.stringify(exportData, null, 2);
+      const encoder = new TextEncoder();
+      const chunk = encoder.encode(content);
+      await window.electronAPI.projectSaveChunk(filePath, chunk);
     } else {
-      alert("Electron API not available");
+      // BINARY FORMAT via WORKER
+      const worker = new Worker(new URL('./workers/save.worker.ts', import.meta.url), { type: 'module' });
+      worker.postMessage({ action: 'save', payload: exportData });
+
+      worker.onmessage = async (e) => {
+        if (e.data.type === 'chunk') {
+          await window.electronAPI!.projectSaveChunk(filePath, e.data.data);
+        } else if (e.data.type === 'done') {
+          worker.terminate();
+        }
+      };
     }
   };
 
@@ -174,8 +227,8 @@ function App() {
           setTool={setTool}
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
-          onImport={handleImportSvg}
-          onExport={handleSaveState}
+          onImport={handleOpenProject}
+          onExport={handleSaveProject}
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
