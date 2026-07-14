@@ -24,8 +24,12 @@ export class PixiBridge {
 
     this.app.stage.sortableChildren = true;
 
-    this.viewport = new Viewport(this.app);
+    this.viewport = new Viewport(this.app, store);
     this.handles = new TransformHandles(store, this.viewport);
+
+    this.remoteSelectionsContainer = new PIXI.Container();
+    this.remoteSelectionsContainer.zIndex = 999;
+    this.viewport.container.addChild(this.remoteSelectionsContainer);
 
     // Add handles directly to the viewport so they pan and zoom with the nodes!
     this.viewport.container.addChild(this.handles.container);
