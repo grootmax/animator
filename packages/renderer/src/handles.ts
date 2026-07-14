@@ -14,10 +14,16 @@ export class TransformHandles {
   private dragType: string | null = null;
   private dragStartPos = { x: 0, y: 0 };
   private startNodeState: SceneNode | null = null;
+  private getPixiNode: (id: string) => PIXI.Container | PIXI.Graphics | undefined;
 
-  constructor(store: ReturnType<typeof createSceneGraphStore>, viewport: Viewport) {
+  constructor(
+      store: ReturnType<typeof createSceneGraphStore>, 
+      viewport: Viewport,
+      getPixiNode: (id: string) => PIXI.Container | PIXI.Graphics | undefined
+  ) {
     this.store = store;
     this.viewport = viewport;
+    this.getPixiNode = getPixiNode;
     this.container = new PIXI.Container();
     this.container.zIndex = 1000;
 
@@ -74,10 +80,29 @@ export class TransformHandles {
 
     let w = node.width || (node.radius ? node.radius * 2 : 100);
     let h = node.height || (node.radius ? node.radius * 2 : 100);
+    let minX = -w / 2;
+    let minY = -h / 2;
+    let maxX = w / 2;
+    let maxY = h / 2;
+
+    if (node.type === 'group' || node.type === 'container') {
+      const pixiNode = this.getPixiNode(this.selectedNodeId);
+      if (pixiNode && pixiNode.children.length > 0) {
+        const bounds = pixiNode.getLocalBounds();
+        if (bounds.width > 0 || bounds.height > 0) {
+          minX = bounds.x;
+          minY = bounds.y;
+          maxX = bounds.x + bounds.width;
+          maxY = bounds.y + bounds.height;
+          w = bounds.width;
+          h = bounds.height;
+        }
+      }
+    }
 
     this.box.clear();
     this.box.lineStyle(2, 0x00aaff, 1);
-    this.box.drawRect(-w/2, -h/2, w, h);
+    this.box.drawRect(minX, minY, w, h);
 
     // The handle visual size needs to counter-scale BOTH the local node's world scale AND the viewport zoom
     // We apply viewport scaling in bridge.ts by making handles a child of viewport.
@@ -95,12 +120,12 @@ export class TransformHandles {
       g.endFill();
     };
 
-    drawHandle(this.handles['tl'], -w/2, -h/2);
-    drawHandle(this.handles['tr'], w/2, -h/2);
-    drawHandle(this.handles['bl'], -w/2, h/2);
-    drawHandle(this.handles['br'], w/2, h/2);
+    drawHandle(this.handles['tl'], minX, minY);
+    drawHandle(this.handles['tr'], maxX, minY);
+    drawHandle(this.handles['bl'], minX, maxY);
+    drawHandle(this.handles['br'], maxX, maxY);
 
-    drawHandle(this.handles['rot'], 0, -h/2 - 20/globalScaleY);
+    drawHandle(this.handles['rot'], minX + w/2, minY - 20/globalScaleY);
   }
 
   private onDragStart(e: PIXI.FederatedPointerEvent, type: string) {
