@@ -5,6 +5,12 @@ vi.mock('electron', () => {
   class MockBrowserWindow {
     loadURL = vi.fn();
     loadFile = vi.fn();
+    webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+      loadURL: vi.fn(),
+      loadFile: vi.fn(),
+    };
     static getAllWindows = vi.fn().mockReturnValue([]);
   }
 
@@ -13,6 +19,7 @@ vi.mock('electron', () => {
       whenReady: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
       quit: vi.fn(),
+      getAppPath: vi.fn().mockReturnValue('/mock/app/path'),
     },
     BrowserWindow: MockBrowserWindow,
     ipcMain: {
@@ -27,6 +34,13 @@ vi.mock('electron', () => {
     },
     ipcRenderer: {
       invoke: vi.fn(),
+    },
+    session: {
+      defaultSession: {
+        webRequest: {
+          onHeadersReceived: vi.fn(),
+        },
+      },
     },
   };
 });
@@ -117,16 +131,17 @@ describe('IPC Integrity Suite', () => {
     (dialog.showSaveDialog as any).mockResolvedValue({ canceled: false, filePath: '/test/path.json' });
     (fs.promises.writeFile as any).mockResolvedValue(undefined);
 
-    let saveResult = await saveFileHandler(null, '{"test":true}');
+    const validProjectData = JSON.stringify({ scene: {}, animations: [], metadata: { version: '1.0', duration: 0 } });
+    let saveResult = await saveFileHandler(null, validProjectData);
     expect(dialog.showSaveDialog).toHaveBeenCalledWith(expect.objectContaining({
       filters: [{ name: 'JSON files', extensions: ['json'] }]
     }));
-    expect(fs.promises.writeFile).toHaveBeenCalledWith('/test/path.json', '{"test":true}', 'utf-8');
+    expect(fs.promises.writeFile).toHaveBeenCalledWith('/test/path.json', validProjectData, 'utf-8');
     expect(saveResult).toBe(true);
 
     // Test dialog:saveFile - Canceled
     (dialog.showSaveDialog as any).mockResolvedValue({ canceled: true, filePath: undefined });
-    saveResult = await saveFileHandler(null, '{"test":false}');
+    saveResult = await saveFileHandler(null, validProjectData);
     expect(saveResult).toBe(false);
   });
 });

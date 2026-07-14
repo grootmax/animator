@@ -1,5 +1,6 @@
 import { SceneNode } from '@monorepo/scene-graph';
 import { Track } from '@monorepo/animation-engine';
+import { ExportedProjectSchema } from '@monorepo/serialization';
 
 export interface ExportedProject {
   scene: Record<string, Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>>;
@@ -45,7 +46,7 @@ export class RuntimePlayer {
   }
 
   public load(json: string | ExportedProject) {
-    let data: ExportedProject;
+    let data: any;
     if (typeof json === 'string') {
       try {
         data = JSON.parse(json);
@@ -56,9 +57,15 @@ export class RuntimePlayer {
       data = json;
     }
 
+    const validationResult = ExportedProjectSchema.safeParse(data);
+    if (!validationResult.success) {
+      throw new Error(`Validation failed: ${validationResult.error.message}`);
+    }
+    const validData = validationResult.data;
+
     this.worker.postMessage({
       type: 'load',
-      payload: { data }
+      payload: { data: validData }
     });
   }
 

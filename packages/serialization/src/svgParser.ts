@@ -108,7 +108,7 @@ export class SvgParser {
           c, d, 0,
           e, f, 1
         ];
-        matrix = multiplyMatrix(matrix, localMatrix);
+        multiplyMatrix(matrix, matrix, localMatrix);
       } else if (type === 'translate' && args.length >= 1) {
         const tx = args[0];
         const ty = args.length > 1 ? args[1] : 0;
@@ -117,7 +117,7 @@ export class SvgParser {
           0, 1, 0,
           tx, ty, 1
         ];
-        matrix = multiplyMatrix(matrix, translateMatrix);
+        multiplyMatrix(matrix, matrix, translateMatrix);
       } else if (type === 'scale' && args.length >= 1) {
         const sx = args[0];
         const sy = args.length > 1 ? args[1] : sx;
@@ -126,7 +126,7 @@ export class SvgParser {
           0, sy, 0,
           0, 0, 1
         ];
-        matrix = multiplyMatrix(matrix, scaleMatrix);
+        multiplyMatrix(matrix, matrix, scaleMatrix);
       } else if (type === 'rotate' && args.length >= 1) {
         const angle = args[0] * Math.PI / 180;
         const cx = args.length === 3 ? args[1] : 0;
@@ -139,9 +139,11 @@ export class SvgParser {
         if (cx !== 0 || cy !== 0) {
           const tToCenter: Matrix3 = [1, 0, 0, 0, 1, 0, cx, cy, 1];
           const tBack: Matrix3 = [1, 0, 0, 0, 1, 0, -cx, -cy, 1];
-          rotateMatrix = multiplyMatrix(tToCenter, multiplyMatrix(rotateMatrix, tBack));
+          const temp = createMatrix();
+          multiplyMatrix(temp, rotateMatrix, tBack);
+          multiplyMatrix(rotateMatrix, tToCenter, temp);
         }
-        matrix = multiplyMatrix(matrix, rotateMatrix);
+        multiplyMatrix(matrix, matrix, rotateMatrix);
       }
     }
 
@@ -228,10 +230,10 @@ export class SvgParser {
       xAttr, yAttr, 1
     ];
 
-    const localMatrix = multiplyMatrix(localTransformMatrix, baseMatrix);
-    const combinedMatrix = parentId === null 
-      ? multiplyMatrix(parentMatrix, localMatrix) 
-      : localMatrix;
+    const localMatrix = createMatrix();
+    multiplyMatrix(localMatrix, localTransformMatrix, baseMatrix);
+    const combinedMatrix = createMatrix();
+    multiplyMatrix(combinedMatrix, parentMatrix, localMatrix);
 
     const { x, y, scaleX, scaleY, rotation, skewX, skewY } = this.extractTransformProperties(combinedMatrix);
 
@@ -294,7 +296,7 @@ export class SvgParser {
     nodesList.push(sceneNode);
 
     Array.from(element.children).forEach(child => {
-      this.processElement(child, id, nodesList, finalMatrix);
+      this.processElement(child, id, nodesList, combinedMatrix);
     });
   }
 }

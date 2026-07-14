@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { setupSecurity } from './security';
+import { ExportedProjectSchema } from '@monorepo/serialization';
 
 setupSecurity();
 
@@ -190,26 +191,27 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
+  let parsedContent;
   try {
-    JSON.parse(content);
+    parsedContent = JSON.parse(content);
   } catch (error) {
-    return false;
+    throw new Error('Invalid JSON content');
   }
 
-  try {
-    const { canceled, filePath } = await dialog.showSaveDialog({
-      filters: [{ name: 'JSON files', extensions: ['json'] }]
-    });
-
-    if (canceled || !filePath) return false;
-
-    if (path.extname(filePath).toLowerCase() !== '.json') {
-      return false;
-    }
-
-    await fs.promises.writeFile(filePath, content, 'utf-8');
-    return true;
-  } catch (error) {
-    return false;
+  const validationResult = ExportedProjectSchema.safeParse(parsedContent);
+  if (!validationResult.success) {
+    throw new Error(`Validation failed: ${validationResult.error.message}`);
   }
+
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    filters: [{ name: 'JSON files', extensions: ['json'] }]
+  });
+  if (canceled || !filePath) return false;
+
+  if (!filePath.toLowerCase().endsWith('.json')) {
+    throw new Error('Invalid file extension. Only .json files are allowed.');
+  }
+
+  await fs.promises.writeFile(filePath, content, 'utf-8');
+  return true;
 });

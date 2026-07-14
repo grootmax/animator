@@ -2,3 +2,4 @@ export * from './svgParser';
 export * from './pathTokenizer';
 export * from './svgSerializer';
 export * from './projectSchema';
+export * from './schema';
