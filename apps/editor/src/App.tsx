@@ -36,12 +36,19 @@ declare global {
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const workerRef = useRef<Worker | null>(null);
   const [nodesCount, setNodesCount] = useState(0);
   const [storeVersion, setStoreVersion] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [saveProgress, setSaveProgress] = useState<number | null>(null);
-  const [showSaveProgress, setShowSaveProgress] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    workerRef.current = new Worker(new URL('./workers/serializationWorker.ts', import.meta.url), { type: 'module' });
+    return () => {
+      workerRef.current?.terminate();
+    };
+  }, []);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -99,78 +106,57 @@ function App() {
     }
   };
 
-  const handleSaveState = async () => {
-    if (window.electronAPI) {
+  const handleSaveState = () => {
+    if (window.electronAPI && workerRef.current) {
+      if (isSaving) return;
+      setIsSaving(true);
+      
       const state = store.getState().nodes;
-      const nodeKeys = Object.keys(state);
-      const totalNodes = nodeKeys.length;
-      
-      const cleanScene: Record<string, any> = {};
-      
-      let currentIndex = 0;
-      
-      const showProgressTimeout = setTimeout(() => {
-        setShowSaveProgress(true);
-      }, 500);
-
-      const processBatch = (deadline?: any) => {
-        const startTime = performance.now();
-        
-        while (currentIndex < totalNodes) {
-          if (deadline && deadline.timeRemaining) {
-            if (deadline.timeRemaining() < 2) break;
-          } else {
-            if (performance.now() - startTime > 10) break;
-          }
-          
-          const id = nodeKeys[currentIndex];
-          const node = state[id];
-          const cleanNode = { ...node };
-          delete (cleanNode as any).localMatrix;
-          delete (cleanNode as any).worldMatrix;
-          delete (cleanNode as any).isDirty;
-          cleanScene[id] = cleanNode;
-          
-          currentIndex++;
+      const payload = {
+        scene: state,
+        animations: engine.getTracks(),
+        metadata: {
+          version: "1.0.0",
+          duration: engine.getDuration()
         }
-        
-        setSaveProgress(Math.floor((currentIndex / totalNodes) * 100));
+      };
 
-        if (currentIndex < totalNodes) {
-          if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(processBatch);
-          } else {
-            setTimeout(processBatch, 0);
-          }
+      const onMessage = async (e: MessageEvent) => {
+        workerRef.current?.removeEventListener('message', onMessage);
+        workerRef.current?.removeEventListener('error', onError);
+        if (e.data.success) {
+           try {
+             await window.electronAPI!.saveFile(e.data.result);
+           } catch (err) {
+             alert(`Failed to save file: ${err}`);
+           }
         } else {
-          finishSave();
+           alert(`Save failed: ${e.data.error}`);
         }
+        setIsSaving(false);
       };
 
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
-          }
-        };
-
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+      const onError = (e: ErrorEvent) => {
+        workerRef.current?.removeEventListener('message', onMessage);
+        workerRef.current?.removeEventListener('error', onError);
+        alert(`Worker error: ${e.message}`);
+        setIsSaving(false);
       };
+
+      workerRef.current.addEventListener('message', onMessage);
+      workerRef.current.addEventListener('error', onError);
       
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(processBatch);
-      } else {
-        setTimeout(processBatch, 0);
+      try {
+        workerRef.current.postMessage(payload);
+      } catch (err) {
+        workerRef.current.removeEventListener('message', onMessage);
+        workerRef.current.removeEventListener('error', onError);
+        alert(`Failed to post message to worker: ${err}`);
+        setIsSaving(false);
+      }
       }
     } else {
-      alert("Electron API not available");
+      alert("Electron API or Worker not available");
     }
   };
 
@@ -291,6 +277,7 @@ function App() {
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
+          isSaving={isSaving}
         />
 
         <div className="flex flex-1 overflow-hidden">

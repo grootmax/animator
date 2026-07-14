@@ -71,8 +71,22 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG" disabled={isSaving}>
           <Upload size={20} /> <span className="text-sm">Import</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON" disabled={isSaving}>
-          <Download size={20} /> <span className="text-sm">JSON</span>
+        <button 
+          className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" 
+          onClick={onExport} 
+          title="Export JSON"
+          disabled={isSaving}
+        >
+          {isSaving ? (
+            <>
+              <div className="w-5 h-5 border-2 border-t-blue-500 border-gray-300 rounded-full animate-spin"></div>
+              <span className="text-sm text-blue-400">Saving...</span>
+            </>
+          ) : (
+            <>
+              <Download size={20} /> <span className="text-sm">JSON</span>
+            </>
+          )}
         </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG" disabled={isSaving}>
           <Download size={20} /> <span className="text-sm">SVG</span>
