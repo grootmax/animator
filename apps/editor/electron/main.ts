@@ -53,6 +53,21 @@ ipcMain.handle('dialog:saveFile', async (_, content: string) => {
     filters: [{ name: 'JSON files', extensions: ['json'] }]
   });
   if (canceled || !filePath) return false;
+  try {
+    const { secureProjectWriter } = require('./writerUtils');
+    await secureProjectWriter(filePath, content);
+    return true;
+  } catch (error) {
+    dialog.showErrorBox('Save Failed', error instanceof Error ? error.message : String(error));
+    return false;
+  }
+});
+
+ipcMain.handle('dialog:exportSvg', async (_, content: string) => {
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    filters: [{ name: 'SVG files', extensions: ['svg'] }]
+  });
+  if (canceled || !filePath) return false;
   await fs.promises.writeFile(filePath, content, 'utf-8');
   return true;
 });
