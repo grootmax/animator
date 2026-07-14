@@ -30,6 +30,27 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+
+  app.on('web-contents-created', (_, contents) => {
+    contents.on('will-navigate', (event, navigationUrl) => {
+      const parsedUrl = new URL(navigationUrl);
+      const isLocalUrl = 
+        parsedUrl.protocol === 'file:' || 
+        (process.env.VITE_DEV_SERVER_URL && parsedUrl.origin === new URL(process.env.VITE_DEV_SERVER_URL).origin);
+      
+      if (!isLocalUrl) {
+        event.preventDefault();
+      }
+    });
+
+    contents.setWindowOpenHandler(() => {
+      return { action: 'deny' };
+    });
+
+    contents.on('will-attach-webview', (event) => {
+      event.preventDefault();
+    });
+  });
 });
 
 app.on('window-all-closed', () => {
