@@ -1,4 +1,4 @@
-import { SceneNode, transientState } from '@monorepo/scene-graph';
+import { SceneNode, transientState, globalAssetRegistry } from '@monorepo/scene-graph';
 
 export class SvgSerializer {
   public serialize(nodes: Record<string, SceneNode>): string {
@@ -61,9 +61,12 @@ export class SvgSerializer {
       case 'polyline':
         elementStr += `${indent}<polyline ${commonAttrs} points="${node.points || ''}" />\n`;
         break;
-      case 'path':
-        elementStr += `${indent}<path ${commonAttrs} d="${node.pathData || ''}" />\n`;
+      case 'path': {
+        const asset = node.assetId ? globalAssetRegistry.getAsset(node.assetId) : null;
+        const dStr = asset ? asset.data : (node.pathData || '');
+        elementStr += `${indent}<path ${commonAttrs} d="${dStr}" />\n`;
         break;
+      }
       case 'image':
         elementStr += `${indent}<image ${commonAttrs} href="${node.src || ''}" width="${node.width || 0}" height="${node.height || 0}" />\n`;
         break;

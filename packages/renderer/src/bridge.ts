@@ -4,14 +4,17 @@ import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
 import { tokenizePath, PathToken } from '@monorepo/serialization';
+import { AsyncTextureCache } from './textureCache';
 
 export class PixiBridge {
   private app: PIXI.Application;
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
+  private cache: AsyncTextureCache;
+  private remoteSelectionsContainer: PIXI.Container;
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -23,6 +26,7 @@ export class PixiBridge {
     });
 
     this.app.stage.sortableChildren = true;
+    this.cache = new AsyncTextureCache(this.app);
 
     this.viewport = new Viewport(this.app, store);
     this.handles = new TransformHandles(store, this.viewport);
@@ -66,7 +70,7 @@ export class PixiBridge {
     return `${node.fill || 'none'}_${node.stroke || 'none'}_${node.strokeWidth || 0}`;
   }
 
-  private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
+  private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3, pivotX = 0, pivotY = 0) {
     const a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4], tx = matrix[6], ty = matrix[7];
     
     const scaleX = Math.sqrt(a * a + b * b);
@@ -85,7 +89,7 @@ export class PixiBridge {
       scaleX, scaleY, 
       rotation, 
       skewX, 0, // skewX, skewY
-      0, 0 // pivot
+      pivotX, pivotY // pivot
     );
   }
 
@@ -130,13 +134,21 @@ export class PixiBridge {
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
-        if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
+        if (node.type === 'rect' || node.type === 'circle' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
-        } else if (node.type === 'image') {
-          pixiNode = new PIXI.Container();
-          const sprite = new PIXI.Sprite();
-          sprite.anchor.set(0.5);
-          pixiNode.addChild(sprite);
+        } else if (node.type === 'path' || node.type === 'image') {
+          if (node.assetId) {
+            pixiNode = new PIXI.Sprite();
+            (pixiNode as any)._customOffsetX = 0;
+            (pixiNode as any)._customOffsetY = 0;
+          } else if (node.type === 'path') {
+            pixiNode = new PIXI.Graphics();
+          } else {
+            pixiNode = new PIXI.Container();
+            const sprite = new PIXI.Sprite();
+            sprite.anchor.set(0.5);
+            pixiNode.addChild(sprite);
+          }
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -166,7 +178,6 @@ export class PixiBridge {
         }
       }
 
-      // Update visibility and opacity
       pixiNode.visible = node.visible !== false;
       pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
@@ -216,6 +227,21 @@ export class PixiBridge {
         if (node.fill) {
             pixiNode.endFill();
         }
+      } else if (pixiNode instanceof PIXI.Sprite) {
+        if (node.assetId) {
+          this.cache.getTextureForAsset(node.assetId, node).then((cached) => {
+            if (cached && pixiNode instanceof PIXI.Sprite) {
+              pixiNode.texture = cached.texture;
+              (pixiNode as any)._customOffsetX = cached.offsetX;
+              (pixiNode as any)._customOffsetY = cached.offsetY;
+              
+              // Re-apply matrix immediately since dimensions changed asynchronously
+              const pX = -cached.offsetX;
+              const pY = -cached.offsetY;
+              this.applyMatrix(pixiNode, node.localMatrix, pX, pY);
+            }
+          });
+        }
       } else if (node.type === 'image') {
         const sprite = (pixiNode as PIXI.Container).children[0] as PIXI.Sprite;
         
@@ -249,7 +275,9 @@ export class PixiBridge {
         }
       }
 
-      this.applyMatrix(pixiNode, node.localMatrix);
+      const pX = (pixiNode as any)._customOffsetX ? -(pixiNode as any)._customOffsetX : 0;
+      const pY = (pixiNode as any)._customOffsetY ? -(pixiNode as any)._customOffsetY : 0;
+      this.applyMatrix(pixiNode, node.localMatrix, pX, pY);
     }
 
     for (const path of this.pathCache.keys()) {

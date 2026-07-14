@@ -1,8 +1,10 @@
-import { SceneNode, NodeType } from '@monorepo/scene-graph';
+import { SceneNode, NodeType, globalAssetRegistry } from '@monorepo/scene-graph';
 import { Matrix3, createMatrix, multiplyMatrix } from '@monorepo/math';
 
 let idCounter = 0;
 const generateId = () => `node_${idCounter++}`;
+let assetIdCounter = 0;
+const generateAssetId = () => `asset_${assetIdCounter++}`;
 
 export class SvgParser {
   private calculateViewBoxTransform(svgElement: Element): Matrix3 {
@@ -79,7 +81,6 @@ export class SvgParser {
     const rootNodes: SceneNode[] = [];
     const viewportMatrix = this.calculateViewBoxTransform(svgElement);
 
-    let lastOrder = null;
     Array.from(svgElement.children).forEach(child => {
       this.processElement(child, null, rootNodes, viewportMatrix);
     });
@@ -193,8 +194,6 @@ export class SvgParser {
       case 'line': type = 'line'; break;
       case 'polyline': type = 'polyline'; break;
       case 'path': type = 'path'; break;
-      case 'ellipse': type = 'path'; break;
-      case 'line': type = 'path'; break;
       default: return; // Ignore unsupported
     }
 
@@ -212,9 +211,6 @@ export class SvgParser {
       xAttr += width / 2;
       yAttr += height / 2;
     } else if (type === 'circle' || type === 'ellipse') {
-      xAttr = parseFloat(element.getAttribute('cx') || '0');
-      yAttr = parseFloat(element.getAttribute('cy') || '0');
-    } else if (tagName === 'ellipse') {
       xAttr = parseFloat(element.getAttribute('cx') || '0');
       yAttr = parseFloat(element.getAttribute('cy') || '0');
     } else if (tagName === 'line') {
@@ -275,18 +271,30 @@ export class SvgParser {
     } else if (type === 'polyline') {
       node.points = element.getAttribute('points') || '';
     } else if (type === 'path') {
+      let pathData = '';
       if (tagName === 'path') {
-        node.pathData = element.getAttribute('d') || '';
+        pathData = element.getAttribute('d') || '';
       } else if (tagName === 'ellipse') {
         const rx = parseFloat(element.getAttribute('rx') || '0');
         const ry = parseFloat(element.getAttribute('ry') || '0');
-        node.pathData = `M ${-rx},0 a ${rx},${ry} 0 1,0 ${2 * rx},0 a ${rx},${ry} 0 1,0 ${-2 * rx},0`;
+        pathData = `M ${-rx},0 a ${rx},${ry} 0 1,0 ${2 * rx},0 a ${rx},${ry} 0 1,0 ${-2 * rx},0`;
       } else if (tagName === 'line') {
         const x1 = parseFloat(element.getAttribute('x1') || '0');
         const y1 = parseFloat(element.getAttribute('y1') || '0');
         const x2 = parseFloat(element.getAttribute('x2') || '0');
         const y2 = parseFloat(element.getAttribute('y2') || '0');
-        node.pathData = `M ${x1},${y1} L ${x2},${y2}`;
+        pathData = `M ${x1},${y1} L ${x2},${y2}`;
+      }
+
+      if (pathData) {
+        const assetId = generateAssetId();
+        globalAssetRegistry.registerAsset({
+          id: assetId,
+          type: 'path',
+          data: pathData
+        });
+        node.assetId = assetId;
+        node.pathData = pathData;
       }
     }
 
@@ -294,7 +302,7 @@ export class SvgParser {
     nodesList.push(sceneNode);
 
     Array.from(element.children).forEach(child => {
-      this.processElement(child, id, nodesList, finalMatrix);
+      this.processElement(child, id, nodesList, combinedMatrix);
     });
   }
 }

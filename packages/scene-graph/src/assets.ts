@@ -1,14 +1,14 @@
 import { createStore } from 'zustand/vanilla';
 
-export type AssetType = 'image' | 'video';
+export type AssetType = 'image' | 'video' | 'path';
 
 export interface Asset {
   id: string;
   type: AssetType;
-  name: string;
-  data: ArrayBuffer | Blob;
-  url: string; // Object URL for runtime display
-  status: 'loading' | 'ready' | 'error';
+  name?: string;
+  data: any; // ArrayBuffer | Blob | string;
+  url?: string; // Object URL for runtime display
+  status?: 'loading' | 'ready' | 'error';
 }
 
 export interface AssetRegistryState {
@@ -24,7 +24,7 @@ export const createAssetRegistryStore = () => createStore<AssetRegistryState>((s
 
   addAsset: (asset) => {
     // Generate object URL for binary data to be used in renderer
-    const blob = asset.data instanceof Blob ? asset.data : new Blob([asset.data]);
+    const blob = asset.data instanceof Blob ? asset.data : typeof asset.data === 'string' ? new Blob([asset.data]) : new Blob([asset.data]);
     const url = URL.createObjectURL(blob);
     
     set((state) => ({
@@ -92,3 +92,44 @@ export const createAssetRegistryStore = () => createStore<AssetRegistryState>((s
 
   getAsset: (id) => get().assets[id]
 }));
+
+export class AssetRegistry {
+  private assets: Map<string, Asset> = new Map();
+  private listeners: Set<(event: { type: 'add' | 'remove', id?: string }) => void> = new Set();
+
+  registerAsset(asset: Asset): void {
+    this.assets.set(asset.id, asset);
+    this.notify({ type: 'add', id: asset.id });
+  }
+
+  registerAssets(assets: Asset[]): void {
+    for (const asset of assets) {
+      this.assets.set(asset.id, asset);
+    }
+    this.notify({ type: 'add' }); // atomic update
+  }
+
+  getAsset(id: string): Asset | undefined {
+    return this.assets.get(id);
+  }
+
+  removeAsset(id: string): void {
+    this.assets.delete(id);
+    this.notify({ type: 'remove', id });
+  }
+
+  subscribe(listener: (event: { type: 'add' | 'remove', id?: string }) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private notify(event: { type: 'add' | 'remove', id?: string }) {
+    this.listeners.forEach((l) => l(event));
+  }
+
+  getAllAssets(): Asset[] {
+    return Array.from(this.assets.values());
+  }
+}
+
+export const globalAssetRegistry = new AssetRegistry();
