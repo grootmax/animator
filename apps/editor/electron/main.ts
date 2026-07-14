@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { initializeSecurity, setupNavigationGuards, setupWindowOpenHandler } from './security';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -20,9 +21,13 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  setupNavigationGuards(mainWindow.webContents);
+  setupWindowOpenHandler(mainWindow.webContents);
 }
 
 app.whenReady().then(() => {
+  initializeSecurity();
   createWindow();
 
   app.on('activate', () => {
