@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { z } from 'zod';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -48,7 +49,24 @@ ipcMain.handle('dialog:openFile', async () => {
   return fs.promises.readFile(filePaths[0], 'utf-8');
 });
 
+const projectSchema = z.object({
+  scene: z.record(z.any()),
+  animations: z.array(z.any()),
+  metadata: z.object({
+    version: z.string(),
+    duration: z.number()
+  })
+});
+
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
+  try {
+    const parsed = JSON.parse(content);
+    projectSchema.parse(parsed);
+  } catch (error) {
+    // Block saving if payload is not valid JSON or doesn't match the required schema
+    return false;
+  }
+
   const { canceled, filePath } = await dialog.showSaveDialog({
     filters: [{ name: 'JSON files', extensions: ['json'] }]
   });
