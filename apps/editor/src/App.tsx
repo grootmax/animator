@@ -30,6 +30,9 @@ declare global {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
       exportSvg: (content: string) => Promise<boolean>;
+      saveStreamStart: () => Promise<string | null>;
+      saveStreamChunk: (id: string, chunk: string) => Promise<boolean>;
+      saveStreamEnd: (id: string) => Promise<boolean>;
     }
   }
 }
@@ -40,8 +43,8 @@ function App() {
   const [storeVersion, setStoreVersion] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [saveProgress, setSaveProgress] = useState<number | null>(null);
-  const [showSaveProgress, setShowSaveProgress] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveProgress, setSaveProgress] = useState(0);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -101,74 +104,70 @@ function App() {
 
   const handleSaveState = async () => {
     if (window.electronAPI) {
+      if (isSaving) return;
+      
+      const streamId = await window.electronAPI.saveStreamStart();
+      if (!streamId) return;
+
+      setIsSaving(true);
+      setSaveProgress(0);
+
       const state = store.getState().nodes;
-      const nodeKeys = Object.keys(state);
-      const totalNodes = nodeKeys.length;
+      const keys = Object.keys(state);
+      const totalKeys = keys.length;
       
-      const cleanScene: Record<string, any> = {};
+      const worker = new Worker(new URL('./serializerWorker.ts', import.meta.url), { type: 'module' });
       
-      let currentIndex = 0;
-      
-      const showProgressTimeout = setTimeout(() => {
-        setShowSaveProgress(true);
-      }, 500);
+      let currentIdx = 0;
+      const CHUNK_SIZE = 1000;
+      let isEnding = false;
 
-      const processBatch = (deadline?: any) => {
-        const startTime = performance.now();
-        
-        while (currentIndex < totalNodes) {
-          if (deadline && deadline.timeRemaining) {
-            if (deadline.timeRemaining() < 2) break;
-          } else {
-            if (performance.now() - startTime > 10) break;
+      const sendNextChunk = () => {
+        if (currentIdx < totalKeys) {
+          const chunkNodes: Record<string, any> = {};
+          const endIdx = Math.min(currentIdx + CHUNK_SIZE, totalKeys);
+          
+          for (let i = currentIdx; i < endIdx; i++) {
+            const key = keys[i];
+            chunkNodes[key] = state[key];
           }
           
-          const id = nodeKeys[currentIndex];
-          const node = state[id];
-          const cleanNode = { ...node };
-          delete (cleanNode as any).localMatrix;
-          delete (cleanNode as any).worldMatrix;
-          delete (cleanNode as any).isDirty;
-          cleanScene[id] = cleanNode;
+          worker.postMessage({ type: 'nodes', payload: { nodes: chunkNodes } });
+          currentIdx = endIdx;
           
-          currentIndex++;
-        }
-        
-        setSaveProgress(Math.floor((currentIndex / totalNodes) * 100));
-
-        if (currentIndex < totalNodes) {
-          if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(processBatch);
-          } else {
-            setTimeout(processBatch, 0);
-          }
-        } else {
-          finishSave();
+          setSaveProgress(Math.round((currentIdx / totalKeys) * 100));
+        } else if (!isEnding) {
+          isEnding = true;
+          worker.postMessage({ 
+            type: 'end', 
+            payload: {
+              animations: engine.getTracks(),
+              metadata: {
+                version: "1.0.0",
+                duration: engine.getDuration()
+              }
+            } 
+          });
         }
       };
 
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
-          }
-        };
-
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+      worker.onmessage = async (e) => {
+        const { type, data } = e.data;
+        if (type === 'chunk') {
+          await window.electronAPI!.saveStreamChunk(streamId, data);
+          // Request next chunk after writing is done (pull-based backpressure)
+          sendNextChunk();
+        } else if (type === 'done') {
+          await window.electronAPI!.saveStreamEnd(streamId);
+          setIsSaving(false);
+          setSaveProgress(100);
+          worker.terminate();
+          setTimeout(() => setSaveProgress(0), 2000);
+        }
       };
-      
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(processBatch);
-      } else {
-        setTimeout(processBatch, 0);
-      }
+
+      // Start the pipeline
+      worker.postMessage({ type: 'start' });
     } else {
       alert("Electron API not available");
     }
@@ -302,6 +301,14 @@ function App() {
             onDragOver={handleDragOver}
           >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+            
+            {isSaving && (
+              <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded shadow-lg flex items-center gap-3 z-50">
+                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <span>Saving: {saveProgress}%</span>
+              </div>
+            )}
+            
             {/* Overlay a subtle test animation button for quick testing */}
             <button
                className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
@@ -313,16 +320,6 @@ function App() {
         </div>
 
         <Timeline engine={engine} store={store} />
-
-        {showSaveProgress && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-gray-800 p-6 rounded-lg border border-gray-700 flex flex-col items-center gap-3">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-              <div className="text-sm font-medium">Saving Project...</div>
-              <div className="text-xs text-gray-400">{saveProgress}%</div>
-            </div>
-          </div>
-        )}
       </div>
     </DndProvider>
   );
