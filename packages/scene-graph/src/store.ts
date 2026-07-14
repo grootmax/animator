@@ -44,6 +44,7 @@ export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
+  addNodesBulk: (nodes: Array<Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }>) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
@@ -90,6 +91,44 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       return {
         nodes: newNodes,
         rootId: state.rootId || (node.parentId === null ? node.id : state.rootId)
+      };
+    });
+  },
+
+  addNodesBulk: (nodesToAdd) => {
+    set((state) => {
+      const newNodes = { ...state.nodes };
+      let newRootId = state.rootId;
+      const clonedParents = new Set<string>();
+
+      for (const node of nodesToAdd) {
+        const newNode = getDefaultNode(node);
+        newNodes[node.id] = newNode;
+
+        if (node.parentId === null && !newRootId) {
+          newRootId = node.id;
+        }
+      }
+
+      for (const node of nodesToAdd) {
+        if (node.parentId) {
+          const parent = newNodes[node.parentId];
+          if (parent) {
+            if (!clonedParents.has(node.parentId)) {
+              newNodes[node.parentId] = {
+                ...parent,
+                children: [...parent.children]
+              };
+              clonedParents.add(node.parentId);
+            }
+            newNodes[node.parentId].children.push(node.id);
+          }
+        }
+      }
+
+      return {
+        nodes: newNodes,
+        rootId: newRootId
       };
     });
   },
