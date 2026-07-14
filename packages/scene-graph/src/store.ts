@@ -43,6 +43,8 @@ export interface SceneNode {
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
+  dirtySet: Set<string>;
+  version: number;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
@@ -71,25 +73,27 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
 export const createSceneGraphStore = () => createStore<SceneGraphState>((set, get) => ({
   nodes: {},
   rootId: null,
+  dirtySet: new Set<string>(),
+  version: 0,
 
   addNode: (node) => {
     set((state) => {
       const newNode = getDefaultNode(node);
-      const newNodes = { ...state.nodes, [node.id]: newNode };
+      state.nodes[node.id] = newNode;
+      state.dirtySet.add(node.id);
 
       if (node.parentId) {
-        const parent = newNodes[node.parentId];
+        const parent = state.nodes[node.parentId];
         if (parent) {
-          newNodes[node.parentId] = {
-            ...parent,
-            children: [...parent.children, node.id]
-          };
+          parent.children.push(node.id);
+          parent.isDirty = true;
+          state.dirtySet.add(parent.id);
         }
       }
 
       return {
-        nodes: newNodes,
-        rootId: state.rootId || (node.parentId === null ? node.id : state.rootId)
+        rootId: state.rootId || (node.parentId === null ? node.id : state.rootId),
+        version: state.version + 1
       };
     });
   },
@@ -99,11 +103,11 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       const node = state.nodes[id];
       if (!node) return state;
 
-      // O(1) dirty marking: just mark the current node.
-      // The recalculate step will propagate this to children automatically!
-      const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
+      Object.assign(node, updates);
+      node.isDirty = true;
+      state.dirtySet.add(id);
 
-      return { nodes: newNodes };
+      return { version: state.version + 1 };
     });
   },
 
@@ -112,35 +116,30 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       const node = state.nodes[id];
       if (!node) return state;
 
-      const newNodes = { ...state.nodes };
-
       // Remove from old parent
-      if (node.parentId && newNodes[node.parentId]) {
-        const parent = newNodes[node.parentId];
-        newNodes[node.parentId] = {
-          ...parent,
-          children: parent.children.filter(childId => childId !== id)
-        };
-      } else if (!node.parentId && id !== state.rootId) {
-          // It was a root child, handle root node if we support multiple roots.
-          // In our setup rootId is one node. Wait, rootId might be a single node.
-          // We can assume scene has a main root container.
+      if (node.parentId && state.nodes[node.parentId]) {
+        const parent = state.nodes[node.parentId];
+        const idx = parent.children.indexOf(id);
+        if (idx !== -1) {
+          parent.children.splice(idx, 1);
+        }
+        parent.isDirty = true;
+        state.dirtySet.add(parent.id);
       }
 
       // Add to new parent
-      if (newParentId && newNodes[newParentId]) {
-        const newParent = newNodes[newParentId];
-        const newChildren = [...newParent.children];
-        newChildren.splice(index, 0, id);
-        newNodes[newParentId] = {
-          ...newParent,
-          children: newChildren
-        };
+      if (newParentId && state.nodes[newParentId]) {
+        const newParent = state.nodes[newParentId];
+        newParent.children.splice(index, 0, id);
+        newParent.isDirty = true;
+        state.dirtySet.add(newParent.id);
       }
 
-      newNodes[id] = { ...node, parentId: newParentId, isDirty: true };
+      node.parentId = newParentId;
+      node.isDirty = true;
+      state.dirtySet.add(id);
 
-      return { nodes: newNodes };
+      return { version: state.version + 1 };
     });
   },
 
@@ -149,44 +148,43 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       const node = state.nodes[id];
       if (!node) return state;
 
-      // O(1) dirty marking
-      const newNodes = { ...state.nodes, [id]: { ...node, isDirty: true } };
+      node.isDirty = true;
+      state.dirtySet.add(id);
 
-      return { nodes: newNodes };
+      return { version: state.version + 1 };
     });
   },
 
   recalculateMatrices: () => {
     set((state) => {
-      const newNodes = { ...state.nodes };
-      const { rootId } = state;
+      const { rootId, nodes, dirtySet } = state;
 
-      if (!rootId || !newNodes[rootId]) return state;
+      if (!rootId || !nodes[rootId]) return state;
+
+      let changed = false;
 
       const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
-        const node = newNodes[nodeId];
+        const node = nodes[nodeId];
         if (!node) return;
 
         const isNowDirty = node.isDirty || parentWasDirty;
         let currentWorldMatrix = parentWorldMatrix;
 
         if (isNowDirty) {
-          const localMatrix = getTransformMatrix(
+          node.localMatrix = getTransformMatrix(
             node.x, node.y, 
             node.rotation, 
             node.scaleX, node.scaleY,
             node.skewX || 0, node.skewY || 0
           );
-          currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
+          currentWorldMatrix = multiplyMatrix(parentWorldMatrix, node.localMatrix);
 
-          newNodes[nodeId] = {
-            ...node,
-            localMatrix,
-            worldMatrix: currentWorldMatrix,
-            isDirty: false
-          };
+          node.worldMatrix = currentWorldMatrix;
+          node.isDirty = false;
+          dirtySet.add(nodeId);
+          changed = true;
         } else {
-            currentWorldMatrix = node.worldMatrix;
+          currentWorldMatrix = node.worldMatrix;
         }
 
         for (const childId of node.children) {
@@ -196,7 +194,10 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
 
       traverse(rootId, createMatrix(), false);
 
-      return { nodes: newNodes };
+      if (changed) {
+        return { version: state.version + 1 };
+      }
+      return state as any; // return undefined to signify no state change to zustand (or state)
     });
   }
 }));
