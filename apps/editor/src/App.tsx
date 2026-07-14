@@ -5,6 +5,7 @@ import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
+import { WorkspacePanel } from './components/WorkspacePanel';
 import { Timeline } from './components/Timeline';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
@@ -19,6 +20,11 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
+      openWorkspace: () => Promise<any>;
+      getLastActiveWorkspace: () => Promise<any>;
+      saveWorkspaceScene: (sceneData: any) => Promise<boolean>;
+      onWorkspaceUpdated: (callback: (manifest: any) => void) => void;
+      readFileBinary: (filePath: string) => Promise<any>;
     }
   }
 }
@@ -72,7 +78,6 @@ function App() {
     if (window.electronAPI) {
       const state = store.getState().nodes;
 
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
       const cleanScene: Record<string, any> = {};
       for (const [id, node] of Object.entries(state)) {
         const cleanNode = { ...node };
@@ -91,6 +96,9 @@ function App() {
         }
       };
 
+      // Also save to workspace manifest if active
+      await window.electronAPI.saveWorkspaceScene(exportData);
+      
       await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
     } else {
       alert("Electron API not available");
@@ -182,7 +190,10 @@ function App() {
         />
 
         <div className="flex flex-1 overflow-hidden">
-          <LayerPanel store={store} nodesCount={nodesCount} />
+          <div className="flex flex-col w-64 h-full">
+            <LayerPanel store={store} nodesCount={nodesCount} />
+            <WorkspacePanel store={store} />
+          </div>
 
           <div className="flex-1 relative bg-[#1a1a1a]">
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />

@@ -150,7 +150,7 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
   const rootNodes = Object.values(nodes).filter(n => !n.parentId).map(n => n.id);
 
   return (
-    <div className="flex flex-col h-full bg-gray-800 border-r border-gray-700 w-64 select-none">
+    <div className="flex flex-col flex-1 bg-gray-800 border-r border-gray-700 w-full select-none">
       <div className="p-2 border-b border-gray-700 font-semibold text-gray-200">
         Layers
       </div>
