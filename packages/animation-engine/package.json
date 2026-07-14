@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@monorepo/math": "*",
-    "@monorepo/scene-graph": "*"
+    "@monorepo/scene-graph": "*",
+    "@monorepo/serialization": "*"
   }
 }
