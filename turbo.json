@@ -13,6 +13,8 @@
       "dependsOn": ["build"],
       "outputs": ["release/**"]
     },
-    "test": {}
+    "test": {
+      "dependsOn": ["build"]
+    }
   }
 }
