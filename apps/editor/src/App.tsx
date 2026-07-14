@@ -117,9 +117,9 @@ function App() {
         nodeId: testNodeId,
         property: 'rotation',
         keyframes: [
-          { time: 0, value: 0, easing: 'linear' },
-          { time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          { time: 4000, value: 0, easing: 'easeInOutQuad' }
+          { frame: 0, value: 0, easing: 'linear' },
+          { frame: 120, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          { frame: 240, value: 0, easing: 'easeInOutQuad' }
         ]
       });
       engine.play();

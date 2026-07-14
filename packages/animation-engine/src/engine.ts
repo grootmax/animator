@@ -4,7 +4,7 @@ import { createSceneGraphStore } from '@monorepo/scene-graph';
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
 
 export interface Keyframe {
-  time: number; // in milliseconds
+  frame: number; // Discrete frame index
   value: number;
   easing?: EasingType;
 }
@@ -18,34 +18,37 @@ export interface Track {
 export class AnimationEngine {
   private store: ReturnType<typeof createSceneGraphStore>;
   private tracks: Track[] = [];
-  private playhead = 0;
+  private currentFrame = 0;
   private isPlaying = false;
-  private lastTime = 0;
   private rafId: number | null = null;
   public loop = true;
-  private duration = 5000; // ms
+  private totalFrames = 300; // 5 seconds at 60fps
+  private fps = 60;
+  private lastTickTime = 0;
 
-  public getPlayhead() { return this.playhead; }
+  public getPlayhead() { return this.currentFrame; }
   public getTracks() { return this.tracks; }
   public getIsPlaying() { return this.isPlaying; }
-  public getDuration() { return this.duration; }
-  public setDuration(d: number) { this.duration = d; }
+  public getDuration() { return this.totalFrames; }
+  public setDuration(frames: number) { this.totalFrames = frames; }
   public setTracks(tracks: Track[]) { this.tracks = tracks; }
+  public getFps() { return this.fps; }
+  public setFps(fps: number) { this.fps = fps; }
 
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
   }
 
   public addTrack(track: Track) {
-    // Sort keyframes by time
-    track.keyframes.sort((a, b) => a.time - b.time);
+    // Sort keyframes by frame
+    track.keyframes.sort((a, b) => a.frame - b.frame);
     this.tracks.push(track);
   }
 
   public play() {
     if (this.isPlaying) return;
     this.isPlaying = true;
-    this.lastTime = performance.now();
+    this.lastTickTime = performance.now();
     this.tick();
   }
 
@@ -57,30 +60,48 @@ export class AnimationEngine {
     }
   }
 
-  public seek(time: number) {
-    this.playhead = time;
+  public seek(frame: number) {
+    this.currentFrame = Math.round(frame);
     this.updateNodes();
+  }
+
+  public renderHeadless(startFrame: number, endFrame: number, onFrame: (frame: number) => void) {
+    // Export mode: process frames without RAF loop
+    const wasPlaying = this.isPlaying;
+    this.pause();
+    for (let f = startFrame; f <= endFrame; f++) {
+      this.currentFrame = f;
+      this.updateNodes();
+      onFrame(f);
+    }
+    if (wasPlaying) this.play();
   }
 
   private tick = () => {
     if (!this.isPlaying) return;
 
     const now = performance.now();
-    const dt = now - this.lastTime;
-    this.lastTime = now;
+    const frameDuration = 1000 / this.fps;
+    const elapsed = now - this.lastTickTime;
 
-    this.playhead += dt;
+    if (elapsed >= frameDuration) {
+      // Step to next frame(s)
+      const framesToAdvance = Math.floor(elapsed / frameDuration);
+      this.lastTickTime += framesToAdvance * frameDuration;
+      
+      this.currentFrame += framesToAdvance;
 
-    if (this.playhead > this.duration) {
-      if (this.loop) {
-        this.playhead = this.playhead % this.duration;
-      } else {
-        this.playhead = this.duration;
-        this.pause();
+      if (this.currentFrame > this.totalFrames) {
+        if (this.loop) {
+          this.currentFrame = this.currentFrame % this.totalFrames;
+        } else {
+          this.currentFrame = this.totalFrames;
+          this.pause();
+        }
       }
-    }
 
-    this.updateNodes();
+      this.updateNodes();
+    }
 
     if (this.isPlaying) {
       this.rafId = requestAnimationFrame(this.tick);
@@ -96,18 +117,18 @@ export class AnimationEngine {
     }
   }
 
-  private binarySearchKeyframes(keyframes: Keyframe[], time: number): [Keyframe | null, Keyframe | null] {
+  private binarySearchKeyframes(keyframes: Keyframe[], frame: number): [Keyframe | null, Keyframe | null] {
     if (keyframes.length === 0) return [null, null];
-    if (time <= keyframes[0].time) return [keyframes[0], keyframes[0]];
-    if (time >= keyframes[keyframes.length - 1].time) return [keyframes[keyframes.length - 1], keyframes[keyframes.length - 1]];
+    if (frame <= keyframes[0].frame) return [keyframes[0], keyframes[0]];
+    if (frame >= keyframes[keyframes.length - 1].frame) return [keyframes[keyframes.length - 1], keyframes[keyframes.length - 1]];
 
     let low = 0;
     let high = keyframes.length - 1;
 
     while (low <= high) {
       const mid = Math.floor((low + high) / 2);
-      if (keyframes[mid].time === time) return [keyframes[mid], keyframes[mid]];
-      if (keyframes[mid].time < time) {
+      if (keyframes[mid].frame === frame) return [keyframes[mid], keyframes[mid]];
+      if (keyframes[mid].frame < frame) {
         low = mid + 1;
       } else {
         high = mid - 1;
@@ -118,36 +139,33 @@ export class AnimationEngine {
   }
 
   private updateNodes() {
-    const updates = new Map<string, any>();
+    const updates: Record<string, any> = {};
 
     for (const track of this.tracks) {
-      const [start, end] = this.binarySearchKeyframes(track.keyframes, this.playhead);
+      const [start, end] = this.binarySearchKeyframes(track.keyframes, this.currentFrame);
 
       if (!start || !end) continue;
 
       let value = start.value;
       if (start !== end) {
-        const progress = (this.playhead - start.time) / (end.time - start.time);
+        const progress = (this.currentFrame - start.frame) / (end.frame - start.frame);
         const easingFn = this.getEasingFunction(start.easing);
         const easedProgress = easingFn(progress);
         value = start.value + (end.value - start.value) * easedProgress;
       }
 
-      if (!updates.has(track.nodeId)) {
-        updates.set(track.nodeId, {});
+      if (!updates[track.nodeId]) {
+        updates[track.nodeId] = {};
       }
-      updates.get(track.nodeId)[track.property] = value;
+      updates[track.nodeId][track.property] = value;
     }
 
     const storeState = this.store.getState();
-    let requiresMatrixUpdate = false;
-
-    for (const [nodeId, nodeUpdates] of updates.entries()) {
-      storeState.updateNode(nodeId, nodeUpdates);
-      requiresMatrixUpdate = true;
-    }
-
-    if (requiresMatrixUpdate) {
+    
+    // Batch all updates to avoid triggering multiple render cycles
+    storeState.batchUpdateNodes(updates);
+    
+    if (Object.keys(updates).length > 0) {
       storeState.recalculateMatrices();
     }
   }
