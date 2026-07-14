@@ -28,6 +28,8 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveProgress, setSaveProgress] = useState(0);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -37,7 +39,7 @@ function App() {
       (window as any).__bridge = bridge;
 
       // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
+      const unsubscribe = store.subscribe((state: any) => {
         setNodesCount(Object.keys(state.nodes).length);
       });
 
@@ -61,7 +63,7 @@ function App() {
       if (svgContent) {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+        nodes.forEach((node: any) => store.getState().addNode(node));
       }
     } else {
       alert("Electron API not available");
@@ -70,28 +72,66 @@ function App() {
 
   const handleSaveState = async () => {
     if (window.electronAPI) {
-      const state = store.getState().nodes;
+      if (isSaving) return; // Prevent concurrent saves
+      setIsSaving(true);
+      setSaveProgress(0);
 
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
+      const state = store.getState().nodes;
+      const entries = Object.entries(state);
+      const total = entries.length;
       const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
+      let currentIndex = 0;
+
+      // Capture tracks and duration at start of save
+      const tracks = engine.getTracks();
+      const duration = engine.getDuration();
+
+      const finishSave = async () => {
+        const exportData = {
+          scene: cleanScene,
+          animations: tracks,
+          metadata: {
+            version: "1.0.0",
+            duration: duration
+          }
+        };
+
+        if (window.electronAPI) {
+          await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+        }
+        setIsSaving(false);
+        setSaveProgress(0);
+      };
+
+      if (total === 0) {
+        await finishSave();
+        return;
       }
 
-      const exportData = {
-        scene: cleanScene,
-        animations: engine.getTracks(),
-        metadata: {
-          version: "1.0.0",
-          duration: engine.getDuration()
+      const reqIdle = window.requestIdleCallback || ((cb: any) => setTimeout(() => cb({ timeRemaining: () => 1 }), 1));
+
+      const processBatch = (deadline: IdleDeadline) => {
+        while (deadline.timeRemaining() > 1 && currentIndex < total) {
+          const [id, node] = entries[currentIndex];
+          const cleanNode = { ...(node as any) };
+          delete (cleanNode as any).localMatrix;
+          delete (cleanNode as any).worldMatrix;
+          delete (cleanNode as any).isDirty;
+          cleanScene[id] = cleanNode;
+          currentIndex++;
+        }
+
+        setSaveProgress(currentIndex / total);
+
+        if (currentIndex < total) {
+          reqIdle(processBatch);
+        } else {
+          finishSave();
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      reqIdle(processBatch);
+
     } else {
       alert("Electron API not available");
     }
@@ -179,6 +219,8 @@ function App() {
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
+          isSaving={isSaving}
+          saveProgress={saveProgress}
         />
 
         <div className="flex flex-1 overflow-hidden">
