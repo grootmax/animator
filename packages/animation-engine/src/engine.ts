@@ -276,7 +276,7 @@ export class AnimationEngine {
   }
 
   private updateNodes() {
-    const updates = new Map<string, any>();
+    const updatesObj: Record<string, any> = {};
 
     for (const track of this.tracks) {
       const keyframesArray = Object.values(track.keyframes).sort((a, b) => {
@@ -295,26 +295,17 @@ export class AnimationEngine {
         value = interpolateValue(start.value, end.value, easedProgress, track.property);
       }
 
-      if (!updates.has(track.nodeId)) {
-        updates.set(track.nodeId, {});
+      if (!updatesObj[track.nodeId]) {
+        updatesObj[track.nodeId] = {};
       }
-      updates.get(track.nodeId)[track.property] = value;
+      updatesObj[track.nodeId][track.property] = value;
     }
 
     const storeState = this.store.getState();
-    let requiresMatrixUpdate = false;
+    const hasUpdates = Object.keys(updatesObj).length > 0;
 
-    if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
-      for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
-      }
-      storeState.updateNodesBatch(batchUpdates);
-      requiresMatrixUpdate = true;
-    }
-
-    if (requiresMatrixUpdate) {
-      storeState.recalculateMatrices();
+    if (hasUpdates) {
+      storeState.updateNodes(updatesObj, true);
     }
   }
 }
