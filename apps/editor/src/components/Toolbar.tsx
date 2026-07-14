@@ -8,6 +8,7 @@ interface ToolbarProps {
   togglePlay: () => void;
   onImport: () => void;
   onExport: () => void;
+  onOpenProject: () => void;
   onExportSvg: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -20,6 +21,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   togglePlay,
   onImport,
   onExport,
+  onOpenProject,
   onExportSvg,
   onZoomIn,
   onZoomOut
@@ -58,11 +60,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </button>
       </div>
       <div className="flex gap-1 ml-auto">
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG">
-          <Upload size={20} /> <span className="text-sm">Import</span>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onOpenProject} title="Open JSON Project">
+          <Upload size={20} /> <span className="text-sm">Open</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON">
-          <Download size={20} /> <span className="text-sm">JSON</span>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Save Project (JSON)">
+          <Download size={20} /> <span className="text-sm">Save</span>
+        </button>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG">
+          <Upload size={20} /> <span className="text-sm">Import SVG</span>
         </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG">
           <Download size={20} /> <span className="text-sm">SVG</span>
