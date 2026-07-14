@@ -18,7 +18,7 @@ declare global {
   interface Window {
     electronAPI?: {
       openFile: () => Promise<string | null>;
-      saveFile: (content: string) => Promise<boolean>;
+      saveFile: (content: any) => Promise<boolean>;
     }
   }
 }
@@ -72,18 +72,8 @@ function App() {
     if (window.electronAPI) {
       const state = store.getState().nodes;
 
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
-      }
-
       const exportData = {
-        scene: cleanScene,
+        scene: state,
         animations: engine.getTracks(),
         metadata: {
           version: "1.0.0",
@@ -91,7 +81,11 @@ function App() {
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      try {
+        await window.electronAPI.saveFile(exportData);
+      } catch (err) {
+        console.error("Save failed:", err);
+      }
     } else {
       alert("Electron API not available");
     }
