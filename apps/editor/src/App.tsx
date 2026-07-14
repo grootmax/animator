@@ -10,6 +10,7 @@ import { Timeline } from './components/Timeline';
 import { DndProvider } from 'react-dnd';
 // @ts-ignore
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import SerializationWorker from './workers/serializationWorker?worker';
 
 // Create singletons for the app
 const channel = new BroadcastChannel('scene-graph-sync');
@@ -51,7 +52,7 @@ function App() {
       (window as any).__bridge = bridge;
 
       // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
+      const unsubscribe = store.subscribe((state: any) => {
         setNodesCount(Object.keys(state.nodes).length);
         setStoreVersion(state.version);
       });
@@ -91,7 +92,7 @@ function App() {
         const nodes = parser.parse(svgContent);
         if (nodes.length > 0) {
           store.getState().commitHistory();
-          nodes.forEach(node => store.getState().addNode(node));
+          nodes.forEach((node: any) => store.getState().addNode(node));
         }
       }
     } else {
@@ -102,73 +103,17 @@ function App() {
   const handleSaveState = async () => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
-      const nodeKeys = Object.keys(state);
-      const totalNodes = nodeKeys.length;
-      
-      const cleanScene: Record<string, any> = {};
-      
-      let currentIndex = 0;
-      
-      const showProgressTimeout = setTimeout(() => {
-        setShowSaveProgress(true);
-      }, 500);
+      const animations = engine.getTracks();
+      const duration = engine.getDuration();
 
-      const processBatch = (deadline?: any) => {
-        const startTime = performance.now();
-        
-        while (currentIndex < totalNodes) {
-          if (deadline && deadline.timeRemaining) {
-            if (deadline.timeRemaining() < 2) break;
-          } else {
-            if (performance.now() - startTime > 10) break;
-          }
-          
-          const id = nodeKeys[currentIndex];
-          const node = state[id];
-          const cleanNode = { ...node };
-          delete (cleanNode as any).localMatrix;
-          delete (cleanNode as any).worldMatrix;
-          delete (cleanNode as any).isDirty;
-          cleanScene[id] = cleanNode;
-          
-          currentIndex++;
-        }
-        
-        setSaveProgress(Math.floor((currentIndex / totalNodes) * 100));
+      const worker = new SerializationWorker();
+      worker.postMessage({ state, animations, duration });
 
-        if (currentIndex < totalNodes) {
-          if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(processBatch);
-          } else {
-            setTimeout(processBatch, 0);
-          }
-        } else {
-          finishSave();
-        }
+      worker.onmessage = async (e: MessageEvent) => {
+        const { jsonString } = e.data;
+        await window.electronAPI!.saveFile(jsonString);
+        worker.terminate();
       };
-
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
-          }
-        };
-
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
-      };
-      
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(processBatch);
-      } else {
-        setTimeout(processBatch, 0);
-      }
     } else {
       alert("Electron API not available");
     }
