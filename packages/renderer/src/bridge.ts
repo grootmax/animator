@@ -3,7 +3,7 @@ import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
-import { tokenizePath } from '@monorepo/serialization';
+import { tokenizePath, PathToken } from '@monorepo/serialization';
 
 export class PixiBridge {
   private app: PIXI.Application;
@@ -11,8 +11,7 @@ export class PixiBridge {
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
-  private remoteSelectionsContainer: PIXI.Container;
-  private remoteSelectionGraphics: Map<string, PIXI.Graphics> = new Map();
+  private pathCache: Map<string, PathToken[]> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -44,14 +43,17 @@ export class PixiBridge {
       }
     });
 
-    this.store.subscribe((state, prevState) => {
-      if (!prevState || state.nodes !== prevState.nodes) {
-        this.syncNodes(state.nodes);
+    let updateQueued = false;
+    this.store.subscribe(() => {
+      if (!updateQueued) {
+        updateQueued = true;
+        queueMicrotask(() => {
+          updateQueued = false;
+          const state = this.store.getState();
+          this.syncNodes(state.nodes);
+          this.handles.update();
+        });
       }
-      if (!prevState || state.remoteSelections !== prevState.remoteSelections || state.nodes !== prevState.nodes) {
-        this.syncRemoteSelections(state.remoteSelections, state.nodes);
-      }
-      this.handles.update();
     });
 
     this.app.ticker.add(() => {
@@ -59,57 +61,9 @@ export class PixiBridge {
     });
   }
 
-  private syncRemoteSelections(
-    remoteSelections: Record<string, { nodeId: string; color: string; userName?: string }>,
-    nodes: Record<string, SceneNode>
-  ) {
-    const activeUserIds = new Set(Object.keys(remoteSelections));
-
-    // Remove old selections
-    for (const [userId, graphics] of this.remoteSelectionGraphics.entries()) {
-      if (!activeUserIds.has(userId)) {
-        this.remoteSelectionsContainer.removeChild(graphics);
-        graphics.destroy();
-        this.remoteSelectionGraphics.delete(userId);
-      }
-    }
-
-    // Add or update selections
-    for (const [userId, selection] of Object.entries(remoteSelections)) {
-      const node = nodes[selection.nodeId];
-      if (!node || node.locked || !node.visible) {
-        // If node doesn't exist or is not visible, hide/remove the highlight
-        if (this.remoteSelectionGraphics.has(userId)) {
-           const g = this.remoteSelectionGraphics.get(userId)!;
-           g.visible = false;
-        }
-        continue;
-      }
-
-      let graphics = this.remoteSelectionGraphics.get(userId);
-      if (!graphics) {
-        graphics = new PIXI.Graphics();
-        this.remoteSelectionsContainer.addChild(graphics);
-        this.remoteSelectionGraphics.set(userId, graphics);
-      }
-
-      graphics.visible = true;
-      graphics.clear();
-      
-      const colorNum = parseInt(selection.color.replace('#', '0x'));
-      graphics.lineStyle(2, colorNum, 1);
-      
-      const w = node.width || (node.radius ? node.radius * 2 : 100);
-      const h = node.height || (node.radius ? node.radius * 2 : 100);
-      graphics.drawRect(-w / 2, -h / 2, w, h);
-
-      const wm = node.worldMatrix;
-      graphics.setTransform(
-        wm[6], wm[7],
-        Math.hypot(wm[0], wm[1]), Math.hypot(wm[3], wm[4]),
-        Math.atan2(wm[1], wm[0])
-      );
-    }
+  private getMaterialHash(node: SceneNode): string {
+    if (node.type === 'container' || node.type === 'group') return 'container';
+    return `${node.fill || 'none'}_${node.stroke || 'none'}_${node.strokeWidth || 0}`;
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
@@ -136,7 +90,11 @@ export class PixiBridge {
   }
 
   private drawPath(graphics: PIXI.Graphics, pathData: string) {
-    const tokens = tokenizePath(pathData);
+    let tokens = this.pathCache.get(pathData);
+    if (!tokens) {
+      tokens = tokenizePath(pathData);
+      this.pathCache.set(pathData, tokens);
+    }
     let x = 0, y = 0;
 
     for (const t of tokens) {
@@ -166,12 +124,19 @@ export class PixiBridge {
   }
 
   private syncNodes(nodes: Record<string, SceneNode>) {
+    const usedPaths = new Set<string>();
+
     for (const [id, node] of Object.entries(nodes)) {
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'image') {
+          pixiNode = new PIXI.Container();
+          const sprite = new PIXI.Sprite();
+          sprite.anchor.set(0.5);
+          pixiNode.addChild(sprite);
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -191,6 +156,13 @@ export class PixiBridge {
           this.pixiNodes.get(node.parentId)!.addChild(pixiNode);
         } else {
           this.viewport.container.addChild(pixiNode);
+        }
+      } else {
+        const expectedParent = node.parentId && this.pixiNodes.has(node.parentId) 
+          ? this.pixiNodes.get(node.parentId)! 
+          : this.viewport.container;
+        if (pixiNode.parent !== expectedParent) {
+          expectedParent.addChild(pixiNode);
         }
       }
 
@@ -229,15 +201,53 @@ export class PixiBridge {
             }
           }
         } else if (node.type === 'path' && node.pathData) {
+          usedPaths.add(node.pathData);
           this.drawPath(pixiNode, node.pathData);
         }
 
         if (node.fill) {
             pixiNode.endFill();
         }
+      } else if (node.type === 'image') {
+        const sprite = (pixiNode as PIXI.Container).children[0] as PIXI.Sprite;
+        
+        if (node.src) {
+           const currentSrc = (sprite as any)._currentSrc;
+           if (currentSrc !== node.src) {
+               (sprite as any)._currentSrc = node.src;
+               const tex = PIXI.Texture.from(node.src);
+               sprite.texture = tex;
+               
+               if (!tex.valid) {
+                   (tex.baseTexture as any).once('loaded', () => {
+                       const n = this.store.getState().nodes[id];
+                       if (n && n.width !== undefined && n.height !== undefined && sprite.texture === tex) {
+                           sprite.width = n.width;
+                           sprite.height = n.height;
+                       }
+                   });
+               }
+           }
+        } else {
+           sprite.texture = PIXI.Texture.EMPTY;
+           (sprite as any)._currentSrc = undefined;
+        }
+
+        if (node.width !== undefined && node.height !== undefined && sprite.texture.valid) {
+           sprite.width = node.width;
+           sprite.height = node.height;
+        } else if (node.width === undefined || node.height === undefined) {
+           sprite.scale.set(1);
+        }
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);
+    }
+
+    for (const path of this.pathCache.keys()) {
+      if (!usedPaths.has(path)) {
+        this.pathCache.delete(path);
+      }
     }
   }
 }
