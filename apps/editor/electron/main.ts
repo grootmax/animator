@@ -15,6 +15,35 @@ function createWindow() {
     },
   });
 
+  // Security Hardening: Navigation guards
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    const parsedUrl = new URL(navigationUrl);
+    const isDev = !!process.env.VITE_DEV_SERVER_URL;
+    let isAllowed = false;
+
+    if (isDev && process.env.VITE_DEV_SERVER_URL) {
+      const devServerUrl = new URL(process.env.VITE_DEV_SERVER_URL);
+      if (parsedUrl.origin === devServerUrl.origin) {
+        isAllowed = true;
+      }
+    }
+    
+    if (parsedUrl.protocol === 'file:') {
+      isAllowed = true;
+    }
+
+    if (!isAllowed) {
+      console.warn(`Blocked unauthorized navigation to: ${navigationUrl}`);
+      event.preventDefault();
+    }
+  });
+
+  // Security Hardening: Window open handlers
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    console.warn(`Blocked unauthorized window open request for: ${url}`);
+    return { action: 'deny' };
+  });
+
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
