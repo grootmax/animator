@@ -182,8 +182,7 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
           newNodes[nodeId] = {
             ...node,
             localMatrix,
-            worldMatrix: currentWorldMatrix,
-            isDirty: false
+            worldMatrix: currentWorldMatrix
           };
         } else {
             currentWorldMatrix = node.worldMatrix;

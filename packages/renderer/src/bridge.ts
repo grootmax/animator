@@ -38,12 +38,9 @@ export class PixiBridge {
       }
     });
 
-    this.store.subscribe((state) => {
-      this.syncNodes(state.nodes);
-      this.handles.update();
-    });
-
     this.app.ticker.add(() => {
+        const state = this.store.getState();
+        this.syncNodes(state.nodes);
         this.handles.update();
     });
   }
@@ -128,6 +125,8 @@ export class PixiBridge {
         } else {
           this.viewport.container.addChild(pixiNode);
         }
+      } else if (!node.isDirty) {
+        continue;
       }
 
       // Update visibility and opacity
@@ -174,6 +173,7 @@ export class PixiBridge {
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);
+      node.isDirty = false;
     }
   }
 }
