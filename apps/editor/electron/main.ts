@@ -6,6 +6,8 @@ import { setupSecurity } from './security';
 setupSecurity();
 
 let mainWindow: BrowserWindow | null = null;
+let isSavingActive = false;
+let activeWriteStream: fs.WriteStream | null = null;
 
 const DOMAIN_WHITELIST = [
   'https://fonts.googleapis.com',
@@ -139,6 +141,13 @@ function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(() => {
     return { action: 'deny' };
   });
+
+  mainWindow.on('close', (e) => {
+    if (isSavingActive) {
+      e.preventDefault();
+      // Optionally notify user
+    }
+  });
 }
 
 app.whenReady().then(() => {
@@ -212,4 +221,60 @@ ipcMain.handle('dialog:saveFile', async (_, content: string) => {
   } catch (error) {
     return false;
   }
+});
+
+ipcMain.handle('saveFileStart', async () => {
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    filters: [{ name: 'JSON files', extensions: ['json'] }]
+  });
+  if (canceled || !filePath) return false;
+
+  try {
+    activeWriteStream = fs.createWriteStream(filePath, 'utf-8');
+    isSavingActive = true;
+    return true;
+  } catch (error) {
+    console.error('Failed to create write stream:', error);
+    return false;
+  }
+});
+
+ipcMain.handle('saveFileChunk', async (_, chunk: string) => {
+  if (!activeWriteStream) return false;
+
+  return new Promise((resolve, reject) => {
+    activeWriteStream!.write(chunk, (error) => {
+      if (error) {
+        console.error('Failed to write chunk:', error);
+        reject(error);
+      } else {
+        resolve(true);
+      }
+    });
+  });
+});
+
+ipcMain.handle('saveFileEnd', async () => {
+  if (!activeWriteStream) return false;
+
+  return new Promise((resolve) => {
+    activeWriteStream!.end(() => {
+      activeWriteStream = null;
+      isSavingActive = false;
+      resolve(true);
+    });
+  });
+});
+
+ipcMain.handle('saveFileCancel', async () => {
+  if (activeWriteStream) {
+    activeWriteStream.destroy();
+    activeWriteStream = null;
+    isSavingActive = false;
+  }
+  return true;
+});
+
+ipcMain.handle('isSavingActive', () => {
+  return isSavingActive;
 });
