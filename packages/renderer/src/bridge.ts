@@ -57,6 +57,11 @@ export class PixiBridge {
     });
   }
 
+  private getMaterialHash(node: SceneNode): string {
+    if (node.type === 'container' || node.type === 'group') return 'container';
+    return `${node.fill || 'none'}_${node.stroke || 'none'}_${node.strokeWidth || 0}`;
+  }
+
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
     const a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4], tx = matrix[6], ty = matrix[7];
     
@@ -147,6 +152,13 @@ export class PixiBridge {
           this.pixiNodes.get(node.parentId)!.addChild(pixiNode);
         } else {
           this.viewport.container.addChild(pixiNode);
+        }
+      } else {
+        const expectedParent = node.parentId && this.pixiNodes.has(node.parentId) 
+          ? this.pixiNodes.get(node.parentId)! 
+          : this.viewport.container;
+        if (pixiNode.parent !== expectedParent) {
+          expectedParent.addChild(pixiNode);
         }
       }
 
