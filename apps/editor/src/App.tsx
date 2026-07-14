@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { createSceneGraphStore, createAssetRegistryStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
@@ -11,6 +11,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 
 // Create singletons for the app
 const store = createSceneGraphStore();
+const assetRegistry = createAssetRegistryStore();
 const engine = new AnimationEngine(store);
 
 // Extend Window interface for Electron IPC
@@ -32,7 +33,7 @@ function App() {
   useEffect(() => {
     if (canvasRef.current) {
       // Initialize renderer
-      const bridge = new PixiBridge(canvasRef.current, store);
+      const bridge = new PixiBridge(canvasRef.current, store, assetRegistry);
       // We keep bridge instance alive
       (window as any).__bridge = bridge;
 
@@ -53,6 +54,28 @@ function App() {
     };
     frame = requestAnimationFrame(checkPlayState);
     return () => cancelAnimationFrame(frame);
+  }, []);
+
+  // Garbage collect unreferenced assets
+  useEffect(() => {
+    const unsubscribe = store.subscribe((state) => {
+      const referencedAssetIds = new Set<string>();
+      for (const node of Object.values(state.nodes)) {
+        if (node.assetId) {
+          referencedAssetIds.add(node.assetId);
+        }
+      }
+
+      const currentAssets = assetRegistry.getState().assets;
+      for (const assetId of Object.keys(currentAssets)) {
+        if (!referencedAssetIds.has(assetId)) {
+          // Flag or remove asset
+          assetRegistry.getState().removeAsset(assetId);
+        }
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const handleImportSvg = async () => {
@@ -85,6 +108,11 @@ function App() {
       const exportData = {
         scene: cleanScene,
         animations: engine.getTracks(),
+        assets: Object.keys(assetRegistry.getState().assets).reduce((acc, id) => {
+          const a = assetRegistry.getState().assets[id];
+          acc[id] = { id: a.id, type: a.type, name: a.name };
+          return acc;
+        }, {} as Record<string, any>),
         metadata: {
           version: "1.0.0",
           duration: engine.getDuration()
@@ -166,6 +194,45 @@ function App() {
     }
   };
 
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      Array.from(e.dataTransfer.files).forEach((file) => {
+        const isImage = file.type.startsWith('image/');
+        const isVideo = file.type.startsWith('video/');
+        if (isImage || isVideo) {
+          const type = isImage ? 'image' : 'video';
+          const assetId = crypto.randomUUID();
+          
+          assetRegistry.getState().loadAsset(assetId, type, file.name, file).then(() => {
+            // Once loaded or while loading, create the node
+          });
+          
+          // Create node immediately to show loading state
+          store.getState().addNode({
+            id: `node_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+            type: type as any,
+            parentId: null,
+            children: [],
+            x: window.innerWidth / 2,
+            y: window.innerHeight / 2,
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+            width: 100, // default size before load
+            height: 100,
+            assetId: assetId
+          });
+          store.getState().recalculateMatrices();
+        }
+      });
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+  }, []);
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden">
@@ -184,7 +251,11 @@ function App() {
         <div className="flex flex-1 overflow-hidden">
           <LayerPanel store={store} nodesCount={nodesCount} />
 
-          <div className="flex-1 relative bg-[#1a1a1a]">
+          <div 
+            className="flex-1 relative bg-[#1a1a1a]" 
+            onDrop={handleDrop} 
+            onDragOver={handleDragOver}
+          >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
             {/* Overlay a subtle test animation button for quick testing */}
             <button
