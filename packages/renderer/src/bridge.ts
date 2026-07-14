@@ -39,7 +39,7 @@ export class PixiBridge {
     });
 
     this.store.subscribe((state) => {
-      this.syncNodes(state.nodes);
+      this.syncNodes(state.nodes, state.dirtySet);
       this.handles.update();
     });
 
@@ -101,8 +101,16 @@ export class PixiBridge {
     }
   }
 
-  private syncNodes(nodes: Record<string, SceneNode>) {
-    for (const [id, node] of Object.entries(nodes)) {
+  private isFirstSync = true;
+
+  private syncNodes(nodes: Record<string, SceneNode>, dirtySet: Set<string>) {
+    const targets = this.isFirstSync ? Object.keys(nodes) : dirtySet;
+    this.isFirstSync = false;
+
+    for (const id of targets) {
+      const node = nodes[id];
+      if (!node) continue;
+
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
@@ -175,5 +183,7 @@ export class PixiBridge {
 
       this.applyMatrix(pixiNode, node.localMatrix);
     }
+    
+    dirtySet.clear();
   }
 }
