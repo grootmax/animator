@@ -11,6 +11,8 @@ export class PixiBridge {
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private visualCache: Map<string, Partial<SceneNode>> = new Map();
+  private pathTokenCache: Map<string, ReturnType<typeof tokenizePath>> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -72,7 +74,11 @@ export class PixiBridge {
   }
 
   private drawPath(graphics: PIXI.Graphics, pathData: string) {
-    const tokens = tokenizePath(pathData);
+    let tokens = this.pathTokenCache.get(pathData);
+    if (!tokens) {
+      tokens = tokenizePath(pathData);
+      this.pathTokenCache.set(pathData, tokens);
+    }
     let x = 0, y = 0;
 
     for (const t of tokens) {
@@ -135,41 +141,67 @@ export class PixiBridge {
       pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
       if (pixiNode instanceof PIXI.Graphics) {
-        pixiNode.clear();
+        const prev = this.visualCache.get(id);
+        const hasVisualChange = !prev || 
+          prev.type !== node.type ||
+          prev.fill !== node.fill ||
+          prev.stroke !== node.stroke ||
+          prev.strokeWidth !== node.strokeWidth ||
+          prev.width !== node.width ||
+          prev.height !== node.height ||
+          prev.radius !== node.radius ||
+          prev.rx !== node.rx ||
+          prev.ry !== node.ry ||
+          prev.x1 !== node.x1 ||
+          prev.y1 !== node.y1 ||
+          prev.x2 !== node.x2 ||
+          prev.y2 !== node.y2 ||
+          prev.points !== node.points ||
+          prev.pathData !== node.pathData;
 
-        if (node.fill) {
-            const fill = parseInt(node.fill.replace('#', '0x'));
-            pixiNode.beginFill(fill);
-        }
-        if (node.stroke) {
-            const stroke = parseInt(node.stroke.replace('#', '0x'));
-            const strokeWidth = node.strokeWidth !== undefined ? node.strokeWidth : 2;
-            pixiNode.lineStyle(strokeWidth, stroke);
-        }
+        if (hasVisualChange) {
+          pixiNode.clear();
 
-        if (node.type === 'rect' && node.width && node.height) {
-          pixiNode.drawRect(-node.width/2, -node.height/2, node.width, node.height);
-        } else if (node.type === 'circle' && node.radius) {
-          pixiNode.drawCircle(0, 0, node.radius);
-        } else if (node.type === 'ellipse' && node.rx && node.ry) {
-          pixiNode.drawEllipse(0, 0, node.rx, node.ry);
-        } else if (node.type === 'line') {
-          pixiNode.moveTo(node.x1 || 0, node.y1 || 0);
-          pixiNode.lineTo(node.x2 || 0, node.y2 || 0);
-        } else if (node.type === 'polyline' && node.points) {
-          const pts = node.points.trim().split(/[\s,]+/).map(parseFloat);
-          if (pts.length >= 2) {
-            pixiNode.moveTo(pts[0], pts[1]);
-            for (let i = 2; i < pts.length; i += 2) {
-                pixiNode.lineTo(pts[i], pts[i+1]);
-            }
+          if (node.fill) {
+              const fill = parseInt(node.fill.replace('#', '0x'));
+              pixiNode.beginFill(fill);
           }
-        } else if (node.type === 'path' && node.pathData) {
-          this.drawPath(pixiNode, node.pathData);
-        }
+          if (node.stroke) {
+              const stroke = parseInt(node.stroke.replace('#', '0x'));
+              const strokeWidth = node.strokeWidth !== undefined ? node.strokeWidth : 2;
+              pixiNode.lineStyle(strokeWidth, stroke);
+          }
 
-        if (node.fill) {
-            pixiNode.endFill();
+          if (node.type === 'rect' && node.width && node.height) {
+            pixiNode.drawRect(-node.width/2, -node.height/2, node.width, node.height);
+          } else if (node.type === 'circle' && node.radius) {
+            pixiNode.drawCircle(0, 0, node.radius);
+          } else if (node.type === 'ellipse' && node.rx && node.ry) {
+            pixiNode.drawEllipse(0, 0, node.rx, node.ry);
+          } else if (node.type === 'line') {
+            pixiNode.moveTo(node.x1 || 0, node.y1 || 0);
+            pixiNode.lineTo(node.x2 || 0, node.y2 || 0);
+          } else if (node.type === 'polyline' && node.points) {
+            const pts = node.points.trim().split(/[\s,]+/).map(parseFloat);
+            if (pts.length >= 2) {
+              pixiNode.moveTo(pts[0], pts[1]);
+              for (let i = 2; i < pts.length; i += 2) {
+                  pixiNode.lineTo(pts[i], pts[i+1]);
+              }
+            }
+          } else if (node.type === 'path' && node.pathData) {
+            this.drawPath(pixiNode, node.pathData);
+          }
+
+          if (node.fill) {
+              pixiNode.endFill();
+          }
+
+          this.visualCache.set(id, {
+            type: node.type, fill: node.fill, stroke: node.stroke, strokeWidth: node.strokeWidth,
+            width: node.width, height: node.height, radius: node.radius, rx: node.rx, ry: node.ry,
+            x1: node.x1, y1: node.y1, x2: node.x2, y2: node.y2, points: node.points, pathData: node.pathData
+          });
         }
       }
 
