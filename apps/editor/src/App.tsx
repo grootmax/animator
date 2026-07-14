@@ -1,17 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-import { PixiBridge } from '@monorepo/renderer';
-import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import { WorkerEngineProxy } from './WorkerEngineProxy';
 
 // Create singletons for the app
 const store = createSceneGraphStore();
-const engine = new AnimationEngine(store);
 
 // Extend Window interface for Electron IPC
 declare global {
@@ -29,21 +27,96 @@ function App() {
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
 
+  // Initialize Worker and Proxy once
+  const { worker, engine } = useMemo(() => {
+    const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+    const engine = new WorkerEngineProxy(store, worker);
+    return { worker, engine };
+  }, []);
+
   useEffect(() => {
     if (canvasRef.current) {
-      // Initialize renderer
-      const bridge = new PixiBridge(canvasRef.current, store);
-      // We keep bridge instance alive
-      (window as any).__bridge = bridge;
+      const canvas = canvasRef.current;
+      const offscreen = canvas.transferControlToOffscreen();
+      
+      worker.postMessage({
+        type: 'init',
+        payload: {
+          canvas: offscreen,
+          width: canvas.clientWidth,
+          height: canvas.clientHeight,
+          pixelRatio: window.devicePixelRatio || 1,
+        }
+      }, [offscreen]);
 
-      // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
+      const handleResize = () => {
+        worker.postMessage({
+          type: 'resize',
+          payload: {
+            width: canvas.clientWidth,
+            height: canvas.clientHeight,
+          }
+        });
+      };
+      window.addEventListener('resize', handleResize);
+
+      // Proxy pointer events
+      const proxyEvent = (eventType: string) => (e: any) => {
+        worker.postMessage({
+          type: 'event',
+          payload: {
+            eventType,
+            eventData: {
+              clientX: e.clientX,
+              clientY: e.clientY,
+              button: e.button,
+              shiftKey: e.shiftKey,
+              deltaY: e.deltaY,
+            }
+          }
+        });
+      };
+
+      canvas.addEventListener('pointerdown', proxyEvent('pointerdown'));
+      canvas.addEventListener('pointermove', proxyEvent('pointermove'));
+      window.addEventListener('pointerup', proxyEvent('pointerup'));
+      canvas.addEventListener('wheel', proxyEvent('wheel'), { passive: false });
+
+      // Subscribe to worker state syncs
+      const handleWorkerMessage = (e: MessageEvent) => {
+        if (e.data.type === 'state-sync') {
+          // Worker sends full state (or could be diffs, but for now full nodes)
+          // Update local store silently (avoiding triggering the ui-update loop)
+          store.setState({ nodes: e.data.nodes });
+        }
+      };
+      worker.addEventListener('message', handleWorkerMessage);
+
+      // Subscribe to local store to send delta updates to worker
+      const unsubscribe = store.subscribe((state, prevState) => {
         setNodesCount(Object.keys(state.nodes).length);
+        
+        // Find nodes modified by UI (marked dirty on main thread)
+        const dirtyNodes: any = {};
+        for (const [id, node] of Object.entries(state.nodes)) {
+            // Worker recalculates matrices and sets isDirty to false,
+            // so any node with isDirty=true here was mutated by main thread UI.
+            if (node.isDirty && node !== prevState.nodes[id]) {
+                dirtyNodes[id] = node;
+            }
+        }
+        if (Object.keys(dirtyNodes).length > 0) {
+            worker.postMessage({ type: 'ui-update', payload: { nodes: dirtyNodes } });
+        }
       });
 
-      return () => unsubscribe();
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        worker.removeEventListener('message', handleWorkerMessage);
+        unsubscribe();
+      };
     }
-  }, []);
+  }, [worker]);
 
   useEffect(() => {
     let frame: number;
@@ -53,7 +126,7 @@ function App() {
     };
     frame = requestAnimationFrame(checkPlayState);
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [engine]);
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
@@ -149,21 +222,17 @@ function App() {
   };
 
   const handleZoomIn = () => {
-    const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x *= 1.2;
-      bridge.viewport.container.scale.y *= 1.2;
-      bridge.viewport.drawGrid();
-    }
+    worker.postMessage({
+      type: 'zoom-in',
+      payload: { width: window.innerWidth, height: window.innerHeight }
+    });
   };
 
   const handleZoomOut = () => {
-    const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x /= 1.2;
-      bridge.viewport.container.scale.y /= 1.2;
-      bridge.viewport.drawGrid();
-    }
+    worker.postMessage({
+      type: 'zoom-out',
+      payload: { width: window.innerWidth, height: window.innerHeight }
+    });
   };
 
   return (

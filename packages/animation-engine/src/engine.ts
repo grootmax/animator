@@ -52,7 +52,10 @@ export class AnimationEngine {
   public pause() {
     this.isPlaying = false;
     if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
+      const caf = typeof cancelAnimationFrame !== 'undefined'
+          ? cancelAnimationFrame
+          : clearTimeout;
+      caf(this.rafId);
       this.rafId = null;
     }
   }
@@ -83,7 +86,10 @@ export class AnimationEngine {
     this.updateNodes();
 
     if (this.isPlaying) {
-      this.rafId = requestAnimationFrame(this.tick);
+      const raf = typeof requestAnimationFrame !== 'undefined' 
+          ? requestAnimationFrame 
+          : (cb: Function) => setTimeout(() => cb(performance.now()), 16);
+      this.rafId = raf(this.tick as any) as number;
     }
   }
 

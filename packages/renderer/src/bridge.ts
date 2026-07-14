@@ -12,12 +12,19 @@ export class PixiBridge {
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(
+    canvas: HTMLCanvasElement | OffscreenCanvas, 
+    store: ReturnType<typeof createSceneGraphStore>, 
+    width: number = 800, 
+    height: number = 600, 
+    pixelRatio: number = 1
+  ) {
     this.app = new PIXI.Application({
-      view: canvas,
-      resizeTo: window,
+      view: canvas as any,
+      width,
+      height,
       backgroundColor: 0x1a1a1a,
-      resolution: window.devicePixelRatio || 1,
+      resolution: pixelRatio,
       autoDensity: true,
     });
 
@@ -46,6 +53,34 @@ export class PixiBridge {
     this.app.ticker.add(() => {
         this.handles.update();
     });
+  }
+
+  public resize(width: number, height: number) {
+    this.app.renderer.resize(width, height);
+    this.viewport.resize(width, height);
+  }
+
+  public handleEvent(type: string, event: any) {
+    // Normalize event object for Pixi EventSystem
+    const pixiEvent = {
+        ...event,
+        preventDefault: () => {},
+        stopPropagation: () => {},
+        type,
+    };
+    
+    if (type === 'pointerdown') {
+      (this.app.renderer.events as any).onPointerDown(pixiEvent);
+      this.viewport.handlePointerDown(event);
+    } else if (type === 'pointermove') {
+      (this.app.renderer.events as any).onPointerMove(pixiEvent);
+      this.viewport.handlePointerMove(event);
+    } else if (type === 'pointerup') {
+      (this.app.renderer.events as any).onPointerUp(pixiEvent);
+      this.viewport.handlePointerUp();
+    } else if (type === 'wheel') {
+      this.viewport.handleWheel(event);
+    }
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
