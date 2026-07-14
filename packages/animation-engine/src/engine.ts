@@ -118,7 +118,7 @@ export class AnimationEngine {
   }
 
   private updateNodes() {
-    const updates = new Map<string, any>();
+    const updatesObj: Record<string, any> = {};
 
     for (const track of this.tracks) {
       const [start, end] = this.binarySearchKeyframes(track.keyframes, this.playhead);
@@ -133,22 +133,17 @@ export class AnimationEngine {
         value = start.value + (end.value - start.value) * easedProgress;
       }
 
-      if (!updates.has(track.nodeId)) {
-        updates.set(track.nodeId, {});
+      if (!updatesObj[track.nodeId]) {
+        updatesObj[track.nodeId] = {};
       }
-      updates.get(track.nodeId)[track.property] = value;
+      updatesObj[track.nodeId][track.property] = value;
     }
 
     const storeState = this.store.getState();
-    let requiresMatrixUpdate = false;
+    const hasUpdates = Object.keys(updatesObj).length > 0;
 
-    for (const [nodeId, nodeUpdates] of updates.entries()) {
-      storeState.updateNode(nodeId, nodeUpdates);
-      requiresMatrixUpdate = true;
-    }
-
-    if (requiresMatrixUpdate) {
-      storeState.recalculateMatrices();
+    if (hasUpdates) {
+      storeState.updateNodes(updatesObj, true);
     }
   }
 }
