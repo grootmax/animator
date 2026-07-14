@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "package": "electron-builder build --mac --win --linux"
+    "package": "electron-builder build --linux"
   },
   "build": {
     "appId": "com.monorepo.editor",
@@ -43,7 +43,7 @@
     "@types/react-dom": "^18.2.7",
     "@vitejs/plugin-react": "^4.0.3",
     "autoprefixer": "^10.4.15",
-    "electron": "^25.3.0",
+    "electron": "25.3.0",
     "electron-builder": "^24.6.4",
     "postcss": "^8.4.29",
     "tailwindcss": "^3.3.3",
