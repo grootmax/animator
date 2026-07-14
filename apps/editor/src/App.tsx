@@ -3,6 +3,7 @@ import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
+import { createAssetRegistry } from '@monorepo/assets';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
@@ -22,6 +23,7 @@ channel.onmessage = (event) => {
   }
 };
 const engine = new AnimationEngine(store);
+const assetStore = createAssetRegistry();
 
 // Extend Window interface for Electron IPC
 declare global {
@@ -30,6 +32,7 @@ declare global {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
       exportSvg: (content: string) => Promise<boolean>;
+      openImageFile: () => Promise<{ buffer: ArrayBuffer, name: string, type: string } | null>;
     }
   }
 }
@@ -46,14 +49,14 @@ function App() {
   useEffect(() => {
     if (canvasRef.current) {
       // Initialize renderer
-      const bridge = new PixiBridge(canvasRef.current, store);
+      const bridge = new PixiBridge(canvasRef.current, store, assetStore);
       // We keep bridge instance alive
       (window as any).__bridge = bridge;
 
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
-        setStoreVersion(state.version);
+        setStoreVersion((v) => v + 1);
       });
 
       return () => unsubscribe();
@@ -70,18 +73,49 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().undo();
+        store.getState().undo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().redo();
+        store.getState().redo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        store.getState().redo();
+        store.getState().redo?.();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  const handleImportAsset = async () => {
+    // If not using Electron or if openImageFile is unavailable, we fallback to a native input element
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png, image/jpeg';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        const assetId = await assetStore.getState().addAsset(file);
+        // Also add the image to the scene graph
+        const asset = assetStore.getState().assets[assetId];
+        store.getState().addNode({
+          id: `node_${Date.now()}`,
+          name: file.name,
+          type: 'image',
+          parentId: store.getState().rootId || null,
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          width: asset?.width || 200,
+          height: asset?.height || 200,
+          assetId
+        });
+        store.getState().recalculateMatrices();
+      }
+    };
+    input.click();
+  };
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
@@ -90,7 +124,7 @@ function App() {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
         if (nodes.length > 0) {
-          store.getState().commitHistory();
+          store.getState().commitHistory?.();
           nodes.forEach(node => store.getState().addNode(node));
         }
       }
@@ -112,6 +146,31 @@ function App() {
       const showProgressTimeout = setTimeout(() => {
         setShowSaveProgress(true);
       }, 500);
+
+      const finishSave = async () => {
+        clearTimeout(showProgressTimeout);
+        setShowSaveProgress(false);
+        setSaveProgress(null);
+        
+        const cleanAssets: Record<string, any> = {};
+        for (const [id, asset] of Object.entries(assetStore.getState().assets)) {
+          const cleanAsset: any = { ...asset };
+          delete cleanAsset.url; // url is ephemeral dataURI/objectURL for renderer
+          cleanAssets[id] = cleanAsset;
+        }
+
+        const exportData = {
+          scene: cleanScene,
+          assets: cleanAssets,
+          animations: engine.getTracks(),
+          metadata: {
+            version: "1.0.0",
+            duration: engine.getDuration()
+          }
+        };
+
+        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+      };
 
       const processBatch = (deadline?: any) => {
         const startTime = performance.now();
@@ -146,23 +205,6 @@ function App() {
           finishSave();
         }
       };
-
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
-          }
-        };
-
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
-      };
       
       if ('requestIdleCallback' in window) {
         (window as any).requestIdleCallback(processBatch);
@@ -193,15 +235,15 @@ function App() {
       engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: {
-          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
-          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
-        }
+        keyframes: [
+          { id: 'a', time: 0, value: 0, easing: 'linear' },
+          { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        ]
       });
       engine.play();
     } else {
-      store.getState().commitHistory();
+      store.getState().commitHistory?.();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
@@ -287,6 +329,7 @@ function App() {
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
           onImport={handleImportSvg}
+          onImportAsset={handleImportAsset}
           onExport={handleSaveState}
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}

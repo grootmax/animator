@@ -3,6 +3,12 @@ import { createSceneGraphStore } from '@monorepo/scene-graph';
 
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
 
+export type NetworkRole = 'standalone' | 'leader' | 'follower';
+export interface Heartbeat {
+  playhead: number;
+  isPlaying: boolean;
+}
+
 export interface Keyframe {
   id: string;
   time: number; // in milliseconds
@@ -110,6 +116,7 @@ export class AnimationEngine {
   private heartbeatTimer: any = null;
   private heartbeatRate = 100;
   public driftThreshold = 150;
+  private uiListeners: Set<(state: { isPlaying: boolean; playhead: number }) => void> = new Set();
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
@@ -117,6 +124,20 @@ export class AnimationEngine {
   public getDuration() { return this.duration; }
   public setDuration(d: number) { this.duration = d; }
   public setTracks(tracks: Track[]) { this.tracks = tracks; }
+
+  public subscribeUI(listener: (state: { isPlaying: boolean; playhead: number }) => void) {
+    this.uiListeners.add(listener);
+    listener({ isPlaying: this.isPlaying, playhead: this.playhead });
+    return () => {
+      this.uiListeners.delete(listener);
+    };
+  }
+
+  private notifyUI() {
+    for (const listener of this.uiListeners) {
+      listener({ isPlaying: this.isPlaying, playhead: this.playhead });
+    }
+  }
 
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
@@ -131,6 +152,7 @@ export class AnimationEngine {
     this.isPlaying = true;
     this.lastTime = performance.now();
     this.drift = 0;
+    this.notifyUI();
     this.tick();
 
     if (this.role === 'leader') {
@@ -141,6 +163,7 @@ export class AnimationEngine {
 
   public pause() {
     this.isPlaying = false;
+    this.notifyUI();
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
@@ -305,11 +328,9 @@ export class AnimationEngine {
     let requiresMatrixUpdate = false;
 
     if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
       for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
+        storeState.updateNode(nodeId, nodeUpdates);
       }
-      storeState.updateNodesBatch(batchUpdates);
       requiresMatrixUpdate = true;
     }
 

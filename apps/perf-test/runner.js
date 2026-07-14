@@ -3,8 +3,13 @@ const { spawn } = require('child_process');
 const path = require('path');
 
 async function run() {
+  try {
+    require('child_process').execSync('fuser -k 4173/tcp', { stdio: 'ignore' });
+  } catch (e) {}
+
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  const viteBin = path.resolve(__dirname, '../../node_modules/vite/bin/vite.js');
+  const viteProcess = spawn(process.execPath, [viteBin, '--port', '4173', '--strictPort'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
@@ -37,6 +42,7 @@ async function run() {
 
     const page = await browser.newPage();
     page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('pageerror', (err) => console.error('PAGE ERROR:', err.message, err.stack));
 
     console.log('Navigating to http://localhost:4173 ...');
     await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });

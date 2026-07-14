@@ -4,16 +4,24 @@ import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
 import { tokenizePath, PathToken } from '@monorepo/serialization';
+import { createAssetRegistry } from '@monorepo/assets';
 
 export class PixiBridge {
   private app: PIXI.Application;
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
+  private assetStore?: ReturnType<typeof createAssetRegistry>;
+  private remoteSelectionsContainer: PIXI.Container;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
+  private loadedTextures: Map<string, PIXI.Texture> = new Map();
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(
+    canvas: HTMLCanvasElement, 
+    store: ReturnType<typeof createSceneGraphStore>,
+    assetStore?: ReturnType<typeof createAssetRegistry>
+  ) {
     this.app = new PIXI.Application({
       view: canvas,
       resizeTo: window,
@@ -25,7 +33,7 @@ export class PixiBridge {
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app, store);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id: string) => this.pixiNodes.get(id));
 
     this.remoteSelectionsContainer = new PIXI.Container();
     this.remoteSelectionsContainer.zIndex = 999;
@@ -35,6 +43,7 @@ export class PixiBridge {
     this.viewport.container.addChild(this.handles.container);
 
     this.store = store;
+    this.assetStore = assetStore;
 
     this.viewport.container.interactive = true;
     this.viewport.container.on('pointerdown', (e) => {
@@ -54,6 +63,10 @@ export class PixiBridge {
           this.handles.update();
         });
       }
+    });
+
+    this.assetStore?.subscribe(() => {
+      this.syncNodes(this.store.getState().nodes);
     });
 
     this.app.ticker.add(() => {
@@ -133,10 +146,7 @@ export class PixiBridge {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
         } else if (node.type === 'image') {
-          pixiNode = new PIXI.Container();
-          const sprite = new PIXI.Sprite();
-          sprite.anchor.set(0.5);
-          pixiNode.addChild(sprite);
+          pixiNode = new PIXI.Sprite();
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -169,6 +179,57 @@ export class PixiBridge {
       // Update visibility and opacity
       pixiNode.visible = node.visible !== false;
       pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
+
+      if (pixiNode instanceof PIXI.Sprite && node.type === 'image') {
+        const asset = (node.assetId && this.assetStore) ? this.assetStore.getState().assets[node.assetId] : undefined;
+        if (asset && asset.url) {
+          if (!this.loadedTextures.has(asset.url)) {
+            // Load and cache texture
+            const texture = PIXI.Texture.from(asset.url);
+            this.loadedTextures.set(asset.url, texture);
+          }
+          pixiNode.texture = this.loadedTextures.get(asset.url)!;
+          
+          if (node.width && node.height) {
+            pixiNode.width = node.width;
+            pixiNode.height = node.height;
+            // Center anchor for rotation like other shapes
+            pixiNode.anchor.set(0.5);
+          }
+        } else if (node.src) {
+          const currentSrc = (pixiNode as any)._currentSrc;
+          if (currentSrc !== node.src) {
+            (pixiNode as any)._currentSrc = node.src;
+            const tex = PIXI.Texture.from(node.src);
+            pixiNode.texture = tex;
+          }
+          if (node.width && node.height) {
+            pixiNode.width = node.width;
+            pixiNode.height = node.height;
+            pixiNode.anchor.set(0.5);
+          }
+        } else {
+          // Missing asset fallback: show clear visual placeholder
+          if (!this.loadedTextures.has('missing_placeholder')) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d')!;
+            ctx.fillStyle = '#ff00ff'; // Magenta indicates missing texture clearly
+            ctx.fillRect(0, 0, 64, 64);
+            ctx.fillStyle = '#000000';
+            ctx.font = '12px Arial';
+            ctx.fillText('Missing', 10, 36);
+            this.loadedTextures.set('missing_placeholder', PIXI.Texture.from(canvas));
+          }
+          pixiNode.texture = this.loadedTextures.get('missing_placeholder')!;
+          if (node.width && node.height) {
+            pixiNode.width = node.width;
+            pixiNode.height = node.height;
+            pixiNode.anchor.set(0.5);
+          }
+        }
+      }
 
       if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();
@@ -215,37 +276,6 @@ export class PixiBridge {
 
         if (node.fill) {
             pixiNode.endFill();
-        }
-      } else if (node.type === 'image') {
-        const sprite = (pixiNode as PIXI.Container).children[0] as PIXI.Sprite;
-        
-        if (node.src) {
-           const currentSrc = (sprite as any)._currentSrc;
-           if (currentSrc !== node.src) {
-               (sprite as any)._currentSrc = node.src;
-               const tex = PIXI.Texture.from(node.src);
-               sprite.texture = tex;
-               
-               if (!tex.valid) {
-                   (tex.baseTexture as any).once('loaded', () => {
-                       const n = this.store.getState().nodes[id];
-                       if (n && n.width !== undefined && n.height !== undefined && sprite.texture === tex) {
-                           sprite.width = n.width;
-                           sprite.height = n.height;
-                       }
-                   });
-               }
-           }
-        } else {
-           sprite.texture = PIXI.Texture.EMPTY;
-           (sprite as any)._currentSrc = undefined;
-        }
-
-        if (node.width !== undefined && node.height !== undefined && sprite.texture.valid) {
-           sprite.width = node.width;
-           sprite.height = node.height;
-        } else if (node.width === undefined || node.height === undefined) {
-           sprite.scale.set(1);
         }
       }
 
