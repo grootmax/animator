@@ -40,8 +40,6 @@ function App() {
   const [storeVersion, setStoreVersion] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [saveProgress, setSaveProgress] = useState<number | null>(null);
-  const [showSaveProgress, setShowSaveProgress] = useState(false);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -102,73 +100,39 @@ function App() {
   const handleSaveState = async () => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
-      const nodeKeys = Object.keys(state);
-      const totalNodes = nodeKeys.length;
-      
-      const cleanScene: Record<string, any> = {};
-      
-      let currentIndex = 0;
-      
-      const showProgressTimeout = setTimeout(() => {
-        setShowSaveProgress(true);
-      }, 500);
 
-      const processBatch = (deadline?: any) => {
-        const startTime = performance.now();
-        
-        while (currentIndex < totalNodes) {
-          if (deadline && deadline.timeRemaining) {
-            if (deadline.timeRemaining() < 2) break;
-          } else {
-            if (performance.now() - startTime > 10) break;
-          }
-          
-          const id = nodeKeys[currentIndex];
-          const node = state[id];
-          const cleanNode = { ...node };
-          delete (cleanNode as any).localMatrix;
-          delete (cleanNode as any).worldMatrix;
-          delete (cleanNode as any).isDirty;
-          cleanScene[id] = cleanNode;
-          
-          currentIndex++;
-        }
-        
-        setSaveProgress(Math.floor((currentIndex / totalNodes) * 100));
+      const worker = new Worker(
+        new URL('./workers/serialization.worker.ts', import.meta.url),
+        { type: 'module' }
+      );
 
-        if (currentIndex < totalNodes) {
-          if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(processBatch);
-          } else {
-            setTimeout(processBatch, 0);
+      worker.onmessage = async (e) => {
+        const { success, data, error } = e.data;
+        if (success) {
+          try {
+            await window.electronAPI!.saveFile(data);
+          } catch (err) {
+            console.error("Failed to save file", err);
           }
         } else {
-          finishSave();
+          alert(`Serialization failed: ${error}`);
         }
+        worker.terminate();
       };
 
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
-          }
-        };
-
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+      worker.onerror = (err) => {
+        alert(`Worker error: ${err.message}`);
+        worker.terminate();
       };
-      
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(processBatch);
-      } else {
-        setTimeout(processBatch, 0);
-      }
+
+      worker.postMessage({
+        nodes: state,
+        animations: engine.getTracks(),
+        metadata: {
+          version: "1.0.0",
+          duration: engine.getDuration()
+        }
+      });
     } else {
       alert("Electron API not available");
     }
@@ -313,16 +277,6 @@ function App() {
         </div>
 
         <Timeline engine={engine} store={store} />
-
-        {showSaveProgress && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-gray-800 p-6 rounded-lg border border-gray-700 flex flex-col items-center gap-3">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-              <div className="text-sm font-medium">Saving Project...</div>
-              <div className="text-xs text-gray-400">{saveProgress}%</div>
-            </div>
-          </div>
-        )}
       </div>
     </DndProvider>
   );
