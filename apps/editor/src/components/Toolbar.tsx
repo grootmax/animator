@@ -1,5 +1,5 @@
 import React from 'react';
-import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download } from 'lucide-react';
+import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download, FolderOpen, Save, Image as ImageIcon } from 'lucide-react';
 
 interface ToolbarProps {
   tool: string;
@@ -11,6 +11,9 @@ interface ToolbarProps {
   onExportSvg: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
+  onOpenBundle: () => void;
+  onSaveBundle: () => void;
+  onImportImage: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -22,7 +25,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onExport,
   onExportSvg,
   onZoomIn,
-  onZoomOut
+  onZoomOut,
+  onOpenBundle,
+  onSaveBundle,
+  onImportImage
 }) => {
   const ToolButton = ({ name, icon: Icon }: { name: string, icon: any }) => (
     <button
@@ -57,9 +63,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <ZoomIn size={20} />
         </button>
       </div>
+      <div className="flex gap-1 border-r border-gray-600 pr-2">
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onOpenBundle} title="Open Bundle">
+          <FolderOpen size={20} />
+        </button>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onSaveBundle} title="Save Bundle">
+          <Save size={20} />
+        </button>
+      </div>
       <div className="flex gap-1 ml-auto">
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImportImage} title="Import Image">
+          <ImageIcon size={20} /> <span className="text-sm">Image</span>
+        </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG">
-          <Upload size={20} /> <span className="text-sm">Import</span>
+          <Upload size={20} /> <span className="text-sm">SVG</span>
         </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON">
           <Download size={20} /> <span className="text-sm">JSON</span>
