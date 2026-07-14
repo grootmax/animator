@@ -14,7 +14,9 @@ test.describe('Multi-OS Integrity Suite', () => {
     }
 
     // Launch Electron app
+    const executablePath = require('electron');
     app = await electron.launch({
+      executablePath,
       args: [path.join(__dirname, '../dist-electron/main.js')],
       env: {
         ...process.env,
@@ -77,6 +79,8 @@ test.describe('Multi-OS Integrity Suite', () => {
     expect(Object.keys(parsed.scene).length).toBeGreaterThan(0);
     
     // Clean up
-    fs.unlinkSync(tempFile);
+    if (fs.existsSync(tempFile)) {
+      fs.unlinkSync(tempFile);
+    }
   });
 });
