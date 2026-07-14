@@ -29,7 +29,18 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
+<<<<<<< HEAD
       exportSvg: (content: string) => Promise<boolean>;
+=======
+      projectOpen: () => Promise<{ filePath: string, content: Uint8Array } | null>;
+      projectSave: (content: Uint8Array, filePath?: string) => Promise<{ success: boolean, filePath?: string }>;
+      readBinary: (filePath: string) => Promise<Uint8Array | null>;
+      writeBinary: (filePath: string, data: Uint8Array) => Promise<boolean>;
+      authorizeDir: (dir: string) => Promise<boolean>;
+      pathRelative: (from: string, to: string) => string;
+      pathResolve: (base: string, rel: string) => string;
+      pathDirname: (p: string) => string;
+>>>>>>> b443960 (Implement Professional Asset Workflow)
     }
   }
 }
@@ -40,8 +51,13 @@ function App() {
   const [storeVersion, setStoreVersion] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+<<<<<<< HEAD
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [showSaveProgress, setShowSaveProgress] = useState(false);
+=======
+  const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null);
+  const [assetManifest, setAssetManifest] = useState<Record<string, { relativePath: string, mimeType: string }>>({});
+>>>>>>> b443960 (Implement Professional Asset Workflow)
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -85,6 +101,7 @@ function App() {
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
+<<<<<<< HEAD
       const svgContent = await window.electronAPI.openFile();
       if (svgContent) {
         const parser = new SvgParser();
@@ -92,6 +109,42 @@ function App() {
         if (nodes.length > 0) {
           store.getState().commitHistory();
           nodes.forEach(node => store.getState().addNode(node));
+=======
+      const result = await window.electronAPI.projectOpen();
+      if (result) {
+        setActiveProjectPath(result.filePath);
+        if (result.filePath.endsWith('.svg')) {
+          const decoder = new TextDecoder();
+          const contentStr = decoder.decode(result.content);
+          const parser = new SvgParser();
+          const nodes = parser.parse(contentStr);
+          // clear existing nodes?
+          nodes.forEach(node => store.getState().addNode(node));
+        } else if (result.filePath.endsWith('.json')) {
+          const decoder = new TextDecoder();
+          const contentStr = decoder.decode(result.content);
+          const data = JSON.parse(contentStr);
+          
+          if (data.manifest && data.manifest.assets) {
+             setAssetManifest(data.manifest.assets);
+          }
+          
+          const nodes = data.scene;
+          const rootDir = window.electronAPI.pathDirname(result.filePath);
+          
+          Object.values(nodes).forEach((node: any) => {
+            if (node.type === 'image' && node.assetId && data.manifest.assets[node.assetId]) {
+               // resolve relative path to absolute for asset:// rendering
+               const relPath = data.manifest.assets[node.assetId].relativePath;
+               node.assetId = window.electronAPI!.pathResolve(rootDir, relPath);
+            }
+            store.getState().addNode(node);
+          });
+          
+          if (data.animations) {
+             data.animations.forEach((anim: any) => engine.addTrack(anim));
+          }
+>>>>>>> b443960 (Implement Professional Asset Workflow)
         }
       }
     } else {
@@ -106,6 +159,18 @@ function App() {
       const totalNodes = nodeKeys.length;
       
       const cleanScene: Record<string, any> = {};
+      const newManifest: Record<string, { relativePath: string, mimeType: string }> = { ...assetManifest };
+
+      let currentProjectPath = activeProjectPath;
+      if (!currentProjectPath) {
+         const emptyBuffer = new TextEncoder().encode('{}');
+         const tempResult = await window.electronAPI.projectSave(emptyBuffer, undefined);
+         if (!tempResult.success || !tempResult.filePath) return;
+         currentProjectPath = tempResult.filePath;
+         setActiveProjectPath(currentProjectPath);
+      }
+      
+      const projectDir = window.electronAPI.pathDirname(currentProjectPath);
       
       let currentIndex = 0;
       
@@ -129,6 +194,15 @@ function App() {
           delete (cleanNode as any).localMatrix;
           delete (cleanNode as any).worldMatrix;
           delete (cleanNode as any).isDirty;
+
+          if (cleanNode.type === 'image' && cleanNode.assetId) {
+             const absPath = cleanNode.assetId;
+             const relPath = window.electronAPI.pathRelative(projectDir, absPath);
+             const manifestId = `asset-${id}`;
+             newManifest[manifestId] = { relativePath: relPath, mimeType: 'image/png' };
+             cleanNode.assetId = manifestId;
+          }
+
           cleanScene[id] = cleanNode;
           
           currentIndex++;
@@ -152,16 +226,25 @@ function App() {
         setShowSaveProgress(false);
         setSaveProgress(null);
         
+        setAssetManifest(newManifest);
+
         const exportData = {
           scene: cleanScene,
           animations: engine.getTracks(),
           metadata: {
             version: "1.0.0",
             duration: engine.getDuration()
+          },
+          manifest: {
+            assets: newManifest
           }
         };
 
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+        const jsonStr = JSON.stringify(exportData, null, 2);
+        const encoder = new TextEncoder();
+        const uint8Array = encoder.encode(jsonStr);
+
+        await window.electronAPI.projectSave(uint8Array, currentProjectPath);
       };
       
       if ('requestIdleCallback' in window) {
@@ -241,6 +324,42 @@ function App() {
       bridge.viewport.container.scale.x /= 1.2;
       bridge.viewport.container.scale.y /= 1.2;
       bridge.viewport.drawGrid();
+    }
+  };
+  
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0 && window.electronAPI) {
+      const file = e.dataTransfer.files[0];
+      const filePath = (file as any).path;
+      if (filePath && (file.type.startsWith('image/') || file.name.endsWith('.png') || file.name.endsWith('.jpg') || file.name.endsWith('.jpeg'))) {
+        
+        await window.electronAPI.authorizeDir(window.electronAPI.pathDirname(filePath));
+
+        // Let's create an image node. 
+        // Note: the node.assetId needs to be absolute for the renderer to load it via asset://<absolutePath>
+        const id = 'image_' + Date.now();
+        store.getState().addNode({
+          id,
+          type: 'image',
+          parentId: null,
+          children: [],
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          opacity: 1,
+          visible: true,
+          locked: false,
+          assetId: filePath
+        } as any);
+        store.getState().recalculateMatrices();
+      }
     }
   };
 
