@@ -10,8 +10,9 @@ export class PixiBridge {
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
+  private remoteSelectionsContainer!: PIXI.Container;
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -25,7 +26,7 @@ export class PixiBridge {
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app, store);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id) => this.pixiNodes.get(id));
 
     this.remoteSelectionsContainer = new PIXI.Container();
     this.remoteSelectionsContainer.zIndex = 999;
@@ -132,11 +133,14 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
-        } else if (node.type === 'image') {
-          pixiNode = new PIXI.Container();
-          const sprite = new PIXI.Sprite();
-          sprite.anchor.set(0.5);
-          pixiNode.addChild(sprite);
+        } else if (node.type === 'image' || node.type === 'video') {
+          if (node.src) {
+            const texture = PIXI.Texture.from(node.src);
+            pixiNode = new PIXI.Sprite(texture);
+            (pixiNode as PIXI.Sprite).anchor.set(0.5); // Center anchor to match our default transform behavior
+          } else {
+            pixiNode = new PIXI.Container();
+          }
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -216,37 +220,16 @@ export class PixiBridge {
         if (node.fill) {
             pixiNode.endFill();
         }
-      } else if (node.type === 'image') {
-        const sprite = (pixiNode as PIXI.Container).children[0] as PIXI.Sprite;
-        
+      } else if (pixiNode instanceof PIXI.Sprite) {
         if (node.src) {
-           const currentSrc = (sprite as any)._currentSrc;
-           if (currentSrc !== node.src) {
-               (sprite as any)._currentSrc = node.src;
-               const tex = PIXI.Texture.from(node.src);
-               sprite.texture = tex;
-               
-               if (!tex.valid) {
-                   (tex.baseTexture as any).once('loaded', () => {
-                       const n = this.store.getState().nodes[id];
-                       if (n && n.width !== undefined && n.height !== undefined && sprite.texture === tex) {
-                           sprite.width = n.width;
-                           sprite.height = n.height;
-                       }
-                   });
-               }
-           }
-        } else {
-           sprite.texture = PIXI.Texture.EMPTY;
-           (sprite as any)._currentSrc = undefined;
+          const currentSrc = (pixiNode as any)._currentSrc;
+          if (currentSrc !== node.src) {
+            (pixiNode as any)._currentSrc = node.src;
+            pixiNode.texture = PIXI.Texture.from(node.src);
+          }
         }
-
-        if (node.width !== undefined && node.height !== undefined && sprite.texture.valid) {
-           sprite.width = node.width;
-           sprite.height = node.height;
-        } else if (node.width === undefined || node.height === undefined) {
-           sprite.scale.set(1);
-        }
+        if (node.width !== undefined) pixiNode.width = node.width;
+        if (node.height !== undefined) pixiNode.height = node.height;
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const nodeTypeSchema = z.enum(['container', 'rect', 'circle', 'path', 'group', 'ellipse', 'line', 'polyline']);
+export const nodeTypeSchema = z.enum(['container', 'rect', 'circle', 'path', 'group', 'ellipse', 'line', 'polyline', 'image', 'video']);
 
 // This schema defines only the properties we want to serialize.
 // By default, z.object() will strip out any extra properties (like localMatrix, worldMatrix, isDirty).

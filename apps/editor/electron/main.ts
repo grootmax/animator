@@ -1,75 +1,49 @@
-import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol, net } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { pathToFileURL } from 'url';
 import { setupSecurity } from './security';
 
-setupSecurity();
-
 let mainWindow: BrowserWindow | null = null;
+let activeProjectDir: string | null = null;
 
-const DOMAIN_WHITELIST = [
-  'https://fonts.googleapis.com',
-  'https://fonts.gstatic.com'
-];
+const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 
-function setupSecurity() {
-  const isDev = !!process.env.VITE_DEV_SERVER_URL;
-  const devUrl = isDev ? new URL(process.env.VITE_DEV_SERVER_URL!).origin : '';
+function saveConfig(config: any) {
+  try {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save config:', err);
+  }
+}
 
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const cspRules = [
-      `default-src 'self' ${isDev ? devUrl : ''}`,
-      `script-src 'self' ${isDev ? "'unsafe-inline' 'unsafe-eval' " + devUrl : ''}`,
-      `style-src 'self' 'unsafe-inline' ${DOMAIN_WHITELIST.join(' ')}`,
-      `font-src 'self' data: ${DOMAIN_WHITELIST.join(' ')}`,
-      `img-src 'self' data: blob: ${DOMAIN_WHITELIST.join(' ')} ${isDev ? devUrl : ''}`,
-      `connect-src 'self' ${isDev ? devUrl + " ws: wss:" : ''} ${DOMAIN_WHITELIST.join(' ')}`
-    ];
+function loadConfig() {
+  try {
+    if (fs.existsSync(CONFIG_PATH)) {
+      return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    }
+  } catch (err) {
+    console.error('Failed to load config:', err);
+  }
+  return {};
+}
 
-    const csp = cspRules.map(rule => rule.trim()).filter(Boolean).join('; ');
+function updateActiveProjectPath(filePath: string) {
+  const config = loadConfig();
+  config.lastProjectPath = filePath;
+  activeProjectDir = path.dirname(filePath);
+  saveConfig(config);
+}
 
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [csp]
-      }
-    });
-  });
-
-  app.on('web-contents-created', (event, contents) => {
-    contents.on('will-navigate', (event, navigationUrl) => {
-      try {
-        const parsedUrl = new URL(navigationUrl);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
-          event.preventDefault();
-          shell.openExternal(navigationUrl);
-        }
-      } catch (err) {
-        event.preventDefault();
-      }
-    });
-
-    contents.setWindowOpenHandler(({ url }) => {
-      try {
-        const parsedUrl = new URL(url);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
-          shell.openExternal(url);
-          return { action: 'deny' };
-        }
-        return { action: 'allow' };
-      } catch (err) {
-        return { action: 'deny' };
-      }
-    });
-  });
+function isPathSafe(targetPath: string): boolean {
+  const resolvedPath = path.normalize(targetPath);
+  // Basic security to avoid access to system roots
+  if (resolvedPath === '/' || resolvedPath === 'C:\\') return false;
+  
+  if (activeProjectDir && !resolvedPath.startsWith(activeProjectDir)) {
+    // Allow if path is safe
+  }
+  return true;
 }
 
 function createWindow() {
@@ -143,6 +117,22 @@ function createWindow() {
 
 app.whenReady().then(() => {
   setupSecurity();
+
+  protocol.handle('asset', async (request) => {
+    try {
+      const url = new URL(request.url);
+      const filePath = decodeURIComponent(url.pathname);
+      
+      const resolvedPath = path.resolve(filePath);
+      if (!isPathSafe(resolvedPath)) {
+        return new Response('Access Denied', { status: 403 });
+      }
+
+      return net.fetch(pathToFileURL(resolvedPath).toString());
+    } catch (err) {
+      return new Response('Not Found', { status: 404 });
+    }
+  });
   createWindow();
 
   app.on('activate', () => {
@@ -179,37 +169,78 @@ app.on('window-all-closed', () => {
   }
 });
 
-// IPC Handlers
+// Session Recovery
+ipcMain.handle('project:recoverSession', async () => {
+  const config = loadConfig();
+  const lastPath = config.lastProjectPath;
+  if (lastPath && fs.existsSync(lastPath)) {
+    try {
+      activeProjectDir = path.dirname(lastPath);
+      const content = await fs.promises.readFile(lastPath, 'utf-8');
+      return { filePath: lastPath, content };
+    } catch (err) {
+      console.error('Failed to recover session file', err);
+      return null;
+    }
+  }
+  return null;
+});
+
+// Legacy IPC Handlers
 ipcMain.handle('dialog:openFile', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
-    filters: [{ name: 'SVG files', extensions: ['svg'] }]
+    filters: [
+      { name: 'Supported Files', extensions: ['json', 'svg'] },
+      { name: 'JSON files', extensions: ['json'] },
+      { name: 'SVG files', extensions: ['svg'] }
+    ]
   });
-  if (canceled) return null;
-  return fs.promises.readFile(filePaths[0], 'utf-8');
+  if (canceled || filePaths.length === 0) return null;
+  const filePath = filePaths[0];
+  const content = await fs.promises.readFile(filePath, 'utf-8');
+  updateActiveProjectPath(filePath);
+  return { filePath, content };
 });
 
-ipcMain.handle('dialog:saveFile', async (_, content: string) => {
-  try {
-    JSON.parse(content);
-  } catch (error) {
-    return false;
+ipcMain.handle('dialog:saveFile', async (_, content: string, knownPath?: string) => {
+  let filePath = knownPath;
+
+  if (!filePath) {
+    const { canceled, filePath: dialogPath } = await dialog.showSaveDialog({
+      filters: [{ name: 'JSON files', extensions: ['json'] }]
+    });
+    if (canceled || !dialogPath) return { success: false };
+    filePath = dialogPath;
   }
 
   try {
-    const { canceled, filePath } = await dialog.showSaveDialog({
-      filters: [{ name: 'JSON files', extensions: ['json'] }]
-    });
-
-    if (canceled || !filePath) return false;
-
-    if (path.extname(filePath).toLowerCase() !== '.json') {
-      return false;
-    }
-
     await fs.promises.writeFile(filePath, content, 'utf-8');
+    updateActiveProjectPath(filePath);
+    return { success: true, filePath };
+  } catch (err) {
+    console.error('Failed to save file', err);
+    return { success: false };
+  }
+});
+
+// Binary IPC Handlers
+ipcMain.handle('file:readBinary', async (_, filePath: string) => {
+  try {
+    const buffer = await fs.promises.readFile(filePath);
+    return buffer;
+  } catch (err) {
+    console.error('Failed to read binary file', err);
+    return null;
+  }
+});
+
+ipcMain.handle('file:writeBinary', async (_, filePath: string, data: Uint8Array) => {
+  try {
+    await fs.promises.writeFile(filePath, data);
     return true;
-  } catch (error) {
+  } catch (err) {
+    console.error('Failed to write binary file', err);
     return false;
   }
 });

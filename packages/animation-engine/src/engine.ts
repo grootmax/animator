@@ -1,6 +1,13 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 
+export type NetworkRole = 'standalone' | 'leader' | 'follower';
+
+export interface Heartbeat {
+  playhead: number;
+  isPlaying: boolean;
+}
+
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
 
 export interface Keyframe {
@@ -309,7 +316,13 @@ export class AnimationEngine {
       for (const [nodeId, nodeUpdates] of updates.entries()) {
         batchUpdates[nodeId] = nodeUpdates;
       }
-      storeState.updateNodesBatch(batchUpdates);
+      if (typeof (storeState as any).updateNodesBatch === 'function') {
+        (storeState as any).updateNodesBatch(batchUpdates);
+      } else {
+        for (const [nodeId, nodeUpdates] of updates.entries()) {
+          storeState.updateNode(nodeId, nodeUpdates);
+        }
+      }
       requiresMatrixUpdate = true;
     }
 
