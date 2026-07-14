@@ -108,6 +108,8 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'image') {
+          pixiNode = new PIXI.Sprite();
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -171,6 +173,13 @@ export class PixiBridge {
         if (node.fill) {
             pixiNode.endFill();
         }
+      } else if (pixiNode instanceof PIXI.Sprite && node.type === 'image') {
+          if (node.src) {
+              pixiNode.texture = PIXI.Texture.from(node.src);
+          }
+          pixiNode.width = node.width || 100;
+          pixiNode.height = node.height || 100;
+          pixiNode.anchor.set(0.5);
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);
