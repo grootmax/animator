@@ -1,0 +1,13 @@
+
+> @monorepo/perf-test@1.0.0 build
+> tsc -b && vite build
+
+vite v4.5.14 building for production...
+transforming...
+✓ 11 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.46 kB │ gzip: 0.33 kB
+dist/assets/worker-6c7a5399.js  570.54 kB
+dist/assets/index-9b62c2d4.js     4.79 kB │ gzip: 2.23 kB
+✓ built in 5.43s

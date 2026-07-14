@@ -1,0 +1,37 @@
+
+> @monorepo/perf-test@1.0.0 test
+> node runner.js
+
+Starting Vite server...
+VITE: 
+  VITE v4.5.14  ready in 358 ms
+
+
+Server started. Launching Puppeteer...
+VITE:   ➜  Local:   http://localhost:4173/
+  ➜  Network: use --host to expose
+
+Navigating to http://localhost:4173 ...
+BROWSER: [vite] connecting...
+BROWSER: [vite] connected.
+BROWSER: Starting benchmark...
+BROWSER: Baseline Matrix 1M Time: 218.40000000596046
+BROWSER: Project Generation Time: 140.79999999701977
+BROWSER: JSHandle@error
+Waiting for benchmark to complete...
+BROWSER: Failed to load resource: the server responded with a status of 404 (Not Found)
+Test script crashed: TimeoutError: Waiting failed: 60000ms exceeded
+    at new WaitTask (/app/animator/node_modules/puppeteer-core/lib/cjs/puppeteer/common/WaitTask.js:50:34)
+    at IsolatedWorld.waitForFunction (/app/animator/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Realm.js:25:26)
+    at CdpFrame.waitForFunction (/app/animator/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Frame.js:558:43)
+    at CdpFrame.<anonymous> (/app/animator/node_modules/puppeteer-core/lib/cjs/puppeteer/util/decorators.js:98:27)
+    at CdpPage.waitForFunction (/app/animator/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Page.js:1466:37)
+    at run (/app/animator/apps/perf-test/runner.js:47:16)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm error Lifecycle script `test` failed with error:
+npm error code 1
+npm error path /app/animator/apps/perf-test
+npm error workspace @monorepo/perf-test@1.0.0
+npm error location /app/animator/apps/perf-test
+npm error command failed
+npm error command sh -c node runner.js

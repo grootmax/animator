@@ -1,19 +1,14 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
+import type { EasingType, Keyframe, Track } from './types';
+export type { EasingType, Keyframe, Track };
 
-export interface Keyframe {
-  id: string;
-  time: number; // in milliseconds
-  value: number | string;
-  easing?: EasingType;
-}
+export type NetworkRole = 'leader' | 'follower' | 'standalone';
 
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
+export interface Heartbeat {
+  playhead: number;
+  isPlaying: boolean;
 }
 
 function parseHexColor(hex: string) {
@@ -94,6 +89,32 @@ function interpolateValue(start: number | string, end: number | string, progress
   return start;
 }
 
+class UpdatePacket {
+  nodeId: string = '';
+  property: string = '';
+  value: any = 0;
+}
+
+class ObjectPool<T> {
+  private pool: T[] = [];
+  private createFn: () => T;
+
+  constructor(createFn: () => T, initialSize: number = 0) {
+    this.createFn = createFn;
+    for (let i = 0; i < initialSize; i++) {
+      this.pool.push(this.createFn());
+    }
+  }
+
+  get(): T {
+    return this.pool.length > 0 ? this.pool.pop()! : this.createFn();
+  }
+
+  release(obj: T) {
+    this.pool.push(obj);
+  }
+}
+
 export class AnimationEngine {
   private store: ReturnType<typeof createSceneGraphStore>;
   private tracks: Track[] = [];
@@ -110,6 +131,10 @@ export class AnimationEngine {
   private heartbeatTimer: any = null;
   private heartbeatRate = 100;
   public driftThreshold = 150;
+
+  private updatePacketPool = new ObjectPool<UpdatePacket>(() => new UpdatePacket(), 100);
+  private activePackets: UpdatePacket[] = [];
+  private tempSearchRange: [Keyframe | null, Keyframe | null] = [null, null];
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
@@ -255,16 +280,32 @@ export class AnimationEngine {
   }
 
   private binarySearchKeyframes(keyframes: Keyframe[], time: number): [Keyframe | null, Keyframe | null] {
-    if (keyframes.length === 0) return [null, null];
-    if (time <= keyframes[0].time) return [keyframes[0], keyframes[0]];
-    if (time >= keyframes[keyframes.length - 1].time) return [keyframes[keyframes.length - 1], keyframes[keyframes.length - 1]];
+    if (!keyframes || keyframes.length === 0) {
+      this.tempSearchRange[0] = null;
+      this.tempSearchRange[1] = null;
+      return this.tempSearchRange;
+    }
+    if (time <= keyframes[0].time) {
+      this.tempSearchRange[0] = keyframes[0];
+      this.tempSearchRange[1] = keyframes[0];
+      return this.tempSearchRange;
+    }
+    if (time >= keyframes[keyframes.length - 1].time) {
+      this.tempSearchRange[0] = keyframes[keyframes.length - 1];
+      this.tempSearchRange[1] = keyframes[keyframes.length - 1];
+      return this.tempSearchRange;
+    }
 
     let low = 0;
     let high = keyframes.length - 1;
 
     while (low <= high) {
       const mid = Math.floor((low + high) / 2);
-      if (keyframes[mid].time === time) return [keyframes[mid], keyframes[mid]];
+      if (keyframes[mid].time === time) {
+        this.tempSearchRange[0] = keyframes[mid];
+        this.tempSearchRange[1] = keyframes[mid];
+        return this.tempSearchRange;
+      }
       if (keyframes[mid].time < time) {
         low = mid + 1;
       } else {
@@ -272,18 +313,25 @@ export class AnimationEngine {
       }
     }
 
-    return [keyframes[high], keyframes[low]];
+    this.tempSearchRange[0] = keyframes[high];
+    this.tempSearchRange[1] = keyframes[low];
+    return this.tempSearchRange;
   }
 
   private updateNodes() {
-    const updates = new Map<string, any>();
+    this.activePackets.length = 0;
 
-    for (const track of this.tracks) {
-      const keyframesArray = Object.values(track.keyframes).sort((a, b) => {
-        if (a.time === b.time) return a.id.localeCompare(b.id);
-        return a.time - b.time;
-      });
-      const [start, end] = this.binarySearchKeyframes(keyframesArray, this.playhead);
+    for (let i = 0; i < this.tracks.length; i++) {
+      const track = this.tracks[i];
+      const keyframesArray = Array.isArray(track.keyframes) 
+        ? track.keyframes 
+        : Object.values(track.keyframes as any).sort((a: any, b: any) => {
+            if (a.time === b.time) return (a.id || '').localeCompare(b.id || '');
+            return a.time - b.time;
+          });
+      const range = this.binarySearchKeyframes(keyframesArray as Keyframe[], this.playhead);
+      const start = range[0];
+      const end = range[1];
 
       if (!start || !end) continue;
 
@@ -295,21 +343,24 @@ export class AnimationEngine {
         value = interpolateValue(start.value, end.value, easedProgress, track.property);
       }
 
-      if (!updates.has(track.nodeId)) {
-        updates.set(track.nodeId, {});
-      }
-      updates.get(track.nodeId)[track.property] = value;
+      const packet = this.updatePacketPool.get();
+      packet.nodeId = track.nodeId;
+      packet.property = track.property;
+      packet.value = value;
+      this.activePackets.push(packet);
     }
 
     const storeState = this.store.getState();
     let requiresMatrixUpdate = false;
 
-    if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
-      for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
+    for (let i = 0; i < this.activePackets.length; i++) {
+      const packet = this.activePackets[i];
+      if (typeof storeState.updateNodeInPlace === 'function') {
+        storeState.updateNodeInPlace(packet.nodeId, packet.property, packet.value);
+      } else {
+        storeState.updateNode(packet.nodeId, { [packet.property]: packet.value } as any);
       }
-      storeState.updateNodesBatch(batchUpdates);
+      this.updatePacketPool.release(packet);
       requiresMatrixUpdate = true;
     }
 

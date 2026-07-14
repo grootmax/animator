@@ -3,17 +3,22 @@ const { spawn } = require('child_process');
 const path = require('path');
 
 async function run() {
-  console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  console.log('Starting Vite preview server...');
+  const viteProcess = spawn('npx', ['vite', 'preview', '--port', '4173'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
 
+  let serverUrl = 'http://localhost:4173';
   await new Promise((resolve) => {
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/http:\/\/localhost:\d+/);
+      if (match) {
+        serverUrl = match[0];
+      }
+      if (output.includes('ready in') || output.includes('Local:') || output.includes('localhost:')) {
         resolve();
       }
     });
@@ -32,14 +37,22 @@ async function run() {
   try {
     browser = await puppeteer.launch({
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--enable-features=SharedArrayBuffer'],
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('pageerror', (err) => console.log('BROWSER PAGE ERROR:', err));
+    page.on('console', async (msg) => {
+      try {
+        const args = await Promise.all(msg.args().map(arg => arg.jsonValue().catch(() => arg.toString())));
+        console.log('BROWSER:', msg.type(), msg.text(), ...args);
+      } catch (e) {
+        console.log('BROWSER:', msg.text());
+      }
+    });
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    console.log(`Navigating to ${serverUrl} ...`);
+    await page.goto(serverUrl, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
     
