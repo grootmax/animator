@@ -120,6 +120,7 @@ export class SvgParser {
       case 'line': type = 'line'; break;
       case 'polyline': type = 'polyline'; break;
       case 'path': type = 'path'; break;
+      case 'image': type = 'image'; break;
       default: return; // Ignore unsupported
     }
 
@@ -183,6 +184,10 @@ export class SvgParser {
       node.points = element.getAttribute('points') || '';
     } else if (type === 'path') {
       node.pathData = element.getAttribute('d') || '';
+    } else if (type === 'image') {
+      node.width = parseFloat(element.getAttribute('width') || '0');
+      node.height = parseFloat(element.getAttribute('height') || '0');
+      node.src = element.getAttribute('href') || element.getAttribute('xlink:href') || '';
     }
 
     const sceneNode = node as SceneNode;

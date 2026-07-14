@@ -10,7 +10,7 @@ export class PixiBridge {
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -108,6 +108,11 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'image') {
+          pixiNode = new PIXI.Container();
+          const sprite = node.src ? new PIXI.Sprite(PIXI.Texture.from(node.src)) : new PIXI.Sprite();
+          sprite.anchor.set(0.5);
+          pixiNode.addChild(sprite);
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -134,7 +139,27 @@ export class PixiBridge {
       pixiNode.visible = node.visible !== false;
       pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
-      if (pixiNode instanceof PIXI.Graphics) {
+      if (node.type === 'image' && pixiNode instanceof PIXI.Container) {
+        const sprite = pixiNode.children[0] as PIXI.Sprite;
+        if (sprite) {
+          if (node.src) {
+            const tex = PIXI.Texture.from(node.src);
+            if (sprite.texture !== tex) {
+              sprite.texture = tex;
+            }
+          }
+          const updateSize = () => {
+            if (node.width) sprite.width = node.width;
+            if (node.height) sprite.height = node.height;
+          };
+          
+          if (sprite.texture.baseTexture.valid) {
+            updateSize();
+          } else {
+            sprite.texture.baseTexture.once('update', updateSize);
+          }
+        }
+      } else if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();
 
         if (node.fill) {

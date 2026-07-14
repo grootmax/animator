@@ -166,6 +166,55 @@ function App() {
     }
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const validTypes = ['image/png', 'image/jpeg', 'image/webp'];
+      if (!validTypes.includes(file.type)) {
+        alert(`Error: Unsupported file format "${file.name}". Only PNG, JPG, and WebP are allowed.`);
+        continue;
+      }
+      
+      if (file.size > 5 * 1024 * 1024) {
+        alert(`Warning: "${file.name}" is larger than 5MB. This may impact performance.`);
+      }
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const src = event.target?.result as string;
+        const img = new Image();
+        img.onload = () => {
+          const state = store.getState();
+          state.addNode({
+            id: `img_${Date.now()}_${i}`,
+            type: 'image',
+            parentId: null,
+            children: [],
+            x: window.innerWidth / 2,
+            y: window.innerHeight / 2,
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+            width: img.naturalWidth,
+            height: img.naturalHeight,
+            src
+          });
+          state.recalculateMatrices();
+        };
+        img.src = src;
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden">
@@ -184,7 +233,11 @@ function App() {
         <div className="flex flex-1 overflow-hidden">
           <LayerPanel store={store} nodesCount={nodesCount} />
 
-          <div className="flex-1 relative bg-[#1a1a1a]">
+          <div 
+            className="flex-1 relative bg-[#1a1a1a]"
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+          >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
             {/* Overlay a subtle test animation button for quick testing */}
             <button
