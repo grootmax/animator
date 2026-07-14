@@ -8,12 +8,22 @@ export default defineConfig({
     electron([
       {
         entry: 'electron/main.ts',
+        vite: {
+          build: {
+            outDir: 'dist',
+          }
+        }
       },
       {
         entry: 'electron/preload.ts',
         onstart(options) {
           options.reload();
         },
+        vite: {
+          build: {
+            outDir: 'dist',
+          }
+        }
       }
     ]),
   ],
