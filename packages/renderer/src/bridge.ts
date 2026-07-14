@@ -38,8 +38,10 @@ export class PixiBridge {
       }
     });
 
-    this.store.subscribe((state) => {
-      this.syncNodes(state.nodes);
+    this.store.subscribe((state, prevState) => {
+      // Use incremental sync to prevent iterating over unmodified nodes
+      const isInitialSync = !prevState;
+      this.syncNodes(state.nodes, isInitialSync ? undefined : state.changedNodes);
       this.handles.update();
     });
 
@@ -101,8 +103,13 @@ export class PixiBridge {
     }
   }
 
-  private syncNodes(nodes: Record<string, SceneNode>) {
-    for (const [id, node] of Object.entries(nodes)) {
+  private syncNodes(nodes: Record<string, SceneNode>, changedNodes?: Set<string>) {
+    const iterable = changedNodes ? changedNodes : Object.keys(nodes);
+
+    for (const id of iterable) {
+      const node = nodes[id];
+      if (!node) continue;
+      
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {

@@ -43,11 +43,15 @@ export interface SceneNode {
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
+  changedNodes: Set<string>;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  batchUpdateNodes: (updates: Map<string, Partial<SceneNode>>) => void;
+  applyAnimationUpdates: (updates: Map<string, Partial<SceneNode>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
-  recalculateMatrices: () => void;
+  recalculateMatrices: (mutateInPlace?: boolean) => void;
+  clearChangedNodes: () => void;
 }
 
 const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }): SceneNode => ({
@@ -71,11 +75,14 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
 export const createSceneGraphStore = () => createStore<SceneGraphState>((set, get) => ({
   nodes: {},
   rootId: null,
+  changedNodes: new Set(),
 
   addNode: (node) => {
     set((state) => {
       const newNode = getDefaultNode(node);
       const newNodes = { ...state.nodes, [node.id]: newNode };
+      const newChangedNodes = new Set(state.changedNodes);
+      newChangedNodes.add(node.id);
 
       if (node.parentId) {
         const parent = newNodes[node.parentId];
@@ -84,12 +91,14 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
             ...parent,
             children: [...parent.children, node.id]
           };
+          newChangedNodes.add(node.parentId);
         }
       }
 
       return {
         nodes: newNodes,
-        rootId: state.rootId || (node.parentId === null ? node.id : state.rootId)
+        rootId: state.rootId || (node.parentId === null ? node.id : state.rootId),
+        changedNodes: newChangedNodes
       };
     });
   },
@@ -102,8 +111,88 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       // O(1) dirty marking: just mark the current node.
       // The recalculate step will propagate this to children automatically!
       const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
+      const newChangedNodes = new Set(state.changedNodes);
+      newChangedNodes.add(id);
 
-      return { nodes: newNodes };
+      return { nodes: newNodes, changedNodes: newChangedNodes };
+    });
+  },
+
+  batchUpdateNodes: (updates) => {
+    set((state) => {
+      const newChangedNodes = new Set(state.changedNodes);
+      // In-place mutation for performance during playback
+      for (const [id, nodeUpdates] of updates.entries()) {
+        const node = state.nodes[id];
+        if (node) {
+          Object.assign(node, nodeUpdates);
+          node.isDirty = true;
+          newChangedNodes.add(id);
+        }
+      }
+      return { 
+        nodes: { ...state.nodes }, 
+        changedNodes: newChangedNodes 
+      };
+    });
+  },
+
+  applyAnimationUpdates: (updates) => {
+    set((state) => {
+      const frameChangedNodes = new Set<string>();
+      
+      // 1. Mutate properties in-place
+      for (const [id, nodeUpdates] of updates.entries()) {
+        const node = state.nodes[id];
+        if (node) {
+          Object.assign(node, nodeUpdates);
+          node.isDirty = true;
+          frameChangedNodes.add(id);
+        }
+      }
+
+      // 2. Recalculate matrices in-place without spreading new nodes during traversal
+      const { rootId, nodes } = state;
+      if (rootId && nodes[rootId]) {
+        const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
+          const node = nodes[nodeId];
+          if (!node) return;
+
+          const isNowDirty = node.isDirty || parentWasDirty;
+          let currentWorldMatrix = parentWorldMatrix;
+
+          if (isNowDirty) {
+            const localMatrix = getTransformMatrix(
+              node.x, node.y, 
+              node.rotation, 
+              node.scaleX, node.scaleY,
+              node.skewX || 0, node.skewY || 0
+            );
+            currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
+
+            node.localMatrix = localMatrix;
+            node.worldMatrix = currentWorldMatrix;
+            node.isDirty = false;
+            
+            frameChangedNodes.add(nodeId);
+          } else {
+            currentWorldMatrix = node.worldMatrix;
+          }
+
+          for (const childId of node.children) {
+            traverse(childId, currentWorldMatrix, isNowDirty);
+          }
+        };
+
+        traverse(rootId, createMatrix(), false);
+      }
+
+      // 3. Perform a single dictionary spread to notify subscribers like the React UI
+      //    This ensures standard handles update, but minimizes memory allocations.
+      return {
+        nodes: { ...nodes },
+        changedNodes: frameChangedNodes
+      };
     });
   },
 
@@ -139,8 +228,13 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       }
 
       newNodes[id] = { ...node, parentId: newParentId, isDirty: true };
+      
+      const newChangedNodes = new Set(state.changedNodes);
+      newChangedNodes.add(id);
+      if (node.parentId) newChangedNodes.add(node.parentId);
+      if (newParentId) newChangedNodes.add(newParentId);
 
-      return { nodes: newNodes };
+      return { nodes: newNodes, changedNodes: newChangedNodes };
     });
   },
 
@@ -151,15 +245,23 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
 
       // O(1) dirty marking
       const newNodes = { ...state.nodes, [id]: { ...node, isDirty: true } };
+      
+      const newChangedNodes = new Set(state.changedNodes);
+      newChangedNodes.add(id);
 
-      return { nodes: newNodes };
+      return { nodes: newNodes, changedNodes: newChangedNodes };
     });
   },
 
-  recalculateMatrices: () => {
+  clearChangedNodes: () => {
+    set({ changedNodes: new Set() });
+  },
+
+  recalculateMatrices: (mutateInPlace = false) => {
     set((state) => {
-      const newNodes = { ...state.nodes };
+      const newNodes = mutateInPlace ? state.nodes : { ...state.nodes };
       const { rootId } = state;
+      const newChangedNodes = mutateInPlace ? state.changedNodes : new Set(state.changedNodes);
 
       if (!rootId || !newNodes[rootId]) return state;
 
@@ -179,12 +281,19 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
           );
           currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
 
-          newNodes[nodeId] = {
-            ...node,
-            localMatrix,
-            worldMatrix: currentWorldMatrix,
-            isDirty: false
-          };
+          if (mutateInPlace) {
+            node.localMatrix = localMatrix;
+            node.worldMatrix = currentWorldMatrix;
+            node.isDirty = false;
+          } else {
+            newNodes[nodeId] = {
+              ...node,
+              localMatrix,
+              worldMatrix: currentWorldMatrix,
+              isDirty: false
+            };
+          }
+          newChangedNodes.add(nodeId);
         } else {
             currentWorldMatrix = node.worldMatrix;
         }
@@ -196,7 +305,9 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
 
       traverse(rootId, createMatrix(), false);
 
-      return { nodes: newNodes };
+      return mutateInPlace 
+        ? { changedNodes: newChangedNodes } // already spread nodes in batchUpdateNodes, so we just return changedNodes
+        : { nodes: newNodes, changedNodes: newChangedNodes };
     });
   }
 }));
