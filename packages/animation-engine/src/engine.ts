@@ -1,7 +1,26 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { Ticker } from './ticker';
 
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
+
+const getNow = () => {
+  if (typeof performance !== 'undefined' && performance.now) return performance.now();
+  return Date.now();
+};
+
+const scheduleFrame = (cb: FrameRequestCallback) => {
+  if (typeof requestAnimationFrame !== 'undefined') return requestAnimationFrame(cb);
+  return setTimeout(() => cb(getNow()), 16) as any;
+};
+
+const cancelFrame = (id: any) => {
+  if (typeof cancelAnimationFrame !== 'undefined') {
+    cancelAnimationFrame(id);
+  } else {
+    clearTimeout(id);
+  }
+};
 
 export interface Keyframe {
   time: number; // in milliseconds
@@ -21,9 +40,10 @@ export class AnimationEngine {
   private playhead = 0;
   private isPlaying = false;
   private lastTime = 0;
-  private rafId: number | null = null;
+  private rafId: any = null;
   public loop = true;
   private duration = 5000; // ms
+  public ticker: Ticker;
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
@@ -34,6 +54,7 @@ export class AnimationEngine {
 
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
+    this.ticker = new Ticker(this.onTick.bind(this), 60, 'realtime');
   }
 
   public addTrack(track: Track) {
@@ -45,30 +66,37 @@ export class AnimationEngine {
   public play() {
     if (this.isPlaying) return;
     this.isPlaying = true;
-    this.lastTime = performance.now();
-    this.tick();
+    this.lastTime = getNow();
+    this.loopTick(this.lastTime);
   }
 
   public pause() {
     this.isPlaying = false;
     if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
+      cancelFrame(this.rafId);
       this.rafId = null;
     }
   }
 
   public seek(time: number) {
     this.playhead = time;
-    this.updateNodes();
+    this.updateNodes(false);
   }
 
-  private tick = () => {
+  private loopTick = (now: number) => {
     if (!this.isPlaying) return;
 
-    const now = performance.now();
     const dt = now - this.lastTime;
     this.lastTime = now;
 
+    this.ticker.update(dt);
+
+    if (this.isPlaying) {
+      this.rafId = scheduleFrame(this.loopTick);
+    }
+  }
+
+  private onTick(dt: number, deferSync: boolean) {
     this.playhead += dt;
 
     if (this.playhead > this.duration) {
@@ -80,11 +108,7 @@ export class AnimationEngine {
       }
     }
 
-    this.updateNodes();
-
-    if (this.isPlaying) {
-      this.rafId = requestAnimationFrame(this.tick);
-    }
+    this.updateNodes(deferSync);
   }
 
   private getEasingFunction(type: EasingType = 'linear') {
@@ -117,7 +141,7 @@ export class AnimationEngine {
     return [keyframes[high], keyframes[low]];
   }
 
-  private updateNodes() {
+  private updateNodes(deferSync: boolean = false) {
     const updates = new Map<string, any>();
 
     for (const track of this.tracks) {
@@ -138,6 +162,8 @@ export class AnimationEngine {
       }
       updates.get(track.nodeId)[track.property] = value;
     }
+
+    if (deferSync) return;
 
     const storeState = this.store.getState();
     let requiresMatrixUpdate = false;
