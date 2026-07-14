@@ -115,6 +115,15 @@ function App() {
         bridge.app.ticker.stop();
         // Hide viewport to skip render passes entirely if ticker is manually ticked
         bridge.viewport.container.visible = false;
+        
+        // Unsubscribe bridge to avoid syncNodes during math engine benchmark
+        if (bridge.unsubscribeStore) {
+            bridge.unsubscribeStore();
+        } else {
+            // we didn't save unsubscribe function in bridge...
+            // we can just mock syncNodes
+            (bridge as any).syncNodes = () => {};
+        }
       }
       
       // Expose a tick function for the test to continuously stress the math engine
