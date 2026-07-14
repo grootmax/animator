@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
-import { AnimationEngine } from '@monorepo/animation-engine';
+import { WorkerAnimationEngine } from './WorkerAnimationEngine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
@@ -11,7 +11,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 
 // Create singletons for the app
 const store = createSceneGraphStore();
-const engine = new AnimationEngine(store);
+const engine = new WorkerAnimationEngine(store) as any;
 
 // Extend Window interface for Electron IPC
 declare global {
