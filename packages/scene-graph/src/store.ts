@@ -45,6 +45,7 @@ export interface SceneGraphState {
   rootId: string | null;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  updateNodes: (updates: Record<string, Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
@@ -103,6 +104,24 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       // The recalculate step will propagate this to children automatically!
       const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
 
+      return { nodes: newNodes };
+    });
+  },
+
+  updateNodes: (updates) => {
+    set((state) => {
+      const newNodes = { ...state.nodes };
+      let changed = false;
+
+      for (const id in updates) {
+        const node = newNodes[id];
+        if (node) {
+          newNodes[id] = { ...node, ...updates[id], isDirty: true };
+          changed = true;
+        }
+      }
+
+      if (!changed) return state;
       return { nodes: newNodes };
     });
   },
