@@ -1,20 +1,32 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { Ticker } from './ticker';
+import { EasingType, Keyframe, Track } from './types';
 
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
+const getNow = () => {
+  if (typeof performance !== 'undefined' && performance.now) return performance.now();
+  return Date.now();
+};
 
-export interface Keyframe {
-  id: string;
-  time: number; // in milliseconds
-  value: number | string;
-  easing?: EasingType;
+const scheduleFrame = (cb: FrameRequestCallback) => {
+  if (typeof requestAnimationFrame !== 'undefined') return requestAnimationFrame(cb);
+  return setTimeout(() => cb(getNow()), 16) as any;
+};
+
+const cancelFrame = (id: any) => {
+  if (typeof cancelAnimationFrame !== 'undefined') {
+    cancelAnimationFrame(id);
+  } else {
+    clearTimeout(id);
+  }
+};
+
+export interface Heartbeat {
+  playhead: number;
+  isPlaying: boolean;
 }
 
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
-}
+export type NetworkRole = 'leader' | 'follower' | 'standalone';
 
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
@@ -100,10 +112,10 @@ export class AnimationEngine {
   private playhead = 0;
   private isPlaying = false;
   private lastTime = 0;
-  private drift = 0;
-  private rafId: number | null = null;
+  private rafId: any = null;
   public loop = true;
   private duration = 5000; // ms
+  public ticker: Ticker;
 
   public role: NetworkRole = 'standalone';
   public onHeartbeat?: (heartbeat: Heartbeat) => void;
@@ -120,6 +132,7 @@ export class AnimationEngine {
 
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
+    this.ticker = new Ticker(this.onTick.bind(this), 60, 'realtime');
   }
 
   public addTrack(track: Track) {
@@ -129,9 +142,8 @@ export class AnimationEngine {
   public play() {
     if (this.isPlaying) return;
     this.isPlaying = true;
-    this.lastTime = performance.now();
-    this.drift = 0;
-    this.tick();
+    this.lastTime = getNow();
+    this.loopTick(this.lastTime);
 
     if (this.role === 'leader') {
       this.broadcastHeartbeat();
@@ -142,7 +154,7 @@ export class AnimationEngine {
   public pause() {
     this.isPlaying = false;
     if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
+      cancelFrame(this.rafId);
       this.rafId = null;
     }
 
@@ -153,9 +165,8 @@ export class AnimationEngine {
   }
 
   public seek(time: number) {
-    this.drift = 0;
-    this.playhead = Math.round(time / 16.67) * 16.67;
-    this.updateNodes();
+    this.playhead = time;
+    this.updateNodes(false);
 
     if (this.role === 'leader') {
       this.broadcastHeartbeat();
@@ -216,18 +227,21 @@ export class AnimationEngine {
     }
   }
 
-  private tick = () => {
+  private loopTick = (now: number) => {
     if (!this.isPlaying) return;
 
-    const now = performance.now();
     const dt = now - this.lastTime;
     this.lastTime = now;
 
-    const exactDt = dt + this.drift;
-    const quantizedDt = Math.round(exactDt / 16.67) * 16.67;
-    this.drift = exactDt - quantizedDt;
+    this.ticker.update(dt);
 
-    this.playhead += quantizedDt;
+    if (this.isPlaying) {
+      this.rafId = scheduleFrame(this.loopTick);
+    }
+  }
+
+  private onTick(dt: number, deferSync: boolean) {
+    this.playhead += dt;
 
     if (this.playhead > this.duration) {
       if (this.loop) {
@@ -238,11 +252,7 @@ export class AnimationEngine {
       }
     }
 
-    this.updateNodes();
-
-    if (this.isPlaying) {
-      this.rafId = requestAnimationFrame(this.tick);
-    }
+    this.updateNodes(deferSync);
   }
 
   private getEasingFunction(type: EasingType = 'linear') {
@@ -275,12 +285,12 @@ export class AnimationEngine {
     return [keyframes[high], keyframes[low]];
   }
 
-  private updateNodes() {
+  private updateNodes(deferSync: boolean = false) {
     const updates = new Map<string, any>();
 
     for (const track of this.tracks) {
       const keyframesArray = Object.values(track.keyframes).sort((a, b) => {
-        if (a.time === b.time) return a.id.localeCompare(b.id);
+        if (a.time === b.time) return (a.id || '').localeCompare(b.id || '');
         return a.time - b.time;
       });
       const [start, end] = this.binarySearchKeyframes(keyframesArray, this.playhead);
@@ -301,15 +311,23 @@ export class AnimationEngine {
       updates.get(track.nodeId)[track.property] = value;
     }
 
+    if (deferSync) return;
+
     const storeState = this.store.getState();
     let requiresMatrixUpdate = false;
 
     if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
-      for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
+      if (typeof (storeState as any).updateNodesBatch === 'function') {
+        const batchUpdates: Record<string, any> = {};
+        for (const [nodeId, nodeUpdates] of updates.entries()) {
+          batchUpdates[nodeId] = nodeUpdates;
+        }
+        (storeState as any).updateNodesBatch(batchUpdates);
+      } else {
+        for (const [nodeId, nodeUpdates] of updates.entries()) {
+          storeState.updateNode(nodeId, nodeUpdates);
+        }
       }
-      storeState.updateNodesBatch(batchUpdates);
       requiresMatrixUpdate = true;
     }
 

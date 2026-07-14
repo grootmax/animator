@@ -11,5 +11,8 @@
     "@monorepo/math": "*",
     "@monorepo/scene-graph": "*",
     "@monorepo/serialization": "*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
   }
 }
