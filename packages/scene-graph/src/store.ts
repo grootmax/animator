@@ -38,19 +38,22 @@ export interface SceneNode {
   localMatrix: Matrix3;
   worldMatrix: Matrix3;
   isDirty: boolean;
+  appearanceDirty: boolean;
 }
 
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
-  addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
-  updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty' | 'appearanceDirty'>> & { id: string, type: NodeType }) => void;
+  updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty' | 'appearanceDirty'>>) => void;
+  updateNodes: (updates: Record<string, Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty' | 'appearanceDirty'>>>) => void;
+  clearDirtyFlags: (nodeIds: string[]) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
 }
 
-const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }): SceneNode => ({
+const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty' | 'appearanceDirty'>> & { id: string, type: NodeType }): SceneNode => ({
   parentId: null,
   children: [],
   name: node.id,
@@ -65,7 +68,8 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
   ...node,
   localMatrix: createMatrix(),
   worldMatrix: createMatrix(),
-  isDirty: true
+  isDirty: true,
+  appearanceDirty: true
 });
 
 export const createSceneGraphStore = () => createStore<SceneGraphState>((set, get) => ({
@@ -94,14 +98,65 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
     });
   },
 
+  updateNodes: (updates) => {
+    set((state) => {
+      const newNodes = { ...state.nodes };
+      let hasChanges = false;
+      const appearanceProps = ['opacity', 'visible', 'width', 'height', 'radius', 'pathData', 'fill', 'stroke', 'strokeWidth', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'points'];
+
+      for (const [id, nodeUpdates] of Object.entries(updates)) {
+        const node = newNodes[id];
+        if (node) {
+          let appearanceDirty = node.appearanceDirty;
+          let transformDirty = node.isDirty;
+          for (const key of Object.keys(nodeUpdates)) {
+            if (appearanceProps.includes(key)) {
+              appearanceDirty = true;
+            } else {
+              transformDirty = true;
+            }
+          }
+          newNodes[id] = { ...node, ...nodeUpdates, isDirty: transformDirty, appearanceDirty };
+          hasChanges = true;
+        }
+      }
+
+      return hasChanges ? { nodes: newNodes } : state;
+    });
+  },
+
+  clearDirtyFlags: (nodeIds) => {
+    set((state) => {
+      const newNodes = { ...state.nodes };
+      let changed = false;
+      for (const id of nodeIds) {
+        if (newNodes[id] && (newNodes[id].isDirty || newNodes[id].appearanceDirty)) {
+          newNodes[id] = { ...newNodes[id], isDirty: false, appearanceDirty: false };
+          changed = true;
+        }
+      }
+      return changed ? { nodes: newNodes } : state;
+    });
+  },
+
   updateNode: (id, updates) => {
     set((state) => {
       const node = state.nodes[id];
       if (!node) return state;
 
-      // O(1) dirty marking: just mark the current node.
-      // The recalculate step will propagate this to children automatically!
-      const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
+      const appearanceProps = ['opacity', 'visible', 'width', 'height', 'radius', 'pathData', 'fill', 'stroke', 'strokeWidth', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'points'];
+      let appearanceDirty = node.appearanceDirty;
+      let transformDirty = node.isDirty;
+
+      for (const key of Object.keys(updates)) {
+        if (appearanceProps.includes(key)) {
+          appearanceDirty = true;
+        } else {
+          transformDirty = true;
+        }
+      }
+
+      const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: transformDirty, appearanceDirty } };
 
       return { nodes: newNodes };
     });
@@ -182,8 +237,7 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
           newNodes[nodeId] = {
             ...node,
             localMatrix,
-            worldMatrix: currentWorldMatrix,
-            isDirty: false
+            worldMatrix: currentWorldMatrix
           };
         } else {
             currentWorldMatrix = node.worldMatrix;
