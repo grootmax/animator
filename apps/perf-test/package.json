@@ -1,0 +1,20 @@
+{
+  "name": "@monorepo/perf-test",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "serve": "vite preview --port 4173",
+    "test": "node runner.js"
+  },
+  "dependencies": {
+    "@monorepo/animation-engine": "*",
+    "@monorepo/renderer": "*",
+    "@monorepo/scene-graph": "*",
+    "@monorepo/runtime-player": "*"
+  },
+  "devDependencies": {
+    "vite": "^4.4.5",
+    "puppeteer": "^21.0.0"
+  }
+}

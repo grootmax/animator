@@ -44,7 +44,9 @@ export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
+  addNodes: (nodes: (Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType })[]) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  updateNodes: (updates: Record<string, Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
@@ -94,6 +96,37 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
     });
   },
 
+  addNodes: (nodesList) => {
+    set((state) => {
+      const newNodes = { ...state.nodes };
+      let newRootId = state.rootId;
+
+      for (const node of nodesList) {
+        const newNode = getDefaultNode(node);
+        newNodes[node.id] = newNode;
+
+        if (node.parentId) {
+          const parent = newNodes[node.parentId];
+          if (parent) {
+            newNodes[node.parentId] = {
+              ...parent,
+              children: [...parent.children, node.id]
+            };
+          }
+        }
+        
+        if (!newRootId && node.parentId === null) {
+          newRootId = node.id;
+        }
+      }
+
+      return {
+        nodes: newNodes,
+        rootId: newRootId
+      };
+    });
+  },
+
   updateNode: (id, updates) => {
     set((state) => {
       const node = state.nodes[id];
@@ -103,6 +136,24 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       // The recalculate step will propagate this to children automatically!
       const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
 
+      return { nodes: newNodes };
+    });
+  },
+
+  updateNodes: (updates) => {
+    set((state) => {
+      const newNodes = { ...state.nodes };
+      let changed = false;
+
+      for (const [id, nodeUpdates] of Object.entries(updates)) {
+        const node = newNodes[id];
+        if (node) {
+          newNodes[id] = { ...node, ...nodeUpdates, isDirty: true };
+          changed = true;
+        }
+      }
+
+      if (!changed) return state;
       return { nodes: newNodes };
     });
   },
