@@ -10,7 +10,7 @@ export class PixiBridge {
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -108,6 +108,9 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'image') {
+          pixiNode = new PIXI.Sprite();
+          (pixiNode as PIXI.Sprite).anchor.set(0.5);
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -170,6 +173,35 @@ export class PixiBridge {
 
         if (node.fill) {
             pixiNode.endFill();
+        }
+      } else if (pixiNode instanceof PIXI.Sprite && node.type === 'image') {
+        const sprite = pixiNode as PIXI.Sprite & { _loadedUri?: string };
+        if (node.uri && sprite._loadedUri !== node.uri) {
+            sprite._loadedUri = node.uri;
+            const texture = PIXI.Texture.from(node.uri);
+            sprite.texture = texture;
+            
+            // Handle loading errors gracefully to avoid crashing
+            texture.baseTexture.on('error', () => {
+                console.warn(`Failed to load texture from URI: ${node.uri}`);
+            });
+            
+            const updateSize = () => {
+                if (node.width !== undefined) sprite.width = node.width;
+                if (node.height !== undefined) sprite.height = node.height;
+            };
+            
+            if (texture.baseTexture.valid) {
+                updateSize();
+            } else {
+                texture.baseTexture.once('loaded', () => {
+                    updateSize();
+                });
+            }
+        } else if (sprite.texture && sprite.texture.baseTexture.valid) {
+            // Apply width/height updates if URI hasn't changed but dimensions did
+            if (node.width !== undefined) sprite.width = node.width;
+            if (node.height !== undefined) sprite.height = node.height;
         }
       }
 
