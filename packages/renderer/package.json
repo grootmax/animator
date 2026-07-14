@@ -5,7 +5,8 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -b",
-    "dev": "tsc -b -w"
+    "dev": "tsc -b -w",
+    "test": "vitest run --coverage --environment jsdom --passWithNoTests"
   },
   "dependencies": {
     "pixi.js": "^7.3.2",
