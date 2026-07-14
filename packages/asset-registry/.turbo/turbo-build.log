@@ -1,0 +1,4 @@
+
+> @monorepo/asset-registry@1.0.0 build
+> tsc -b
+

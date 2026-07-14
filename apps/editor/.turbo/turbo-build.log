@@ -4,33 +4,33 @@
 
 vite v4.5.14 building for production...
 transforming...
-(node:44013) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/apps/editor/postcss.config.js is not specified and it doesn't parse as CommonJS.
+(node:15216) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/apps/editor/postcss.config.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /app/apps/editor/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
-✓ 1880 modules transformed.
+✓ 1882 modules transformed.
 rendering chunks...
 computing gzip size...
 dist/index.html                   0.40 kB │ gzip:   0.28 kB
-dist/assets/index-781584d6.css   10.84 kB │ gzip:   2.79 kB
-dist/assets/index-2dedd75b.js   691.69 kB │ gzip: 210.61 kB
+dist/assets/index-7a9af9fd.css   11.80 kB │ gzip:   2.94 kB
+dist/assets/index-4e4a3d64.js   700.67 kB │ gzip: 213.20 kB
 
 (!) Some chunks are larger than 500 kBs after minification. Consider:
 - Using dynamic import() to code-split the application
 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
-✓ built in 2.60s
+✓ built in 6.51s
 vite v4.5.14 building for production...
 transforming...
 ✓ 1 modules transformed.
 rendering chunks...
 computing gzip size...
-dist-electron/main.js  1.30 kB │ gzip: 0.74 kB
-✓ built in 11ms
+dist-electron/main.js  3.06 kB │ gzip: 1.25 kB
+✓ built in 38ms
 vite v4.5.14 building for production...
 transforming...
 ✓ 1 modules transformed.
 rendering chunks...
 computing gzip size...
-dist-electron/preload.js  0.20 kB │ gzip: 0.15 kB
-✓ built in 8ms
+dist-electron/preload.js  0.87 kB │ gzip: 0.32 kB
+✓ built in 15ms
