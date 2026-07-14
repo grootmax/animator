@@ -9,6 +9,9 @@ export class Viewport {
 
   private grid: PIXI.Graphics;
 
+  private width: number = 800;
+  private height: number = 600;
+
   constructor(app: PIXI.Application) {
     this.app = app;
 
@@ -19,14 +22,17 @@ export class Viewport {
     this.container = new PIXI.Container();
     this.app.stage.addChild(this.container);
 
-    this.setupEvents();
     this.drawGrid();
   }
 
-  private drawGrid() {
+  public resize(width: number, height: number) {
+    this.width = width;
+    this.height = height;
+    this.drawGrid();
+  }
+
+  public drawGrid() {
     this.grid.clear();
-    const width = window.innerWidth;
-    const height = window.innerHeight;
 
     const gridSize = 50 * this.container.scale.x;
     const offsetX = this.container.x % gridSize;
@@ -34,34 +40,25 @@ export class Viewport {
 
     this.grid.lineStyle(1, 0x333333, 0.5);
 
-    for (let x = offsetX; x < width; x += gridSize) {
+    for (let x = offsetX; x < this.width; x += gridSize) {
       this.grid.moveTo(x, 0);
-      this.grid.lineTo(x, height);
+      this.grid.lineTo(x, this.height);
     }
 
-    for (let y = offsetY; y < height; y += gridSize) {
+    for (let y = offsetY; y < this.height; y += gridSize) {
       this.grid.moveTo(0, y);
-      this.grid.lineTo(width, y);
+      this.grid.lineTo(this.width, y);
     }
   }
 
-  private setupEvents() {
-    const canvas = this.app.view as HTMLCanvasElement;
-
-    canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
-    canvas.addEventListener('pointermove', this.onPointerMove.bind(this));
-    window.addEventListener('pointerup', this.onPointerUp.bind(this));
-    canvas.addEventListener('wheel', this.onWheel.bind(this), { passive: false });
-  }
-
-  private onPointerDown(e: PointerEvent) {
+  public handlePointerDown(e: { button: number, shiftKey: boolean, clientX: number, clientY: number }) {
     if (e.button === 1 || e.shiftKey) { // Middle click or shift+click for pan
       this.isDragging = true;
       this.lastPos = { x: e.clientX, y: e.clientY };
     }
   }
 
-  private onPointerMove(e: PointerEvent) {
+  public handlePointerMove(e: { clientX: number, clientY: number }) {
     if (!this.isDragging) return;
 
     const dx = e.clientX - this.lastPos.x;
@@ -74,13 +71,11 @@ export class Viewport {
     this.drawGrid();
   }
 
-  private onPointerUp() {
+  public handlePointerUp() {
     this.isDragging = false;
   }
 
-  private onWheel(e: WheelEvent) {
-    e.preventDefault();
-
+  public handleWheel(e: { deltaY: number, clientX: number, clientY: number }) {
     const zoomFactor = 1 - e.deltaY * 0.001;
     const localPos = this.container.toLocal(new PIXI.Point(e.clientX, e.clientY));
 
