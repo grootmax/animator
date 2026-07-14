@@ -21,6 +21,7 @@ export class AnimationEngine {
   private playhead = 0;
   private isPlaying = false;
   private lastTime = 0;
+  private drift = 0;
   private rafId: number | null = null;
   public loop = true;
   private duration = 5000; // ms
@@ -46,6 +47,7 @@ export class AnimationEngine {
     if (this.isPlaying) return;
     this.isPlaying = true;
     this.lastTime = performance.now();
+    this.drift = 0;
     this.tick();
   }
 
@@ -58,7 +60,8 @@ export class AnimationEngine {
   }
 
   public seek(time: number) {
-    this.playhead = time;
+    this.drift = 0;
+    this.playhead = Math.round(time / 16.67) * 16.67;
     this.updateNodes();
   }
 
@@ -69,7 +72,11 @@ export class AnimationEngine {
     const dt = now - this.lastTime;
     this.lastTime = now;
 
-    this.playhead += dt;
+    const exactDt = dt + this.drift;
+    const quantizedDt = Math.round(exactDt / 16.67) * 16.67;
+    this.drift = exactDt - quantizedDt;
+
+    this.playhead += quantizedDt;
 
     if (this.playhead > this.duration) {
       if (this.loop) {
