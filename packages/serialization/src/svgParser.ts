@@ -39,45 +39,47 @@ export class SvgParser {
       if (type === 'matrix' && args.length === 6) {
         // [a, b, c, d, e, f] to Matrix3
         const [a, b, c, d, e, f] = args;
-        const localMatrix: Matrix3 = [
+        const localMatrix = new Float32Array([
           a, b, 0,
           c, d, 0,
           e, f, 1
-        ];
-        matrix = multiplyMatrix(matrix, localMatrix);
+        ]);
+        multiplyMatrix(matrix, matrix, localMatrix);
       } else if (type === 'translate' && args.length >= 1) {
         const tx = args[0];
         const ty = args.length > 1 ? args[1] : 0;
-        const translateMatrix: Matrix3 = [
+        const translateMatrix = new Float32Array([
           1, 0, 0,
           0, 1, 0,
           tx, ty, 1
-        ];
-        matrix = multiplyMatrix(matrix, translateMatrix);
+        ]);
+        multiplyMatrix(matrix, matrix, translateMatrix);
       } else if (type === 'scale' && args.length >= 1) {
         const sx = args[0];
         const sy = args.length > 1 ? args[1] : sx;
-        const scaleMatrix: Matrix3 = [
+        const scaleMatrix = new Float32Array([
           sx, 0, 0,
           0, sy, 0,
           0, 0, 1
-        ];
-        matrix = multiplyMatrix(matrix, scaleMatrix);
+        ]);
+        multiplyMatrix(matrix, matrix, scaleMatrix);
       } else if (type === 'rotate' && args.length >= 1) {
         const angle = args[0] * Math.PI / 180;
         const cx = args.length === 3 ? args[1] : 0;
         const cy = args.length === 3 ? args[2] : 0;
-        let rotateMatrix: Matrix3 = [
+        let rotateMatrix = new Float32Array([
           Math.cos(angle), Math.sin(angle), 0,
           -Math.sin(angle), Math.cos(angle), 0,
           0, 0, 1
-        ];
+        ]);
         if (cx !== 0 || cy !== 0) {
-          const tToCenter: Matrix3 = [1, 0, 0, 0, 1, 0, cx, cy, 1];
-          const tBack: Matrix3 = [1, 0, 0, 0, 1, 0, -cx, -cy, 1];
-          rotateMatrix = multiplyMatrix(tToCenter, multiplyMatrix(rotateMatrix, tBack));
+          const tToCenter = new Float32Array([1, 0, 0, 0, 1, 0, cx, cy, 1]);
+          const tBack = new Float32Array([1, 0, 0, 0, 1, 0, -cx, -cy, 1]);
+          const temp = createMatrix();
+          multiplyMatrix(temp, tToCenter, rotateMatrix);
+          multiplyMatrix(rotateMatrix, temp, tBack);
         }
-        matrix = multiplyMatrix(matrix, rotateMatrix);
+        multiplyMatrix(matrix, matrix, rotateMatrix);
       }
     }
 
@@ -134,13 +136,14 @@ export class SvgParser {
       yAttr = parseFloat(element.getAttribute('cy') || '0');
     }
 
-    const baseMatrix: Matrix3 = [
+    const baseMatrix = new Float32Array([
       1, 0, 0,
       0, 1, 0,
       xAttr, yAttr, 1
-    ];
+    ]);
 
-    const combinedMatrix = multiplyMatrix(localTransformMatrix, baseMatrix);
+    const combinedMatrix = createMatrix();
+    multiplyMatrix(combinedMatrix, localTransformMatrix, baseMatrix);
     const { x, y, scaleX, scaleY, rotation, skewX, skewY } = this.extractTransformProperties(combinedMatrix);
 
     const opacityStr = element.getAttribute('opacity');

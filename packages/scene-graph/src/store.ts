@@ -1,5 +1,5 @@
 import { createStore } from 'zustand/vanilla';
-import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
+import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix, identityMatrix } from '@monorepo/math';
 
 export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline';
 
@@ -43,8 +43,10 @@ export interface SceneNode {
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
+  lastUpdate: number;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  updateNodeInPlace: (id: string, key: string, value: number) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
@@ -68,9 +70,38 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
   isDirty: true
 });
 
+const TEMP_ROOT_MATRIX = createMatrix();
+
+const traverseNodes = (nodes: Record<string, SceneNode>, nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
+  const node = nodes[nodeId];
+  if (!node) return;
+
+  const isNowDirty = node.isDirty || parentWasDirty;
+  let currentWorldMatrix = parentWorldMatrix;
+
+  if (isNowDirty) {
+    getTransformMatrix(
+      node.localMatrix,
+      node.x, node.y, 
+      node.rotation, 
+      node.scaleX, node.scaleY,
+      node.skewX || 0, node.skewY || 0
+    );
+    multiplyMatrix(node.worldMatrix, parentWorldMatrix, node.localMatrix);
+    currentWorldMatrix = node.worldMatrix;
+  } else {
+    currentWorldMatrix = node.worldMatrix;
+  }
+
+  for (let i = 0; i < node.children.length; i++) {
+    traverseNodes(nodes, node.children[i], currentWorldMatrix, isNowDirty);
+  }
+};
+
 export const createSceneGraphStore = () => createStore<SceneGraphState>((set, get) => ({
   nodes: {},
   rootId: null,
+  lastUpdate: 0,
 
   addNode: (node) => {
     set((state) => {
@@ -99,12 +130,19 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       const node = state.nodes[id];
       if (!node) return state;
 
-      // O(1) dirty marking: just mark the current node.
-      // The recalculate step will propagate this to children automatically!
-      const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
+      // In-place mutation for normal updates as well to stay consistent
+      Object.assign(node, updates);
+      node.isDirty = true;
 
-      return { nodes: newNodes };
+      return { lastUpdate: performance.now() };
     });
+  },
+
+  updateNodeInPlace: (id, key, value) => {
+    const node = get().nodes[id];
+    if (!node) return;
+    (node as any)[key] = value;
+    node.isDirty = true;
   },
 
   reorderNode: (id, newParentId, index) => {
@@ -114,20 +152,14 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
 
       const newNodes = { ...state.nodes };
 
-      // Remove from old parent
       if (node.parentId && newNodes[node.parentId]) {
         const parent = newNodes[node.parentId];
         newNodes[node.parentId] = {
           ...parent,
           children: parent.children.filter(childId => childId !== id)
         };
-      } else if (!node.parentId && id !== state.rootId) {
-          // It was a root child, handle root node if we support multiple roots.
-          // In our setup rootId is one node. Wait, rootId might be a single node.
-          // We can assume scene has a main root container.
       }
 
-      // Add to new parent
       if (newParentId && newNodes[newParentId]) {
         const newParent = newNodes[newParentId];
         const newChildren = [...newParent.children];
@@ -138,65 +170,29 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
         };
       }
 
-      newNodes[id] = { ...node, parentId: newParentId, isDirty: true };
+      node.parentId = newParentId;
+      node.isDirty = true;
 
-      return { nodes: newNodes };
+      return { nodes: newNodes, lastUpdate: performance.now() };
     });
   },
 
   markDirty: (id) => {
-    set((state) => {
-      const node = state.nodes[id];
-      if (!node) return state;
-
-      // O(1) dirty marking
-      const newNodes = { ...state.nodes, [id]: { ...node, isDirty: true } };
-
-      return { nodes: newNodes };
-    });
+    const node = get().nodes[id];
+    if (!node) return;
+    node.isDirty = true;
+    set({ lastUpdate: performance.now() });
   },
 
   recalculateMatrices: () => {
-    set((state) => {
-      const newNodes = { ...state.nodes };
-      const { rootId } = state;
+    const state = get();
+    const { nodes, rootId } = state;
 
-      if (!rootId || !newNodes[rootId]) return state;
+    if (!rootId || !nodes[rootId]) return;
 
-      const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
-        const node = newNodes[nodeId];
-        if (!node) return;
+    identityMatrix(TEMP_ROOT_MATRIX);
+    traverseNodes(nodes, rootId, TEMP_ROOT_MATRIX, false);
 
-        const isNowDirty = node.isDirty || parentWasDirty;
-        let currentWorldMatrix = parentWorldMatrix;
-
-        if (isNowDirty) {
-          const localMatrix = getTransformMatrix(
-            node.x, node.y, 
-            node.rotation, 
-            node.scaleX, node.scaleY,
-            node.skewX || 0, node.skewY || 0
-          );
-          currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
-
-          newNodes[nodeId] = {
-            ...node,
-            localMatrix,
-            worldMatrix: currentWorldMatrix,
-            isDirty: false
-          };
-        } else {
-            currentWorldMatrix = node.worldMatrix;
-        }
-
-        for (const childId of node.children) {
-          traverse(childId, currentWorldMatrix, isNowDirty);
-        }
-      };
-
-      traverse(rootId, createMatrix(), false);
-
-      return { nodes: newNodes };
-    });
+    set({ lastUpdate: performance.now() });
   }
 }));

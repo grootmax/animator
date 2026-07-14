@@ -104,8 +104,10 @@ export class PixiBridge {
   private syncNodes(nodes: Record<string, SceneNode>) {
     for (const [id, node] of Object.entries(nodes)) {
       let pixiNode = this.pixiNodes.get(id);
+      let created = false;
 
       if (!pixiNode) {
+        created = true;
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
         } else {
@@ -130,50 +132,53 @@ export class PixiBridge {
         }
       }
 
-      // Update visibility and opacity
-      pixiNode.visible = node.visible !== false;
-      pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
+      if (created || node.isDirty) {
+        // Update visibility and opacity
+        pixiNode.visible = node.visible !== false;
+        pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
-      if (pixiNode instanceof PIXI.Graphics) {
-        pixiNode.clear();
+        if (pixiNode instanceof PIXI.Graphics) {
+          pixiNode.clear();
 
-        if (node.fill) {
-            const fill = parseInt(node.fill.replace('#', '0x'));
-            pixiNode.beginFill(fill);
-        }
-        if (node.stroke) {
-            const stroke = parseInt(node.stroke.replace('#', '0x'));
-            const strokeWidth = node.strokeWidth !== undefined ? node.strokeWidth : 2;
-            pixiNode.lineStyle(strokeWidth, stroke);
-        }
-
-        if (node.type === 'rect' && node.width && node.height) {
-          pixiNode.drawRect(-node.width/2, -node.height/2, node.width, node.height);
-        } else if (node.type === 'circle' && node.radius) {
-          pixiNode.drawCircle(0, 0, node.radius);
-        } else if (node.type === 'ellipse' && node.rx && node.ry) {
-          pixiNode.drawEllipse(0, 0, node.rx, node.ry);
-        } else if (node.type === 'line') {
-          pixiNode.moveTo(node.x1 || 0, node.y1 || 0);
-          pixiNode.lineTo(node.x2 || 0, node.y2 || 0);
-        } else if (node.type === 'polyline' && node.points) {
-          const pts = node.points.trim().split(/[\s,]+/).map(parseFloat);
-          if (pts.length >= 2) {
-            pixiNode.moveTo(pts[0], pts[1]);
-            for (let i = 2; i < pts.length; i += 2) {
-                pixiNode.lineTo(pts[i], pts[i+1]);
-            }
+          if (node.fill) {
+              const fill = parseInt(node.fill.replace('#', '0x'));
+              pixiNode.beginFill(fill);
           }
-        } else if (node.type === 'path' && node.pathData) {
-          this.drawPath(pixiNode, node.pathData);
+          if (node.stroke) {
+              const stroke = parseInt(node.stroke.replace('#', '0x'));
+              const strokeWidth = node.strokeWidth !== undefined ? node.strokeWidth : 2;
+              pixiNode.lineStyle(strokeWidth, stroke);
+          }
+
+          if (node.type === 'rect' && node.width && node.height) {
+            pixiNode.drawRect(-node.width/2, -node.height/2, node.width, node.height);
+          } else if (node.type === 'circle' && node.radius) {
+            pixiNode.drawCircle(0, 0, node.radius);
+          } else if (node.type === 'ellipse' && node.rx && node.ry) {
+            pixiNode.drawEllipse(0, 0, node.rx, node.ry);
+          } else if (node.type === 'line') {
+            pixiNode.moveTo(node.x1 || 0, node.y1 || 0);
+            pixiNode.lineTo(node.x2 || 0, node.y2 || 0);
+          } else if (node.type === 'polyline' && node.points) {
+            const pts = node.points.trim().split(/[\s,]+/).map(parseFloat);
+            if (pts.length >= 2) {
+              pixiNode.moveTo(pts[0], pts[1]);
+              for (let i = 2; i < pts.length; i += 2) {
+                  pixiNode.lineTo(pts[i], pts[i+1]);
+              }
+            }
+          } else if (node.type === 'path' && node.pathData) {
+            this.drawPath(pixiNode, node.pathData);
+          }
+
+          if (node.fill) {
+              pixiNode.endFill();
+          }
         }
 
-        if (node.fill) {
-            pixiNode.endFill();
-        }
+        this.applyMatrix(pixiNode, node.localMatrix);
+        node.isDirty = false;
       }
-
-      this.applyMatrix(pixiNode, node.localMatrix);
     }
   }
 }

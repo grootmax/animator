@@ -15,6 +15,32 @@ export interface Track {
   keyframes: Keyframe[];
 }
 
+class UpdatePacket {
+  nodeId: string = '';
+  property: string = '';
+  value: number = 0;
+}
+
+class ObjectPool<T> {
+  private pool: T[] = [];
+  private createFn: () => T;
+
+  constructor(createFn: () => T, initialSize: number = 0) {
+    this.createFn = createFn;
+    for (let i = 0; i < initialSize; i++) {
+      this.pool.push(this.createFn());
+    }
+  }
+
+  get(): T {
+    return this.pool.length > 0 ? this.pool.pop()! : this.createFn();
+  }
+
+  release(obj: T) {
+    this.pool.push(obj);
+  }
+}
+
 export class AnimationEngine {
   private store: ReturnType<typeof createSceneGraphStore>;
   private tracks: Track[] = [];
@@ -24,6 +50,10 @@ export class AnimationEngine {
   private rafId: number | null = null;
   public loop = true;
   private duration = 5000; // ms
+
+  private updatePacketPool = new ObjectPool<UpdatePacket>(() => new UpdatePacket(), 100);
+  private activePackets: UpdatePacket[] = [];
+  private tempSearchRange: [Keyframe | null, Keyframe | null] = [null, null];
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
@@ -97,16 +127,32 @@ export class AnimationEngine {
   }
 
   private binarySearchKeyframes(keyframes: Keyframe[], time: number): [Keyframe | null, Keyframe | null] {
-    if (keyframes.length === 0) return [null, null];
-    if (time <= keyframes[0].time) return [keyframes[0], keyframes[0]];
-    if (time >= keyframes[keyframes.length - 1].time) return [keyframes[keyframes.length - 1], keyframes[keyframes.length - 1]];
+    if (keyframes.length === 0) {
+      this.tempSearchRange[0] = null;
+      this.tempSearchRange[1] = null;
+      return this.tempSearchRange;
+    }
+    if (time <= keyframes[0].time) {
+      this.tempSearchRange[0] = keyframes[0];
+      this.tempSearchRange[1] = keyframes[0];
+      return this.tempSearchRange;
+    }
+    if (time >= keyframes[keyframes.length - 1].time) {
+      this.tempSearchRange[0] = keyframes[keyframes.length - 1];
+      this.tempSearchRange[1] = keyframes[keyframes.length - 1];
+      return this.tempSearchRange;
+    }
 
     let low = 0;
     let high = keyframes.length - 1;
 
     while (low <= high) {
       const mid = Math.floor((low + high) / 2);
-      if (keyframes[mid].time === time) return [keyframes[mid], keyframes[mid]];
+      if (keyframes[mid].time === time) {
+        this.tempSearchRange[0] = keyframes[mid];
+        this.tempSearchRange[1] = keyframes[mid];
+        return this.tempSearchRange;
+      }
       if (keyframes[mid].time < time) {
         low = mid + 1;
       } else {
@@ -114,14 +160,19 @@ export class AnimationEngine {
       }
     }
 
-    return [keyframes[high], keyframes[low]];
+    this.tempSearchRange[0] = keyframes[high];
+    this.tempSearchRange[1] = keyframes[low];
+    return this.tempSearchRange;
   }
 
   private updateNodes() {
-    const updates = new Map<string, any>();
+    this.activePackets.length = 0;
 
-    for (const track of this.tracks) {
-      const [start, end] = this.binarySearchKeyframes(track.keyframes, this.playhead);
+    for (let i = 0; i < this.tracks.length; i++) {
+      const track = this.tracks[i];
+      const range = this.binarySearchKeyframes(track.keyframes, this.playhead);
+      const start = range[0];
+      const end = range[1];
 
       if (!start || !end) continue;
 
@@ -133,17 +184,20 @@ export class AnimationEngine {
         value = start.value + (end.value - start.value) * easedProgress;
       }
 
-      if (!updates.has(track.nodeId)) {
-        updates.set(track.nodeId, {});
-      }
-      updates.get(track.nodeId)[track.property] = value;
+      const packet = this.updatePacketPool.get();
+      packet.nodeId = track.nodeId;
+      packet.property = track.property;
+      packet.value = value;
+      this.activePackets.push(packet);
     }
 
     const storeState = this.store.getState();
     let requiresMatrixUpdate = false;
 
-    for (const [nodeId, nodeUpdates] of updates.entries()) {
-      storeState.updateNode(nodeId, nodeUpdates);
+    for (let i = 0; i < this.activePackets.length; i++) {
+      const packet = this.activePackets[i];
+      storeState.updateNodeInPlace(packet.nodeId, packet.property, packet.value);
+      this.updatePacketPool.release(packet);
       requiresMatrixUpdate = true;
     }
 
