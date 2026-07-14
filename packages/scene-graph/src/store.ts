@@ -1,7 +1,8 @@
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
+import { Asset } from './assets';
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline';
+export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | string;
 
 export interface SceneNode {
   id: string;
@@ -33,6 +34,7 @@ export interface SceneNode {
   x2?: number;
   y2?: number;
   points?: string;
+  assetId?: string;
 
   // Internal state
   localMatrix: Matrix3;
@@ -42,12 +44,15 @@ export interface SceneNode {
 
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
+  assets: Record<string, Asset>;
   rootId: string | null;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
+  addAsset: (asset: Asset) => void;
+  updateAsset: (id: string, updates: Partial<Asset>) => void;
 }
 
 const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }): SceneNode => ({
@@ -70,7 +75,22 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
 
 export const createSceneGraphStore = () => createStore<SceneGraphState>((set, get) => ({
   nodes: {},
+  assets: {},
   rootId: null,
+
+  addAsset: (asset) => {
+    set((state) => ({
+      assets: { ...state.assets, [asset.id]: asset }
+    }));
+  },
+
+  updateAsset: (id, updates) => {
+    set((state) => {
+      const asset = state.assets[id];
+      if (!asset) return state;
+      return { assets: { ...state.assets, [id]: { ...asset, ...updates } } };
+    });
+  },
 
   addNode: (node) => {
     set((state) => {
