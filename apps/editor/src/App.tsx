@@ -72,26 +72,38 @@ function App() {
     if (window.electronAPI) {
       const state = store.getState().nodes;
 
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
-      }
+      const worker = new Worker(
+        new URL('./workers/serialization.worker.ts', import.meta.url),
+        { type: 'module' }
+      );
 
-      const exportData = {
-        scene: cleanScene,
+      worker.onmessage = async (e) => {
+        const { success, data, error } = e.data;
+        if (success) {
+          try {
+            await window.electronAPI!.saveFile(data);
+          } catch (err) {
+            console.error("Failed to save file", err);
+          }
+        } else {
+          alert(`Serialization failed: ${error}`);
+        }
+        worker.terminate();
+      };
+
+      worker.onerror = (err) => {
+        alert(`Worker error: ${err.message}`);
+        worker.terminate();
+      };
+
+      worker.postMessage({
+        nodes: state,
         animations: engine.getTracks(),
         metadata: {
           version: "1.0.0",
           duration: engine.getDuration()
         }
-      };
-
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      });
     } else {
       alert("Electron API not available");
     }
