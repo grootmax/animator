@@ -99,9 +99,13 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       const node = state.nodes[id];
       if (!node) return state;
 
-      // O(1) dirty marking: just mark the current node.
+      const SPATIAL_PROPERTIES = ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'skewX', 'skewY'];
+      const hasSpatialUpdate = Object.keys(updates).some(key => SPATIAL_PROPERTIES.includes(key));
+
+      // O(1) dirty marking: just mark the current node if spatial properties changed.
       // The recalculate step will propagate this to children automatically!
-      const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
+      const isDirty = node.isDirty || hasSpatialUpdate;
+      const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty } };
 
       return { nodes: newNodes };
     });
