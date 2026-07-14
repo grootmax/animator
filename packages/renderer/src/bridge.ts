@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
+import { SceneNode, createSceneGraphStore, createAssetRegistryStore } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
@@ -10,9 +10,11 @@ export class PixiBridge {
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private assetRegistry: ReturnType<typeof createAssetRegistryStore>;
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
+  private assetTextures: Map<string, PIXI.Texture> = new Map();
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>, assetRegistry: ReturnType<typeof createAssetRegistryStore>) {
     this.app = new PIXI.Application({
       view: canvas,
       resizeTo: window,
@@ -30,6 +32,7 @@ export class PixiBridge {
     this.viewport.container.addChild(this.handles.container);
 
     this.store = store;
+    this.assetRegistry = assetRegistry;
 
     this.viewport.container.interactive = true;
     this.viewport.container.on('pointerdown', (e) => {
@@ -41,6 +44,11 @@ export class PixiBridge {
     this.store.subscribe((state) => {
       this.syncNodes(state.nodes);
       this.handles.update();
+    });
+
+    this.assetRegistry.subscribe((state) => {
+      // Retrigger sync when assets update
+      this.syncNodes(this.store.getState().nodes);
     });
 
     this.app.ticker.add(() => {
@@ -108,6 +116,9 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'image' || node.type === 'video') {
+          pixiNode = new PIXI.Sprite();
+          (pixiNode as PIXI.Sprite).anchor.set(0.5); // Center anchor for easy rotation/scaling
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -170,6 +181,51 @@ export class PixiBridge {
 
         if (node.fill) {
             pixiNode.endFill();
+        }
+      } else if (pixiNode instanceof PIXI.Sprite) {
+        if (node.assetId) {
+          const asset = this.assetRegistry.getState().getAsset(node.assetId);
+          if (asset) {
+            if (asset.status === 'loading') {
+              // Create a placeholder texture if not already created
+              if (!this.assetTextures.has('placeholder')) {
+                const graphics = new PIXI.Graphics();
+                graphics.beginFill(0x888888);
+                graphics.drawRect(0, 0, 100, 100);
+                graphics.endFill();
+                this.assetTextures.set('placeholder', this.app.renderer.generateTexture(graphics));
+              }
+              pixiNode.texture = this.assetTextures.get('placeholder')!;
+              
+              if (node.width && node.height) {
+                pixiNode.width = node.width;
+                pixiNode.height = node.height;
+              }
+            } else if (asset.status === 'ready' && asset.url) {
+              if (!this.assetTextures.has(asset.url)) {
+                // Determine if video or image
+                if (asset.type === 'video') {
+                  const texture = PIXI.Texture.from(asset.url);
+                  const baseTex = texture.baseTexture.resource as PIXI.VideoResource;
+                  if (baseTex.source) {
+                    (baseTex.source as HTMLVideoElement).loop = true;
+                    (baseTex.source as HTMLVideoElement).muted = true;
+                    (baseTex.source as HTMLVideoElement).play();
+                  }
+                  this.assetTextures.set(asset.url, texture);
+                } else {
+                  this.assetTextures.set(asset.url, PIXI.Texture.from(asset.url));
+                }
+              }
+              pixiNode.texture = this.assetTextures.get(asset.url)!;
+              
+              // Set sprite dimensions if specified, else use natural texture size
+              if (node.width && node.height) {
+                pixiNode.width = node.width;
+                pixiNode.height = node.height;
+              }
+            }
+          }
         }
       }
 
