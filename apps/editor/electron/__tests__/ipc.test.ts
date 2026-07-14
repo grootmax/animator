@@ -103,7 +103,7 @@ describe('IPC Integrity Suite', () => {
     let openResult = await openFileHandler();
     expect(dialog.showOpenDialog).toHaveBeenCalledWith(expect.objectContaining({
       properties: ['openFile'],
-      filters: [{ name: 'SVG files', extensions: ['svg'] }]
+      filters: expect.arrayContaining([{ name: 'SVG files', extensions: ['svg'] }])
     }));
     expect(fs.promises.readFile).toHaveBeenCalledWith('/test/path.svg', 'utf-8');
     expect(openResult).toBe('<svg></svg>');
@@ -117,16 +117,16 @@ describe('IPC Integrity Suite', () => {
     (dialog.showSaveDialog as any).mockResolvedValue({ canceled: false, filePath: '/test/path.json' });
     (fs.promises.writeFile as any).mockResolvedValue(undefined);
 
-    let saveResult = await saveFileHandler(null, '{"test":true}');
+    let saveResult = await saveFileHandler(null, '{"test":true}', { forceDialog: true });
     expect(dialog.showSaveDialog).toHaveBeenCalledWith(expect.objectContaining({
-      filters: [{ name: 'JSON files', extensions: ['json'] }]
+      filters: expect.arrayContaining([{ name: 'JSON files', extensions: ['json'] }])
     }));
     expect(fs.promises.writeFile).toHaveBeenCalledWith('/test/path.json', '{"test":true}', 'utf-8');
     expect(saveResult).toBe(true);
 
     // Test dialog:saveFile - Canceled
     (dialog.showSaveDialog as any).mockResolvedValue({ canceled: true, filePath: undefined });
-    saveResult = await saveFileHandler(null, '{"test":false}');
+    saveResult = await saveFileHandler(null, '{"test":false}', { forceDialog: true });
     expect(saveResult).toBe(false);
   });
 });
