@@ -1,5 +1,6 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { telemetry } from '@monorepo/telemetry';
 
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
 
@@ -65,6 +66,9 @@ export class AnimationEngine {
   private tick = () => {
     if (!this.isPlaying) return;
 
+    telemetry.begin('total');
+    telemetry.begin('animation');
+
     const now = performance.now();
     const dt = now - this.lastTime;
     this.lastTime = now;
@@ -81,6 +85,16 @@ export class AnimationEngine {
     }
 
     this.updateNodes();
+
+    telemetry.end('animation');
+
+    // total ends here or in renderer?
+    // Actually, renderer hooks into app.ticker which fires requestAnimationFrame independently!
+    // But since this is a different RAF loop, total frame time might need to be measured separately.
+    // However, if we just want "animation" time here:
+    telemetry.end('total'); // We can also define frame duration in a separate place for accurate measuring, e.g., HUD.
+
+    telemetry.notify(); // Or we can notify in the telemetry itself, but maybe in a specific place. Let's not do notify here if we notify in renderer.
 
     if (this.isPlaying) {
       this.rafId = requestAnimationFrame(this.tick);

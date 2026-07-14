@@ -4,6 +4,7 @@ import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
 import { tokenizePath } from '@monorepo/serialization';
+import { telemetry } from '@monorepo/telemetry';
 
 export class PixiBridge {
   private app: PIXI.Application;
@@ -39,12 +40,17 @@ export class PixiBridge {
     });
 
     this.store.subscribe((state) => {
+      telemetry.begin('rendering');
       this.syncNodes(state.nodes);
       this.handles.update();
+      telemetry.end('rendering');
+      // Force notify from here if we want? Actually, telemetry might just accumulate and we notify per frame in HUD.
     });
 
     this.app.ticker.add(() => {
+        telemetry.begin('rendering');
         this.handles.update();
+        telemetry.end('rendering');
     });
   }
 

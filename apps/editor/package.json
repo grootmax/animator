@@ -27,6 +27,7 @@
     }
   },
   "dependencies": {
+    "@monorepo/telemetry": "*",
     "@monorepo/animation-engine": "*",
     "@monorepo/renderer": "*",
     "@monorepo/scene-graph": "*",

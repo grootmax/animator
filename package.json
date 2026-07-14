@@ -10,9 +10,12 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "test": "turbo run test",
+    "test:perf": "playwright test",
     "package": "turbo run package"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "serve": "^14.2.6",
     "turbo": "^1.10.0",
     "typescript": "^5.0.0"
   }
