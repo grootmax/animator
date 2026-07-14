@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
-import { AnimationEngine } from '@monorepo/animation-engine';
+import { WorkerEngineProxy } from './workers/WorkerEngineProxy';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
@@ -21,7 +21,7 @@ channel.onmessage = (event) => {
     (store as any).applyRemote(event.data);
   }
 };
-const engine = new AnimationEngine(store);
+const engine = new WorkerEngineProxy(store);
 
 // Extend Window interface for Electron IPC
 declare global {
