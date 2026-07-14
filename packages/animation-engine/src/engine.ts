@@ -304,16 +304,14 @@ export class AnimationEngine {
     const storeState = this.store.getState();
     let requiresMatrixUpdate = false;
 
-    if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
-      for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
-      }
-      storeState.updateNodesBatch(batchUpdates);
+    const updatesObj: Record<string, any> = {};
+    for (const [nodeId, nodeUpdates] of updates.entries()) {
+      updatesObj[nodeId] = nodeUpdates;
       requiresMatrixUpdate = true;
     }
 
     if (requiresMatrixUpdate) {
+      storeState.updateNodes(updatesObj);
       storeState.recalculateMatrices();
     }
   }

@@ -11,12 +11,14 @@
     "dev": "turbo run dev",
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",
+    "test:bench": "vitest bench --run --outputJson=bench-results.json",
     "package": "turbo run package"
   },
   "devDependencies": {
     "electron": "^25.3.0",
     "turbo": "^1.10.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.10"
   },
   "packageManager": "npm@9.8.1"
 }
