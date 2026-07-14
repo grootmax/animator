@@ -19,6 +19,9 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
+      startSave: () => Promise<string | null>;
+      writeChunk: (saveId: string, chunk: string) => Promise<boolean>;
+      endSave: (saveId: string, success: boolean) => Promise<boolean>;
     }
   }
 }
@@ -28,6 +31,10 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [saveProgress, setSaveProgress] = useState(0);
+  const [saveErrorMessage, setSaveErrorMessage] = useState('');
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -69,29 +76,53 @@ function App() {
   };
 
   const handleSaveState = async () => {
-    if (window.electronAPI) {
-      const state = store.getState().nodes;
+    if (saveStatus === 'saving') return;
+    if (window.electronAPI && window.electronAPI.startSave) {
+      const saveId = await window.electronAPI.startSave();
+      if (!saveId) return;
 
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
-      }
+      setSaveStatus('saving');
+      setSaveProgress(0);
+      setSaveErrorMessage('');
 
-      const exportData = {
-        scene: cleanScene,
-        animations: engine.getTracks(),
-        metadata: {
-          version: "1.0.0",
-          duration: engine.getDuration()
+      const worker = new Worker(new URL('./workers/save.worker.ts', import.meta.url), { type: 'module' });
+      
+      worker.onmessage = async (e) => {
+        const { type, chunk, progress, error } = e.data;
+        if (type === 'chunk') {
+          setSaveProgress(progress);
+          const success = await window.electronAPI!.writeChunk(saveId, chunk);
+          if (!success) {
+            worker.terminate();
+            await window.electronAPI!.endSave(saveId, false);
+            setSaveStatus('error');
+            setSaveErrorMessage('Failed to write chunk to disk');
+          }
+        } else if (type === 'complete') {
+          await window.electronAPI!.endSave(saveId, true);
+          setSaveStatus('success');
+          setTimeout(() => setSaveStatus('idle'), 3000);
+          worker.terminate();
+        } else if (type === 'error') {
+          await window.electronAPI!.endSave(saveId, false);
+          setSaveStatus('error');
+          setSaveErrorMessage(error || 'Unknown error occurred');
+          worker.terminate();
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      worker.onerror = async (err) => {
+        await window.electronAPI!.endSave(saveId, false);
+        setSaveStatus('error');
+        setSaveErrorMessage(err.message || 'Worker error');
+        worker.terminate();
+      };
+
+      const state = store.getState().nodes;
+      const animations = engine.getTracks();
+      const duration = engine.getDuration();
+
+      worker.postMessage({ nodes: state, animations, duration });
     } else {
       alert("Electron API not available");
     }
@@ -180,6 +211,32 @@ function App() {
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
         />
+
+        {saveStatus !== 'idle' && (
+          <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-50 bg-gray-800 text-white px-6 py-3 rounded shadow-lg flex flex-col items-center border border-gray-700">
+            {saveStatus === 'saving' && (
+              <>
+                <div className="text-sm font-semibold mb-2">Saving Project...</div>
+                <div className="w-48 h-2 bg-gray-600 rounded overflow-hidden">
+                  <div 
+                    className="h-full bg-blue-500 transition-all duration-300" 
+                    style={{ width: `${Math.max(0, Math.min(100, saveProgress))}%` }}
+                  />
+                </div>
+                <div className="text-xs text-gray-400 mt-1">{Math.round(saveProgress)}%</div>
+              </>
+            )}
+            {saveStatus === 'success' && (
+              <div className="text-sm font-semibold text-green-400">Save Complete!</div>
+            )}
+            {saveStatus === 'error' && (
+              <div className="text-sm font-semibold text-red-400">
+                Save Failed: {saveErrorMessage}
+                <button className="ml-4 text-xs underline" onClick={() => setSaveStatus('idle')}>Dismiss</button>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex flex-1 overflow-hidden">
           <LayerPanel store={store} nodesCount={nodesCount} />
