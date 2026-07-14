@@ -2,7 +2,7 @@ import * as PIXI from 'pixi.js';
 
 export class Viewport {
   public container: PIXI.Container;
-  private app: PIXI.Application;
+  public app: PIXI.Application;
 
   private isDragging = false;
   private lastPos = { x: 0, y: 0 };
@@ -25,8 +25,8 @@ export class Viewport {
 
   private drawGrid() {
     this.grid.clear();
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const width = this.app.screen.width;
+    const height = this.app.screen.height;
 
     const gridSize = 50 * this.container.scale.x;
     const offsetX = this.container.x % gridSize;
@@ -46,31 +46,35 @@ export class Viewport {
   }
 
   private setupEvents() {
-    const canvas = this.app.view as HTMLCanvasElement;
-
-    canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
-    canvas.addEventListener('pointermove', this.onPointerMove.bind(this));
-    window.addEventListener('pointerup', this.onPointerUp.bind(this));
-    canvas.addEventListener('wheel', this.onWheel.bind(this), { passive: false });
+    // In worker, we receive these events through PIXI's event system
+    // We bind to the stage instead of DOM elements.
+    this.app.stage.interactive = true;
+    this.app.stage.hitArea = new PIXI.Rectangle(-1000000, -1000000, 2000000, 2000000);
+    this.app.stage.on('pointerdown', this.onPointerDown.bind(this));
+    this.app.stage.on('pointermove', this.onPointerMove.bind(this));
+    this.app.stage.on('pointerup', this.onPointerUp.bind(this));
+    this.app.stage.on('pointerupoutside', this.onPointerUp.bind(this));
+    this.app.stage.on('wheel', this.onWheel.bind(this));
   }
 
-  private onPointerDown(e: PointerEvent) {
-    if (e.button === 1 || e.shiftKey) { // Middle click or shift+click for pan
+  private onPointerDown(e: PIXI.FederatedPointerEvent) {
+    // Left click with shift, or middle click (button 1)
+    if (e.button === 1 || e.shiftKey) { 
       this.isDragging = true;
-      this.lastPos = { x: e.clientX, y: e.clientY };
+      this.lastPos = { x: e.global.x, y: e.global.y };
     }
   }
 
-  private onPointerMove(e: PointerEvent) {
+  private onPointerMove(e: PIXI.FederatedPointerEvent) {
     if (!this.isDragging) return;
 
-    const dx = e.clientX - this.lastPos.x;
-    const dy = e.clientY - this.lastPos.y;
+    const dx = e.global.x - this.lastPos.x;
+    const dy = e.global.y - this.lastPos.y;
 
     this.container.x += dx;
     this.container.y += dy;
 
-    this.lastPos = { x: e.clientX, y: e.clientY };
+    this.lastPos = { x: e.global.x, y: e.global.y };
     this.drawGrid();
   }
 
@@ -78,16 +82,14 @@ export class Viewport {
     this.isDragging = false;
   }
 
-  private onWheel(e: WheelEvent) {
-    e.preventDefault();
-
+  private onWheel(e: PIXI.FederatedWheelEvent) {
     const zoomFactor = 1 - e.deltaY * 0.001;
-    const localPos = this.container.toLocal(new PIXI.Point(e.clientX, e.clientY));
+    const localPos = this.container.toLocal(new PIXI.Point(e.global.x, e.global.y));
 
     this.container.scale.x *= zoomFactor;
     this.container.scale.y *= zoomFactor;
 
-    const newLocalPos = this.container.toLocal(new PIXI.Point(e.clientX, e.clientY));
+    const newLocalPos = this.container.toLocal(new PIXI.Point(e.global.x, e.global.y));
 
     this.container.x += (newLocalPos.x - localPos.x) * this.container.scale.x;
     this.container.y += (newLocalPos.y - localPos.y) * this.container.scale.y;

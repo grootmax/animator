@@ -11,13 +11,14 @@ export class PixiBridge {
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private lastNodes: Map<string, SceneNode> = new Map();
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, store: ReturnType<typeof createSceneGraphStore>, isWorker: boolean = false) {
     this.app = new PIXI.Application({
-      view: canvas,
-      resizeTo: window,
+      view: canvas as any,
+      resizeTo: isWorker ? undefined : window,
       backgroundColor: 0x1a1a1a,
-      resolution: window.devicePixelRatio || 1,
+      resolution: isWorker ? 1 : (window.devicePixelRatio || 1),
       autoDensity: true,
     });
 
@@ -104,6 +105,14 @@ export class PixiBridge {
   private syncNodes(nodes: Record<string, SceneNode>) {
     for (const [id, node] of Object.entries(nodes)) {
       let pixiNode = this.pixiNodes.get(id);
+      const lastNode = this.lastNodes.get(id);
+
+      if (pixiNode && lastNode === node) {
+        // Node state has not changed at all, skip completely
+        continue;
+      }
+
+      this.lastNodes.set(id, node);
 
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {

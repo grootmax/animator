@@ -37,9 +37,12 @@ export class TransformHandles {
       this.container.addChild(handle);
     }
 
-    // Add global pointer move/up
-    window.addEventListener('pointermove', this.onDragMove.bind(this));
-    window.addEventListener('pointerup', this.onDragEnd.bind(this));
+    // Use PIXI events instead of window events
+    viewport.app.stage.interactive = true;
+    viewport.app.stage.hitArea = new PIXI.Rectangle(-1000000, -1000000, 2000000, 2000000);
+    viewport.app.stage.on('pointermove', this.onDragMove.bind(this));
+    viewport.app.stage.on('pointerup', this.onDragEnd.bind(this));
+    viewport.app.stage.on('pointerupoutside', this.onDragEnd.bind(this));
   }
 
   public setSelectedNode(id: string | null) {
@@ -110,26 +113,25 @@ export class TransformHandles {
 
     this.isDragging = true;
     this.dragType = type;
-    this.dragStartPos = { x: e.globalX, y: e.globalY };
+    this.dragStartPos = { x: e.global.x, y: e.global.y };
     this.startNodeState = { ...this.store.getState().nodes[this.selectedNodeId] } as SceneNode;
   }
 
-  private onDragMove(e: PointerEvent) {
+  private onDragMove(e: PIXI.FederatedPointerEvent) {
     if (!this.isDragging || !this.selectedNodeId || !this.startNodeState) return;
 
-    const dx = e.clientX - this.dragStartPos.x;
-    const dy = e.clientY - this.dragStartPos.y;
+    const dx = e.global.x - this.dragStartPos.x;
+    const dy = e.global.y - this.dragStartPos.y;
 
     const updates: any = {};
 
     if (this.dragType === 'rot') {
        // get container absolute pos on screen to calculate angle
-       const rect = (this.viewport.container as any).parent.parent?.getBounds?.() || {x:0, y:0};
        const cx = this.container.x * this.viewport.container.scale.x + this.viewport.container.x;
        const cy = this.container.y * this.viewport.container.scale.y + this.viewport.container.y;
 
        const startAngle = Math.atan2(this.dragStartPos.y - cy, this.dragStartPos.x - cx);
-       const currentAngle = Math.atan2(e.clientY - cy, e.clientX - cx);
+       const currentAngle = Math.atan2(e.global.y - cy, e.global.x - cx);
        updates.rotation = this.startNodeState.rotation + (currentAngle - startAngle);
     } else {
        const scaleDelta = dx / 100;
