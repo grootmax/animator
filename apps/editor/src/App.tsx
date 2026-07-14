@@ -19,6 +19,10 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
+      readBinary: (filePath: string) => Promise<Uint8Array | null>;
+      writeBinary: (filePath: string, data: Uint8Array) => Promise<boolean>;
+      getInitialState: () => Promise<{ path: string; content: any } | null>;
+      saveProject: (projectPath: string | null, content: string) => Promise<string | null>;
     }
   }
 }
@@ -28,6 +32,25 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [projectPath, setProjectPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (window.electronAPI) {
+      window.electronAPI.getInitialState().then(stateData => {
+        if (stateData && stateData.content) {
+          setProjectPath(stateData.path);
+          const { scene, animations } = stateData.content;
+          if (scene) {
+            Object.values(scene).forEach((node: any) => store.getState().addNode(node));
+            store.getState().recalculateMatrices();
+          }
+          if (animations) {
+            animations.forEach((anim: any) => engine.addTrack(anim));
+          }
+        }
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -68,7 +91,7 @@ function App() {
     }
   };
 
-  const handleSaveState = async () => {
+  const handleSaveState = async (forceSaveAs = false) => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
 
@@ -91,7 +114,11 @@ function App() {
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      const pathArg = forceSaveAs ? null : projectPath;
+      const newPath = await window.electronAPI.saveProject(pathArg, JSON.stringify(exportData, null, 2));
+      if (newPath) {
+        setProjectPath(newPath);
+      }
     } else {
       alert("Electron API not available");
     }
@@ -175,7 +202,8 @@ function App() {
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
           onImport={handleImportSvg}
-          onExport={handleSaveState}
+          onExport={() => handleSaveState(false)}
+          onSaveAs={() => handleSaveState(true)}
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
