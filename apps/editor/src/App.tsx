@@ -8,6 +8,7 @@ import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import SerializationWorker from './workers/serializationWorker?worker';
 
 // Create singletons for the app
 const store = createSceneGraphStore();
@@ -37,7 +38,7 @@ function App() {
       (window as any).__bridge = bridge;
 
       // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
+      const unsubscribe = store.subscribe((state: any) => {
         setNodesCount(Object.keys(state.nodes).length);
       });
 
@@ -61,7 +62,7 @@ function App() {
       if (svgContent) {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+        nodes.forEach((node: any) => store.getState().addNode(node));
       }
     } else {
       alert("Electron API not available");
@@ -71,27 +72,17 @@ function App() {
   const handleSaveState = async () => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
+      const animations = engine.getTracks();
+      const duration = engine.getDuration();
 
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
-      }
+      const worker = new SerializationWorker();
+      worker.postMessage({ state, animations, duration });
 
-      const exportData = {
-        scene: cleanScene,
-        animations: engine.getTracks(),
-        metadata: {
-          version: "1.0.0",
-          duration: engine.getDuration()
-        }
+      worker.onmessage = async (e: MessageEvent) => {
+        const { jsonString } = e.data;
+        await window.electronAPI!.saveFile(jsonString);
+        worker.terminate();
       };
-
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
     } else {
       alert("Electron API not available");
     }
