@@ -11,6 +11,8 @@ export class PixiBridge {
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private lastNodes: Record<string, SceneNode> = {};
+  
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -39,7 +41,7 @@ export class PixiBridge {
     });
 
     this.store.subscribe((state) => {
-      this.syncNodes(state.nodes);
+      this.syncNodes(state);
       this.handles.update();
     });
 
@@ -101,8 +103,16 @@ export class PixiBridge {
     }
   }
 
-  private syncNodes(nodes: Record<string, SceneNode>) {
-    for (const [id, node] of Object.entries(nodes)) {
+  private syncNodes(state: any) {
+    const nodes = state.nodes;
+    const lastUpdated = state.lastUpdated || [];
+    console.log("lastUpdated length:", lastUpdated.length);
+    // Only process nodes that are new or whose reference has changed
+    for (let i = 0; i < lastUpdated.length; i++) {
+      const id = lastUpdated[i];
+      const node = nodes[id];
+      if (!node) continue;
+
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
@@ -175,5 +185,8 @@ export class PixiBridge {
 
       this.applyMatrix(pixiNode, node.localMatrix);
     }
+    
+    this.lastNodes = nodes;
+    
   }
 }
