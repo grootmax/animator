@@ -10,9 +10,11 @@ export class PixiBridge {
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private assetStore: any;
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
+  private textureCache: Map<string, PIXI.Texture> = new Map();
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>, assetStore?: any) {
     this.app = new PIXI.Application({
       view: canvas,
       resizeTo: window,
@@ -25,6 +27,7 @@ export class PixiBridge {
 
     this.viewport = new Viewport(this.app);
     this.handles = new TransformHandles(store, this.viewport);
+    this.assetStore = assetStore;
 
     // Add handles directly to the viewport so they pan and zoom with the nodes!
     this.viewport.container.addChild(this.handles.container);
@@ -42,6 +45,12 @@ export class PixiBridge {
       this.syncNodes(state.nodes);
       this.handles.update();
     });
+    
+    if (this.assetStore) {
+      this.assetStore.subscribe(() => {
+        this.syncNodes(this.store.getState().nodes);
+      });
+    }
 
     this.app.ticker.add(() => {
         this.handles.update();
@@ -108,6 +117,8 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'image') {
+          pixiNode = new PIXI.Sprite();
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -170,6 +181,25 @@ export class PixiBridge {
 
         if (node.fill) {
             pixiNode.endFill();
+        }
+      } else if (pixiNode instanceof PIXI.Sprite && node.type === 'image') {
+        if (node.assetId && this.assetStore) {
+          const asset = this.assetStore.getState().assets[node.assetId];
+          if (asset) {
+            let texture = this.textureCache.get(node.assetId);
+            if (!texture) {
+              texture = PIXI.Texture.from(asset.objectUrl);
+              this.textureCache.set(node.assetId, texture);
+            }
+            pixiNode.texture = texture;
+            if (node.width) pixiNode.width = node.width;
+            if (node.height) pixiNode.height = node.height;
+            // Center anchor
+            pixiNode.anchor.set(0.5);
+          } else {
+            // Draw placeholder or empty texture
+            pixiNode.texture = PIXI.Texture.EMPTY;
+          }
         }
       }
 
