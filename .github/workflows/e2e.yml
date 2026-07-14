@@ -1,0 +1,52 @@
+name: Multi-OS Integrity Platform (E2E)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  e2e-tests:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright OS dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Build packages
+        run: npm run build
+
+      - name: Run E2E tests (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum npm run test --workspace=@monorepo/e2e
+        env:
+          CI: true
+
+      - name: Run E2E tests (macOS / Windows)
+        if: runner.os != 'Linux'
+        run: npm run test --workspace=@monorepo/e2e
+        env:
+          CI: true
+
+      - name: Upload Test Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.os }}
+          path: packages/e2e/playwright-report/
+          retention-days: 30
