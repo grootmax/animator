@@ -1,7 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { setupSecurity } from './security';
 
 setupSecurity();
 
@@ -183,33 +182,40 @@ app.on('window-all-closed', () => {
 ipcMain.handle('dialog:openFile', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
-    filters: [{ name: 'SVG files', extensions: ['svg'] }]
+    filters: [{ name: 'Supported files', extensions: ['svg', 'json'] }]
   });
   if (canceled) return null;
-  return fs.promises.readFile(filePaths[0], 'utf-8');
+  const content = await fs.promises.readFile(filePaths[0]);
+  return { content, filePath: filePaths[0] };
 });
 
-ipcMain.handle('dialog:saveFile', async (_, content: string) => {
-  try {
-    JSON.parse(content);
-  } catch (error) {
-    return false;
-  }
-
-  try {
-    const { canceled, filePath } = await dialog.showSaveDialog({
+ipcMain.handle('dialog:saveFile', async (_, content: string | Uint8Array, filePath?: string) => {
+  let targetPath = filePath;
+  if (!targetPath) {
+    const { canceled, filePath: dialogPath } = await dialog.showSaveDialog({
       filters: [{ name: 'JSON files', extensions: ['json'] }]
     });
-
-    if (canceled || !filePath) return false;
-
-    if (path.extname(filePath).toLowerCase() !== '.json') {
-      return false;
-    }
-
-    await fs.promises.writeFile(filePath, content, 'utf-8');
-    return true;
-  } catch (error) {
-    return false;
+    if (canceled || !dialogPath) return null;
+    targetPath = dialogPath;
   }
+  await fs.promises.writeFile(targetPath, content);
+  return targetPath;
+});
+
+ipcMain.handle('dialog:openAsset', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [{ name: 'Assets', extensions: ['png', 'jpg', 'jpeg', 'svg'] }]
+  });
+  if (canceled) return null;
+  const filePath = filePaths[0];
+  const data = await fs.promises.readFile(filePath);
+  const ext = path.extname(filePath).toLowerCase();
+  
+  let mimeType = 'application/octet-stream';
+  if (ext === '.png') mimeType = 'image/png';
+  else if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
+  else if (ext === '.svg') mimeType = 'image/svg+xml';
+
+  return { filePath, mimeType, data };
 });
