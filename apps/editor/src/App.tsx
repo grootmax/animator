@@ -17,8 +17,9 @@ const engine = new AnimationEngine(store);
 declare global {
   interface Window {
     electronAPI?: {
-      openFile: () => Promise<string | null>;
-      saveFile: (content: string) => Promise<boolean>;
+      openFile: () => Promise<{ content: string | Uint8Array, filePath: string } | null>;
+      saveFile: (content: string | Uint8Array, filePath?: string) => Promise<string | null>;
+      openAsset: () => Promise<{ filePath: string, mimeType: string, data: Uint8Array } | null>;
     }
   }
 }
@@ -28,6 +29,8 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
+  const [assets, setAssets] = useState<{ name: string, url: string }[]>([]);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -57,8 +60,13 @@ function App() {
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
+      const result = await window.electronAPI.openFile();
+      if (result) {
+        const svgContent = typeof result.content === 'string' 
+          ? result.content 
+          : new TextDecoder().decode(result.content);
+        setCurrentFilePath(result.filePath);
+        
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
         nodes.forEach(node => store.getState().addNode(node));
@@ -91,7 +99,15 @@ function App() {
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      const jsonString = JSON.stringify(exportData, null, 2);
+      const encoder = new TextEncoder();
+      const encoded = encoder.encode(jsonString);
+      const payload = encoded.length > 5 * 1024 * 1024 ? encoded : jsonString;
+
+      const savedPath = await window.electronAPI.saveFile(payload, currentFilePath || undefined);
+      if (savedPath) {
+        setCurrentFilePath(savedPath);
+      }
     } else {
       alert("Electron API not available");
     }
@@ -102,7 +118,26 @@ function App() {
       const state = store.getState().nodes;
       const serializer = new SvgSerializer();
       const svgString = serializer.serialize(state);
-      await window.electronAPI.saveFile(svgString);
+      
+      const encoder = new TextEncoder();
+      const encoded = encoder.encode(svgString);
+      const payload = encoded.length > 5 * 1024 * 1024 ? encoded : svgString;
+
+      await window.electronAPI.saveFile(payload);
+    } else {
+      alert("Electron API not available");
+    }
+  };
+
+  const handleOpenAsset = async () => {
+    if (window.electronAPI) {
+      const result = await window.electronAPI.openAsset();
+      if (result) {
+        const blob = new Blob([result.data as any], { type: result.mimeType });
+        const blobUrl = URL.createObjectURL(blob);
+        const name = result.filePath.split(/[/\\]/).pop() || 'asset';
+        setAssets(prev => [...prev, { name, url: blobUrl }]);
+      }
     } else {
       alert("Electron API not available");
     }
@@ -182,7 +217,25 @@ function App() {
         />
 
         <div className="flex flex-1 overflow-hidden">
-          <LayerPanel store={store} nodesCount={nodesCount} />
+          <div className="flex flex-col w-64 bg-gray-800 border-r border-gray-700">
+            <LayerPanel store={store} nodesCount={nodesCount} />
+            <div className="flex-1 overflow-auto p-4 border-t border-gray-700">
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="font-semibold text-gray-300">Assets</h3>
+                <button onClick={handleOpenAsset} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded">
+                  Import
+                </button>
+              </div>
+              <div className="flex flex-col gap-2">
+                {assets.map((asset, i) => (
+                  <div key={i} className="flex flex-col gap-1 p-2 bg-gray-900 rounded">
+                    <span className="text-xs truncate" title={asset.name}>{asset.name}</span>
+                    <img src={asset.url} alt={asset.name} className="max-h-24 object-contain rounded" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
 
           <div className="flex-1 relative bg-[#1a1a1a]">
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
