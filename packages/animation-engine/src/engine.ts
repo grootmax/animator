@@ -142,12 +142,14 @@ export class AnimationEngine {
     const storeState = this.store.getState();
     let requiresMatrixUpdate = false;
 
+    const updatesObj: Record<string, any> = {};
     for (const [nodeId, nodeUpdates] of updates.entries()) {
-      storeState.updateNode(nodeId, nodeUpdates);
+      updatesObj[nodeId] = nodeUpdates;
       requiresMatrixUpdate = true;
     }
 
     if (requiresMatrixUpdate) {
+      storeState.updateNodes(updatesObj);
       storeState.recalculateMatrices();
     }
   }
