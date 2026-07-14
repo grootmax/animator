@@ -1,0 +1,12 @@
+{
+  "name": "@monorepo/e2e",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "electron": "^25.3.0"
+  }
+}
