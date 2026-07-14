@@ -19,6 +19,7 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
+      saveProject: (data: any) => Promise<{ success: boolean; error?: string }>;
     }
   }
 }
@@ -28,6 +29,7 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<{ type: 'saving' | 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -69,21 +71,11 @@ function App() {
   };
 
   const handleSaveState = async () => {
-    if (window.electronAPI) {
+    if (window.electronAPI && window.electronAPI.saveProject) {
       const state = store.getState().nodes;
 
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
-      }
-
       const exportData = {
-        scene: cleanScene,
+        scene: state,
         animations: engine.getTracks(),
         metadata: {
           version: "1.0.0",
@@ -91,7 +83,21 @@ function App() {
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      setSaveStatus({ type: 'saving', message: 'Saving project...' });
+
+      try {
+        const result = await window.electronAPI.saveProject(exportData);
+        if (result.success) {
+          setSaveStatus({ type: 'success', message: 'Project saved successfully!' });
+          setTimeout(() => {
+            setSaveStatus((current) => current?.type === 'success' ? null : current);
+          }, 3000);
+        } else {
+          setSaveStatus({ type: 'error', message: `Save failed: ${result.error || 'Unknown error'}` });
+        }
+      } catch (err: any) {
+        setSaveStatus({ type: 'error', message: `Save failed: ${err.message || String(err)}` });
+      }
     } else {
       alert("Electron API not available");
     }
@@ -193,6 +199,19 @@ function App() {
             >
               Add Test Anim
             </button>
+
+            {/* Save Status Notification */}
+            {saveStatus && (
+              <div 
+                className={`absolute bottom-4 right-4 px-4 py-2 rounded shadow-lg text-sm text-white ${
+                  saveStatus.type === 'saving' ? 'bg-blue-600' :
+                  saveStatus.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+                }`}
+                style={{ zIndex: 1000, pointerEvents: 'none' }}
+              >
+                {saveStatus.message}
+              </div>
+            )}
           </div>
         </div>
 
