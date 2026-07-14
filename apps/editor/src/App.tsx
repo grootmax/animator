@@ -30,6 +30,11 @@ declare global {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
       exportSvg: (content: string) => Promise<boolean>;
+      projectCreate: () => Promise<any>;
+      projectOpen: () => Promise<any>;
+      projectSave: (manifest: any) => Promise<boolean>;
+      projectImportAsset: () => Promise<any>;
+      projectGetLastActive: () => Promise<any>;
     }
   }
 }
@@ -42,6 +47,118 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [showSaveProgress, setShowSaveProgress] = useState(false);
+  const [projectDir, setProjectDir] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Attempt to resume last active project
+    const loadLastProject = async () => {
+      if (window.electronAPI?.projectGetLastActive) {
+        const lastProject = await window.electronAPI.projectGetLastActive();
+        if (lastProject) {
+          setProjectDir(lastProject.projectDir);
+          loadProjectManifest(lastProject.manifest);
+        }
+      }
+    };
+    loadLastProject();
+  }, []);
+
+  const loadProjectManifest = (manifest: any) => {
+    store.getState().clear();
+    
+    // Load Nodes
+    if (manifest.scene && manifest.scene.nodes) {
+      Object.values(manifest.scene.nodes).forEach((node: any) => {
+        store.getState().addNode(node);
+      });
+    }
+    
+    // Load Assets
+    if (manifest.assets) {
+      store.getState().setAssets(manifest.assets);
+    }
+  };
+
+  const getCleanManifest = () => {
+    const state = store.getState().nodes;
+    const cleanScene: Record<string, any> = {};
+    for (const [id, node] of Object.entries(state)) {
+      const cleanNode = { ...node };
+      delete (cleanNode as any).localMatrix;
+      delete (cleanNode as any).worldMatrix;
+      delete (cleanNode as any).isDirty;
+      cleanScene[id] = cleanNode;
+    }
+
+    return {
+      version: "2.0.0",
+      name: projectDir ? projectDir.split(/[/\\]/).pop() : "Untitled",
+      scene: {
+        nodes: cleanScene,
+        rootId: 'root'
+      },
+      assets: store.getState().assets,
+      animations: engine.getTracks(),
+      metadata: { duration: engine.getDuration() }
+    };
+  };
+
+  const handleProjectCreate = async () => {
+    if (window.electronAPI?.projectCreate) {
+      const result = await window.electronAPI.projectCreate();
+      if (result) {
+        setProjectDir(result.projectDir);
+        loadProjectManifest(result.manifest);
+      }
+    }
+  };
+
+  const handleProjectOpen = async () => {
+    if (window.electronAPI?.projectOpen) {
+      const result = await window.electronAPI.projectOpen();
+      if (result) {
+        setProjectDir(result.projectDir);
+        loadProjectManifest(result.manifest);
+      }
+    }
+  };
+
+  const handleProjectSave = async () => {
+    if (window.electronAPI?.projectSave && projectDir) {
+      const success = await window.electronAPI.projectSave(getCleanManifest());
+      if (success) {
+        // Could show a toast
+      }
+    }
+  };
+
+  const handleImportMedia = async () => {
+    if (window.electronAPI?.projectImportAsset && projectDir) {
+      const asset = await window.electronAPI.projectImportAsset();
+      if (asset) {
+        store.getState().addAsset(asset);
+        
+        // Auto-add to scene graph
+        store.getState().addNode({
+          id: asset.id,
+          type: asset.type,
+          parentId: 'root',
+          src: `asset://${asset.relativePath}`,
+          assetId: asset.id,
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+          width: asset.type === 'video' ? 640 : 300, // Reasonable defaults
+          height: asset.type === 'video' ? 360 : 300,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0,
+          visible: true,
+          locked: false,
+          opacity: 1
+        });
+      }
+    }
+  };
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -184,7 +301,6 @@ function App() {
       alert("Electron API not available");
     }
   };
-
   const handleTestAnimation = () => {
     const state = store.getState();
     const nodeIds = Object.keys(state.nodes);
@@ -288,9 +404,13 @@ function App() {
           togglePlay={handleTogglePlay}
           onImport={handleImportSvg}
           onExport={handleSaveState}
-          onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
+          onProjectCreate={handleProjectCreate}
+          onProjectOpen={handleProjectOpen}
+          onProjectSave={handleProjectSave}
+          onImportMedia={handleImportMedia}
+          hasProject={!!projectDir}
         />
 
         <div className="flex flex-1 overflow-hidden">

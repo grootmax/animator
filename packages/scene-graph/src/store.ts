@@ -2,7 +2,7 @@ import { generateKeyBetween } from '@monorepo/math';
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image';
+export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image' | 'video';
 
 export interface SceneNode {
   id: string;
@@ -35,11 +35,19 @@ export interface SceneNode {
   y2?: number;
   points?: string;
   src?: string;
+  assetId?: string;
 
   // Internal state
   localMatrix: Matrix3;
   worldMatrix: Matrix3;
   isDirty: boolean;
+}
+
+export interface Asset {
+  id: string;
+  name: string;
+  relativePath: string;
+  type: 'image' | 'video';
 }
 
 export interface SceneGraphState {
@@ -48,6 +56,10 @@ export interface SceneGraphState {
   viewport: { x: number; y: number; zoom: number };
   selectedNodeId: string | null;
   remoteSelections: Record<string, { nodeId: string; color: string; userName?: string }>;
+  assets: Asset[];
+  setAssets: (assets: Asset[]) => void;
+  addAsset: (asset: Asset) => void;
+  clear: () => void;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
@@ -86,6 +98,11 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
   viewport: { x: 0, y: 0, zoom: 1 },
   selectedNodeId: null,
   remoteSelections: {},
+  assets: [],
+
+  setAssets: (assets: Asset[]) => set({ assets }),
+  addAsset: (asset: Asset) => set((state: SceneGraphState) => ({ assets: [...state.assets, asset] })),
+  clear: () => set({ nodes: {}, rootId: null, assets: [] }),
 
   setViewport: (viewport) => set({ viewport }),
   
