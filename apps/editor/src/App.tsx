@@ -57,11 +57,15 @@ function App() {
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
-        const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+      try {
+        const svgContent = await window.electronAPI.openFile();
+        if (svgContent) {
+          const parser = new SvgParser();
+          const nodes = parser.parse(svgContent);
+          nodes.forEach(node => store.getState().addNode(node));
+        }
+      } catch (err) {
+        console.error("Error in handleImportSvg:", err);
       }
     } else {
       alert("Electron API not available");

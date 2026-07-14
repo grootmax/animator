@@ -149,6 +149,7 @@ export class SvgParser {
 
     const node: Partial<SceneNode> = {
       id,
+      name: element.id || type,
       type,
       parentId,
       children: [],
