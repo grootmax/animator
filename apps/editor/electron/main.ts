@@ -49,10 +49,29 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
-  const { canceled, filePath } = await dialog.showSaveDialog({
-    filters: [{ name: 'JSON files', extensions: ['json'] }]
-  });
-  if (canceled || !filePath) return false;
+  const filters = [
+    { name: 'JSON files', extensions: ['json'] },
+    { name: 'SVG files', extensions: ['svg'] }
+  ];
+  const { canceled, filePath } = await dialog.showSaveDialog({ filters });
+  
+  if (canceled || !filePath) return { success: false, canceled: true };
+  
+  const ext = path.extname(filePath).slice(1).toLowerCase();
+  const validExtensions = filters.flatMap(f => f.extensions);
+  
+  if (!ext || !validExtensions.includes(ext)) {
+    return { success: false, error: 'Invalid file extension. Allowed extensions are: ' + validExtensions.join(', ') };
+  }
+
+  if (ext === 'json') {
+    try {
+      JSON.parse(content);
+    } catch (e) {
+      return { success: false, error: 'Invalid JSON content.' };
+    }
+  }
+
   await fs.promises.writeFile(filePath, content, 'utf-8');
-  return true;
+  return { success: true };
 });
