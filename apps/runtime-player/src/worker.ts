@@ -1,4 +1,4 @@
-import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { createSceneGraphStore, SceneNode } from '@monorepo/scene-graph';
 import { AnimationEngine, Track } from '@monorepo/animation-engine';
 import { PixiBridge } from '@monorepo/renderer';
 
@@ -29,7 +29,7 @@ if (typeof DOMParser === 'undefined') {
   };
 }
 
-self.onmessage = (e) => {
+self.onmessage = (e: MessageEvent) => {
   const { type, payload } = e.data;
 
   switch (type) {
@@ -44,8 +44,8 @@ self.onmessage = (e) => {
     case 'load': {
       const { data } = payload;
       if (data.scene) {
-        Object.values(data.scene).forEach(node => {
-          store.getState().addNode(node as any);
+        Object.values(data.scene).forEach((node: any) => {
+          store.getState().addNode(node);
         });
         store.getState().recalculateMatrices();
       }
@@ -90,6 +90,11 @@ self.onmessage = (e) => {
           viewport.container.emit('pointerup', eventData);
         }
       }
+      break;
+    }
+    case 'destroy': {
+      if (engine) engine.pause();
+      if (bridge) bridge.destroy();
       break;
     }
   }

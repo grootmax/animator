@@ -77,4 +77,9 @@ export class RuntimePlayer {
   public updateNode(id: string, updates: any) {
     this.worker.postMessage({ type: 'updateNode', payload: { id, updates } });
   }
+
+  public destroy() {
+    this.worker.postMessage({ type: 'destroy' });
+    this.worker.terminate();
+  }
 }
