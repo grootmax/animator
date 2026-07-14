@@ -2,7 +2,7 @@ import { generateKeyBetween } from '@monorepo/math';
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image';
+export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image' | 'video';
 
 export interface SceneNode {
   id: string;
@@ -35,6 +35,7 @@ export interface SceneNode {
   y2?: number;
   points?: string;
   src?: string;
+  assetUrl?: string;
 
   // Internal state
   localMatrix: Matrix3;
@@ -53,6 +54,7 @@ export interface SceneGraphState {
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
+  clearNodes: () => void;
   setViewport: (viewport: { x: number; y: number; zoom: number }) => void;
   setSelectedNodeId: (id: string | null) => void;
   setRemoteSelection: (userId: string, nodeId: string | null, color?: string, userName?: string) => void;
@@ -82,6 +84,7 @@ import { syncMiddleware, SyncMessage } from './sync';
 export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) => {
   const config = (set: any, get: any) => ({
   nodes: {},
+  clearNodes: () => { set({ nodes: {}, rootId: null }); },
   rootId: null,
   viewport: { x: 0, y: 0, zoom: 1 },
   selectedNodeId: null,

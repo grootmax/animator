@@ -10,7 +10,7 @@ export class PixiBridge {
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
@@ -132,11 +132,23 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
-        } else if (node.type === 'image') {
-          pixiNode = new PIXI.Container();
-          const sprite = new PIXI.Sprite();
-          sprite.anchor.set(0.5);
-          pixiNode.addChild(sprite);
+        } else if (node.type === 'image' || node.type === 'video') {
+          const url = node.assetUrl || (node as any).src;
+          if (url) {
+            pixiNode = new PIXI.Sprite(PIXI.Texture.from(url));
+            (pixiNode as PIXI.Sprite).anchor.set(0.5);
+            if (node.type === 'video') {
+              const baseTex = (pixiNode as PIXI.Sprite).texture.baseTexture;
+              if (baseTex && baseTex.resource && (baseTex.resource as any).source) {
+                const source = (baseTex.resource as any).source;
+                source.loop = true;
+                if (source.play) source.play().catch(() => {});
+              }
+            }
+          } else {
+            pixiNode = new PIXI.Sprite();
+            (pixiNode as PIXI.Sprite).anchor.set(0.5);
+          }
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -216,37 +228,37 @@ export class PixiBridge {
         if (node.fill) {
             pixiNode.endFill();
         }
-      } else if (node.type === 'image') {
-        const sprite = (pixiNode as PIXI.Container).children[0] as PIXI.Sprite;
-        
-        if (node.src) {
-           const currentSrc = (sprite as any)._currentSrc;
-           if (currentSrc !== node.src) {
-               (sprite as any)._currentSrc = node.src;
-               const tex = PIXI.Texture.from(node.src);
-               sprite.texture = tex;
-               
-               if (!tex.valid) {
-                   (tex.baseTexture as any).once('loaded', () => {
-                       const n = this.store.getState().nodes[id];
-                       if (n && n.width !== undefined && n.height !== undefined && sprite.texture === tex) {
-                           sprite.width = n.width;
-                           sprite.height = n.height;
-                       }
-                   });
-               }
-           }
+      } else if (pixiNode instanceof PIXI.Sprite) {
+        const url = node.assetUrl || (node as any).src;
+        if (url) {
+          const currentSrc = (pixiNode as any)._currentSrc;
+          if (currentSrc !== url) {
+            (pixiNode as any)._currentSrc = url;
+            const tex = PIXI.Texture.from(url);
+            pixiNode.texture = tex;
+
+            if (!tex.valid) {
+              (tex.baseTexture as any).once('loaded', () => {
+                const n = this.store.getState().nodes[id];
+                if (n && n.width !== undefined && n.height !== undefined && pixiNode.texture === tex) {
+                  pixiNode.width = n.width;
+                  pixiNode.height = n.height;
+                }
+              });
+            }
+          }
         } else {
-           sprite.texture = PIXI.Texture.EMPTY;
-           (sprite as any)._currentSrc = undefined;
+          pixiNode.texture = PIXI.Texture.EMPTY;
+          (pixiNode as any)._currentSrc = undefined;
         }
 
-        if (node.width !== undefined && node.height !== undefined && sprite.texture.valid) {
-           sprite.width = node.width;
-           sprite.height = node.height;
+        if (node.width !== undefined && node.height !== undefined && pixiNode.texture.valid) {
+          pixiNode.width = node.width;
+          pixiNode.height = node.height;
         } else if (node.width === undefined || node.height === undefined) {
-           sprite.scale.set(1);
+          pixiNode.scale.set(1);
         }
+      }
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);

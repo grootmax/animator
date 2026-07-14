@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
-import { AnimationEngine } from '@monorepo/animation-engine';
+import { AnimationEngine, Track } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
@@ -30,6 +30,11 @@ declare global {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
       exportSvg: (content: string) => Promise<boolean>;
+      loadRecentProject: () => Promise<string | null>;
+      openProject: () => Promise<string | null>;
+      saveProject: (content: string) => Promise<boolean>;
+      saveProjectAs: (content: string) => Promise<boolean>;
+      readAssetBuffer: (assetPath: string) => Promise<Uint8Array | null>;
     }
   }
 }
@@ -55,6 +60,15 @@ function App() {
         setNodesCount(Object.keys(state.nodes).length);
         setStoreVersion(state.version);
       });
+
+      // Automatically load recent project
+      if (window.electronAPI) {
+        window.electronAPI.loadRecentProject().then((content) => {
+          if (content) {
+            handleLoadProject(content);
+          }
+        });
+      }
 
       return () => unsubscribe();
     }
@@ -82,6 +96,73 @@ function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  const handleLoadProject = (content: string) => {
+    try {
+      const data = JSON.parse(content);
+      store.getState().clearNodes();
+      engine.setTracks([]);
+      
+      if (data.scene) {
+        for (const [_, node] of Object.entries(data.scene)) {
+          store.getState().addNode(node as any);
+        }
+      }
+      if (data.animations) {
+        engine.setTracks(data.animations as Track[]);
+      }
+      store.getState().recalculateMatrices();
+    } catch (e) {
+      console.error("Failed to load project", e);
+    }
+  };
+
+  const handleOpenProject = async () => {
+    if (window.electronAPI) {
+      const content = await window.electronAPI.openProject();
+      if (content) {
+        handleLoadProject(content);
+      }
+    } else {
+      alert("Electron API not available");
+    }
+  };
+
+  const generateProjectData = () => {
+    const state = store.getState().nodes;
+    const cleanScene: Record<string, any> = {};
+    for (const [id, node] of Object.entries(state)) {
+      const cleanNode = { ...node };
+      delete (cleanNode as any).localMatrix;
+      delete (cleanNode as any).worldMatrix;
+      delete (cleanNode as any).isDirty;
+      cleanScene[id] = cleanNode;
+    }
+    return JSON.stringify({
+      scene: cleanScene,
+      animations: engine.getTracks(),
+      metadata: {
+        version: "1.0.0",
+        duration: engine.getDuration()
+      }
+    }, null, 2);
+  };
+
+  const handleSaveProject = async () => {
+    if (window.electronAPI) {
+      await window.electronAPI.saveProject(generateProjectData());
+    } else {
+      alert("Electron API not available");
+    }
+  };
+
+  const handleSaveProjectAs = async () => {
+    if (window.electronAPI) {
+      await window.electronAPI.saveProjectAs(generateProjectData());
+    } else {
+      alert("Electron API not available");
+    }
+  };
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
@@ -289,6 +370,9 @@ function App() {
           onImport={handleImportSvg}
           onExport={handleSaveState}
           onExportSvg={handleExportSvg}
+          onOpenProject={handleOpenProject}
+          onSaveProject={handleSaveProject}
+          onSaveProjectAs={handleSaveProjectAs}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
         />
@@ -302,7 +386,6 @@ function App() {
             onDragOver={handleDragOver}
           >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
-            {/* Overlay a subtle test animation button for quick testing */}
             <button
                className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
                onClick={handleTestAnimation}
