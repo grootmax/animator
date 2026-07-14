@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
@@ -19,6 +19,14 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
+      openFileWithMetadata: () => Promise<{content: string, filePath: string} | null>;
+      saveFileDirect: (filePath: string, content: string) => Promise<boolean>;
+      saveFileWithDialog: (content: string) => Promise<string | null>;
+      openBinaryFile: () => Promise<{buffer: ArrayBuffer, filePath: string} | null>;
+      saveBinaryFileDirect: (filePath: string, buffer: ArrayBuffer) => Promise<boolean>;
+      saveBinaryFileWithDialog: (buffer: ArrayBuffer) => Promise<string | null>;
+      getRecentFiles: () => Promise<string[]>;
+      addRecentFile: (filePath: string) => Promise<string[]>;
     }
   }
 }
@@ -28,15 +36,13 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
 
   useEffect(() => {
     if (canvasRef.current) {
-      // Initialize renderer
       const bridge = new PixiBridge(canvasRef.current, store);
-      // We keep bridge instance alive
       (window as any).__bridge = bridge;
 
-      // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
       });
@@ -57,10 +63,11 @@ function App() {
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
+      const result = await window.electronAPI.openFileWithMetadata();
+      if (result) {
+        setActiveFilePath(result.filePath);
         const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
+        const nodes = parser.parse(result.content);
         nodes.forEach(node => store.getState().addNode(node));
       }
     } else {
@@ -68,34 +75,62 @@ function App() {
     }
   };
 
-  const handleSaveState = async () => {
-    if (window.electronAPI) {
-      const state = store.getState().nodes;
-
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
-      }
-
-      const exportData = {
-        scene: cleanScene,
-        animations: engine.getTracks(),
-        metadata: {
-          version: "1.0.0",
-          duration: engine.getDuration()
-        }
-      };
-
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
-    } else {
+  const handleSaveState = useCallback(async () => {
+    if (!window.electronAPI) {
       alert("Electron API not available");
+      return;
     }
-  };
+    const state = store.getState().nodes;
+    const cleanScene: Record<string, any> = {};
+    for (const [id, node] of Object.entries(state)) {
+      const cleanNode = { ...node };
+      delete (cleanNode as any).localMatrix;
+      delete (cleanNode as any).worldMatrix;
+      delete (cleanNode as any).isDirty;
+      cleanScene[id] = cleanNode;
+    }
+
+    const exportData = {
+      scene: cleanScene,
+      animations: engine.getTracks(),
+      metadata: {
+        version: "1.0.0",
+        duration: engine.getDuration()
+      }
+    };
+
+    const content = JSON.stringify(exportData, null, 2);
+    const size = new Blob([content]).size;
+    const IS_LARGE = size > 5 * 1024 * 1024; // 5MB
+
+    if (IS_LARGE) {
+      const buffer = new TextEncoder().encode(content).buffer;
+      if (activeFilePath) {
+        await window.electronAPI.saveBinaryFileDirect(activeFilePath, buffer);
+      } else {
+        const newPath = await window.electronAPI.saveBinaryFileWithDialog(buffer);
+        if (newPath) setActiveFilePath(newPath);
+      }
+    } else {
+      if (activeFilePath) {
+        await window.electronAPI.saveFileDirect(activeFilePath, content);
+      } else {
+        const newPath = await window.electronAPI.saveFileWithDialog(content);
+        if (newPath) setActiveFilePath(newPath);
+      }
+    }
+  }, [activeFilePath]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        handleSaveState();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleSaveState]);
 
   const handleExportSvg = async () => {
     if (window.electronAPI) {
@@ -124,7 +159,6 @@ function App() {
       });
       engine.play();
     } else {
-      // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
         type: 'rect',
@@ -166,6 +200,43 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    const handleDrop = async (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0];
+        const filePath = (file as any).path;
+        if (filePath && window.electronAPI) {
+          const assetUrl = `asset://${encodeURIComponent(filePath)}`;
+          
+          store.getState().addNode({
+            id: `image_${Date.now()}`,
+            type: 'image',
+            parentId: null,
+            children: [],
+            x: window.innerWidth / 2,
+            y: window.innerHeight / 2,
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+            width: 200,
+            height: 200,
+            src: assetUrl
+          });
+          store.getState().recalculateMatrices();
+        }
+      }
+    };
+    const handleDragOver = (e: DragEvent) => e.preventDefault();
+
+    window.addEventListener('drop', handleDrop);
+    window.addEventListener('dragover', handleDragOver);
+    return () => {
+      window.removeEventListener('drop', handleDrop);
+      window.removeEventListener('dragover', handleDragOver);
+    };
+  }, []);
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden">
@@ -186,13 +257,17 @@ function App() {
 
           <div className="flex-1 relative bg-[#1a1a1a]">
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
-            {/* Overlay a subtle test animation button for quick testing */}
             <button
                className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
                onClick={handleTestAnimation}
             >
               Add Test Anim
             </button>
+            {activeFilePath && (
+              <div className="absolute top-4 left-4 text-xs text-gray-400">
+                Active: {activeFilePath}
+              </div>
+            )}
           </div>
         </div>
 
