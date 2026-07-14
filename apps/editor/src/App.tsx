@@ -28,6 +28,7 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -69,32 +70,59 @@ function App() {
   };
 
   const handleSaveState = async () => {
-    if (window.electronAPI) {
-      const state = store.getState().nodes;
-
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
-      }
-
-      const exportData = {
-        scene: cleanScene,
-        animations: engine.getTracks(),
-        metadata: {
-          version: "1.0.0",
-          duration: engine.getDuration()
-        }
-      };
-
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
-    } else {
+    if (!window.electronAPI) {
       alert("Electron API not available");
+      return;
     }
+
+    if (isSaving) return;
+
+    setIsSaving(true);
+
+    const state = store.getState().nodes;
+    const tracks = engine.getTracks();
+    const duration = engine.getDuration();
+
+    const worker = new Worker(
+      new URL('./workers/save.worker.ts', import.meta.url),
+      { type: 'module' }
+    );
+
+    worker.onmessage = async (event) => {
+      const { type, payload } = event.data;
+      if (type === 'SAVE_SUCCESS') {
+        try {
+          await window.electronAPI!.saveFile(payload);
+        } catch (error) {
+          console.error("Failed to write to file:", error);
+          alert("Error saving file");
+        } finally {
+          setIsSaving(false);
+          worker.terminate();
+        }
+      } else if (type === 'SAVE_ERROR') {
+        console.error("Worker serialization error:", payload);
+        alert("Error during serialization: " + payload);
+        setIsSaving(false);
+        worker.terminate();
+      }
+    };
+
+    worker.onerror = (error) => {
+      console.error("Worker error:", error);
+      alert("Worker error during save");
+      setIsSaving(false);
+      worker.terminate();
+    };
+
+    worker.postMessage({
+      type: 'SAVE_PROJECT',
+      payload: {
+        nodes: state,
+        tracks: tracks,
+        duration: duration
+      }
+    });
   };
 
   const handleExportSvg = async () => {
@@ -173,6 +201,7 @@ function App() {
           tool={tool}
           setTool={setTool}
           isPlaying={isPlaying}
+          isSaving={isSaving}
           togglePlay={handleTogglePlay}
           onImport={handleImportSvg}
           onExport={handleSaveState}
