@@ -1,0 +1,13 @@
+
+> @monorepo/editor@1.0.0 test
+> playwright test
+
+
+Running 5 tests using 1 worker
+
+[1/5] e2e/app.spec.ts:24:5 › App should open and load correctly
+[2/5] e2e/app.spec.ts:31:5 › nodeIntegration should be disabled and contextIsolation enabled
+[3/5] e2e/app.spec.ts:45:5 › IPC bridge exposes only authorized methods
+[4/5] e2e/app.spec.ts:54:5 › Mocking openFile IPC pathway
+[5/5] e2e/app.spec.ts:73:5 › Mocking saveFile IPC pathway
+  5 passed (2.9s)
