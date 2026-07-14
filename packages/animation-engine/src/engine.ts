@@ -24,6 +24,8 @@ export class AnimationEngine {
   private rafId: number | null = null;
   public loop = true;
   private duration = 5000; // ms
+  private accumulator = 0;
+  private readonly FIXED_STEP = 1000 / 60;
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
@@ -46,6 +48,7 @@ export class AnimationEngine {
     if (this.isPlaying) return;
     this.isPlaying = true;
     this.lastTime = performance.now();
+    this.accumulator = 0;
     this.tick();
   }
 
@@ -59,6 +62,7 @@ export class AnimationEngine {
 
   public seek(time: number) {
     this.playhead = time;
+    this.accumulator = 0;
     this.updateNodes();
   }
 
@@ -69,18 +73,29 @@ export class AnimationEngine {
     const dt = now - this.lastTime;
     this.lastTime = now;
 
-    this.playhead += dt;
+    this.accumulator += dt;
 
-    if (this.playhead > this.duration) {
-      if (this.loop) {
-        this.playhead = this.playhead % this.duration;
-      } else {
-        this.playhead = this.duration;
-        this.pause();
+    while (this.accumulator >= this.FIXED_STEP) {
+      this.playhead += this.FIXED_STEP;
+      this.accumulator -= this.FIXED_STEP;
+
+      let hasEnded = false;
+      if (this.playhead > this.duration) {
+        if (this.loop) {
+          this.playhead = this.playhead % this.duration;
+        } else {
+          this.playhead = this.duration;
+          this.pause();
+          hasEnded = true;
+        }
+      }
+
+      this.updateNodes();
+
+      if (hasEnded) {
+        break;
       }
     }
-
-    this.updateNodes();
 
     if (this.isPlaying) {
       this.rafId = requestAnimationFrame(this.tick);
