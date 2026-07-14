@@ -4,10 +4,15 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "test": "vitest run"
   },
   "dependencies": {
     "@monorepo/math": "*",
-    "@monorepo/scene-graph": "*"
+    "@monorepo/scene-graph": "*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
   }
 }
