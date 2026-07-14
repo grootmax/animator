@@ -10,10 +10,12 @@ export class PixiBridge {
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
+  private assetResolver?: (assetId: string) => string | undefined;
+  private remoteSelectionsContainer: PIXI.Container;
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>, assetResolver?: (assetId: string) => string | undefined) {
     this.app = new PIXI.Application({
       view: canvas,
       resizeTo: window,
@@ -25,7 +27,8 @@ export class PixiBridge {
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app, store);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id) => this.pixiNodes.get(id));
+    this.assetResolver = assetResolver;
 
     this.remoteSelectionsContainer = new PIXI.Container();
     this.remoteSelectionsContainer.zIndex = 999;
@@ -132,6 +135,9 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'imageReference' || node.type === 'videoReference') {
+          pixiNode = new PIXI.Sprite();
+          (pixiNode as PIXI.Sprite).anchor.set(0.5); // Center anchor for proper scaling/rotation
         } else if (node.type === 'image') {
           pixiNode = new PIXI.Container();
           const sprite = new PIXI.Sprite();
@@ -170,7 +176,30 @@ export class PixiBridge {
       pixiNode.visible = node.visible !== false;
       pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
-      if (pixiNode instanceof PIXI.Graphics) {
+      if (pixiNode instanceof PIXI.Sprite) {
+        if (node.assetId && this.assetResolver) {
+          const url = this.assetResolver(node.assetId);
+          if (url && (pixiNode as any)._assetUrl !== url) {
+            (pixiNode as any)._assetUrl = url;
+            if (node.type === 'videoReference') {
+               const texture = PIXI.Texture.from(url);
+               const base = texture.baseTexture.resource as any;
+               if (base && base.source) {
+                  base.source.loop = true;
+                  base.source.muted = true;
+                  base.source.play().catch(() => {});
+               }
+               pixiNode.texture = texture;
+            } else {
+               pixiNode.texture = PIXI.Texture.from(url);
+            }
+          }
+        }
+        if (node.width && node.height) {
+          pixiNode.width = node.width;
+          pixiNode.height = node.height;
+        }
+      } else if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();
 
         if (node.fill) {

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { setupSecurity } from './security';
@@ -6,71 +6,7 @@ import { setupSecurity } from './security';
 setupSecurity();
 
 let mainWindow: BrowserWindow | null = null;
-
-const DOMAIN_WHITELIST = [
-  'https://fonts.googleapis.com',
-  'https://fonts.gstatic.com'
-];
-
-function setupSecurity() {
-  const isDev = !!process.env.VITE_DEV_SERVER_URL;
-  const devUrl = isDev ? new URL(process.env.VITE_DEV_SERVER_URL!).origin : '';
-
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const cspRules = [
-      `default-src 'self' ${isDev ? devUrl : ''}`,
-      `script-src 'self' ${isDev ? "'unsafe-inline' 'unsafe-eval' " + devUrl : ''}`,
-      `style-src 'self' 'unsafe-inline' ${DOMAIN_WHITELIST.join(' ')}`,
-      `font-src 'self' data: ${DOMAIN_WHITELIST.join(' ')}`,
-      `img-src 'self' data: blob: ${DOMAIN_WHITELIST.join(' ')} ${isDev ? devUrl : ''}`,
-      `connect-src 'self' ${isDev ? devUrl + " ws: wss:" : ''} ${DOMAIN_WHITELIST.join(' ')}`
-    ];
-
-    const csp = cspRules.map(rule => rule.trim()).filter(Boolean).join('; ');
-
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [csp]
-      }
-    });
-  });
-
-  app.on('web-contents-created', (event, contents) => {
-    contents.on('will-navigate', (event, navigationUrl) => {
-      try {
-        const parsedUrl = new URL(navigationUrl);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
-          event.preventDefault();
-          shell.openExternal(navigationUrl);
-        }
-      } catch (err) {
-        event.preventDefault();
-      }
-    });
-
-    contents.setWindowOpenHandler(({ url }) => {
-      try {
-        const parsedUrl = new URL(url);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
-          shell.openExternal(url);
-          return { action: 'deny' };
-        }
-        return { action: 'allow' };
-      } catch (err) {
-        return { action: 'deny' };
-      }
-    });
-  });
-}
+const watchers = new Map<string, fs.FSWatcher>();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -80,6 +16,7 @@ function createWindow() {
       preload: path.join(app.getAppPath(), 'dist-electron/preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      webSecurity: false,
     },
   });
 
@@ -183,10 +120,109 @@ app.on('window-all-closed', () => {
 ipcMain.handle('dialog:openFile', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
-    filters: [{ name: 'SVG files', extensions: ['svg'] }]
+    filters: [{ name: 'Project/SVG', extensions: ['svg', 'json'] }]
   });
   if (canceled) return null;
-  return fs.promises.readFile(filePaths[0], 'utf-8');
+  const content = await fs.promises.readFile(filePaths[0], 'utf-8');
+  return { content, filePath: filePaths[0] };
+});
+
+ipcMain.handle('dialog:openAsset', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [
+      { name: 'Media files', extensions: ['png', 'jpg', 'jpeg', 'tiff', 'mp4', 'mov'] }
+    ]
+  });
+  if (canceled) return null;
+  const stat = await fs.promises.stat(filePaths[0]);
+  return { path: filePaths[0], timestamp: stat.mtimeMs };
+});
+
+ipcMain.handle('dialog:openDirectory', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openDirectory']
+  });
+  if (canceled) return null;
+  return filePaths[0];
+});
+
+ipcMain.handle('fs:findFileRecursively', async (_, dirPath: string, fileName: string) => {
+  async function searchDir(dir: string): Promise<string | null> {
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const found = await searchDir(fullPath);
+        if (found) return found;
+      } else if (entry.name === fileName) {
+        return fullPath;
+      }
+    }
+    return null;
+  }
+  return searchDir(dirPath);
+});
+
+ipcMain.handle('fs:readFileBinary', async (_, filePath: string) => {
+  try {
+    return await fs.promises.readFile(filePath);
+  } catch (err) {
+    return null;
+  }
+});
+
+ipcMain.handle('fs:resolveRelative', (_, baseDir: string, relativePath: string) => {
+  return path.resolve(baseDir, relativePath);
+});
+
+ipcMain.handle('fs:dirname', (_, filePath: string) => {
+  return path.dirname(filePath);
+});
+
+ipcMain.handle('fs:relative', (_, from: string, to: string) => {
+  return path.relative(from, to);
+});
+
+ipcMain.handle('fs:watchFile', (_, filePath: string) => {
+  if (watchers.has(filePath)) return;
+  try {
+    const watcher = fs.watch(filePath, (_eventType) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('fs:fileChanged', filePath);
+      }
+    });
+    watchers.set(filePath, watcher);
+  } catch (err) {
+    console.error('Failed to watch file', filePath, err);
+  }
+});
+
+ipcMain.handle('fs:unwatchFile', (_, filePath: string) => {
+  const watcher = watchers.get(filePath);
+  if (watcher) {
+    watcher.close();
+    watchers.delete(filePath);
+  }
+});
+
+ipcMain.handle('dialog:saveProject', async (_, exportData: any) => {
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    filters: [{ name: 'JSON Project', extensions: ['json'] }]
+  });
+  if (canceled || !filePath) return null;
+  
+  const projectDir = path.dirname(filePath);
+  if (exportData.assets) {
+    for (const asset of Object.values<any>(exportData.assets)) {
+      if (asset.path) {
+        asset.relativePath = path.relative(projectDir, asset.path);
+      }
+    }
+  }
+
+  await fs.promises.writeFile(filePath, JSON.stringify(exportData, null, 2), 'utf-8');
+  return filePath;
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
