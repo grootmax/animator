@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
-import { SvgParser, SvgSerializer } from '@monorepo/serialization';
+import { SvgParser, SvgSerializer, ProjectValidator } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
@@ -161,7 +161,12 @@ function App() {
           }
         };
 
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+        try {
+          ProjectValidator.validateStructure(exportData);
+          await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+        } catch (e: any) {
+          alert(e.message);
+        }
       };
       
       if ('requestIdleCallback' in window) {
