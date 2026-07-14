@@ -56,3 +56,42 @@ ipcMain.handle('dialog:saveFile', async (_, content: string) => {
   await fs.promises.writeFile(filePath, content, 'utf-8');
   return true;
 });
+
+const activeStreams = new Map<string, fs.WriteStream>();
+
+ipcMain.handle('saveStream:start', async () => {
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    filters: [{ name: 'JSON files', extensions: ['json'] }]
+  });
+  if (canceled || !filePath) return null;
+  
+  const id = Date.now().toString() + Math.random().toString();
+  const stream = fs.createWriteStream(filePath, { encoding: 'utf-8' });
+  activeStreams.set(id, stream);
+  return id;
+});
+
+ipcMain.handle('saveStream:chunk', async (_, id: string, chunk: string) => {
+  const stream = activeStreams.get(id);
+  if (!stream) return false;
+  
+  if (stream.write(chunk)) {
+    return true;
+  }
+  
+  return new Promise((resolve) => {
+    stream.once('drain', () => resolve(true));
+  });
+});
+
+ipcMain.handle('saveStream:end', async (_, id: string) => {
+  const stream = activeStreams.get(id);
+  if (!stream) return false;
+  
+  return new Promise((resolve) => {
+    stream.end(() => {
+      activeStreams.delete(id);
+      resolve(true);
+    });
+  });
+});
