@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, session } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -23,6 +23,35 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': ["default-src 'self'"]
+      }
+    });
+  });
+
+  app.on('web-contents-created', (_, contents) => {
+    contents.on('will-navigate', (event, navigationUrl) => {
+      const parsedUrl = new URL(navigationUrl);
+      if (process.env.VITE_DEV_SERVER_URL) {
+        const devUrl = new URL(process.env.VITE_DEV_SERVER_URL);
+        if (parsedUrl.origin !== devUrl.origin) {
+          event.preventDefault();
+        }
+      } else {
+        if (parsedUrl.protocol !== 'file:') {
+          event.preventDefault();
+        }
+      }
+    });
+
+    contents.setWindowOpenHandler(() => {
+      return { action: 'deny' };
+    });
+  });
+
   createWindow();
 
   app.on('activate', () => {
