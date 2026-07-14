@@ -1,5 +1,9 @@
 node_modules/
 dist/
 dist-electron/
-*.tsbuildinfo
 .turbo/
+*.tsbuildinfo
+test-results/
+playwright-report/
+playwright/.cache/
+release/
