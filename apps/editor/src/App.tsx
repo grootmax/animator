@@ -244,40 +244,54 @@ function App() {
     }
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      if (file.type === 'image/png' || file.type === 'image/jpeg') {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const base64Src = ev.target?.result as string;
-          const img = new Image();
-          img.onload = () => {
-            const state = store.getState();
-            state.addNode({
-              id: `image_${Date.now()}`,
-              type: 'image',
-              src: base64Src,
-              x: e.clientX,
-              y: e.clientY,
-              width: img.width,
-              height: img.height,
-              parentId: null
-            });
-            state.recalculateMatrices();
-          };
-          img.src = base64Src;
-        };
-        reader.readAsDataURL(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const validTypes = ['image/png', 'image/jpeg', 'image/webp'];
+      if (!validTypes.includes(file.type)) {
+        alert(`Error: Unsupported file format "${file.name}". Only PNG, JPG, and WebP are allowed.`);
+        continue;
       }
+      
+      if (file.size > 5 * 1024 * 1024) {
+        alert(`Warning: "${file.name}" is larger than 5MB. This may impact performance.`);
+      }
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const src = event.target?.result as string;
+        const img = new Image();
+        img.onload = () => {
+          const state = store.getState();
+          state.addNode({
+            id: `img_${Date.now()}_${i}`,
+            type: 'image',
+            parentId: null,
+            children: [],
+            x: window.innerWidth / 2,
+            y: window.innerHeight / 2,
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+            width: img.naturalWidth,
+            height: img.naturalHeight,
+            src
+          });
+          state.recalculateMatrices();
+        };
+        img.src = src;
+      };
+      reader.readAsDataURL(file);
     }
   };
-
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-  };
-
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden relative">
@@ -298,8 +312,8 @@ function App() {
 
           <div 
             className="flex-1 relative bg-[#1a1a1a]"
-            onDrop={handleDrop}
             onDragOver={handleDragOver}
+            onDrop={handleDrop}
           >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
             {/* Overlay a subtle test animation button for quick testing */}

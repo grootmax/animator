@@ -195,6 +195,7 @@ export class SvgParser {
       case 'path': type = 'path'; break;
       case 'ellipse': type = 'path'; break;
       case 'line': type = 'path'; break;
+      case 'image': type = 'image'; break;
       default: return; // Ignore unsupported
     }
 
@@ -288,6 +289,10 @@ export class SvgParser {
         const y2 = parseFloat(element.getAttribute('y2') || '0');
         node.pathData = `M ${x1},${y1} L ${x2},${y2}`;
       }
+    } else if (type === 'image') {
+      node.width = parseFloat(element.getAttribute('width') || '0');
+      node.height = parseFloat(element.getAttribute('height') || '0');
+      node.src = element.getAttribute('href') || element.getAttribute('xlink:href') || '';
     }
 
     const sceneNode = node as SceneNode;
