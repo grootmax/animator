@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "package": "electron-builder build --mac --win --linux"
+    "postbuild": "node verify-build.js",
+    "package": "electron-builder build --linux"
   },
   "build": {
     "appId": "com.monorepo.editor",
