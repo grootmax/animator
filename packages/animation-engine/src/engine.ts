@@ -1,154 +1,132 @@
-import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import type { Track, Keyframe, EasingType } from './types';
 
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
-
-export interface Keyframe {
-  time: number; // in milliseconds
-  value: number;
-  easing?: EasingType;
-}
-
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity';
-  keyframes: Keyframe[];
-}
+export { Track, Keyframe, EasingType };
 
 export class AnimationEngine {
   private store: ReturnType<typeof createSceneGraphStore>;
+  private worker: Worker;
+  
   private tracks: Track[] = [];
   private playhead = 0;
   private isPlaying = false;
-  private lastTime = 0;
-  private rafId: number | null = null;
   public loop = true;
-  private duration = 5000; // ms
+  private duration = 5000;
 
-  public getPlayhead() { return this.playhead; }
-  public getTracks() { return this.tracks; }
-  public getIsPlaying() { return this.isPlaying; }
-  public getDuration() { return this.duration; }
-  public setDuration(d: number) { this.duration = d; }
-  public setTracks(tracks: Track[]) { this.tracks = tracks; }
+  // Batching for rAF
+  private pendingUpdates: Record<string, any> | null = null;
+  private rafId: number | null = null;
 
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
-  }
-
-  public addTrack(track: Track) {
-    // Sort keyframes by time
-    track.keyframes.sort((a, b) => a.time - b.time);
-    this.tracks.push(track);
-  }
-
-  public play() {
-    if (this.isPlaying) return;
-    this.isPlaying = true;
-    this.lastTime = performance.now();
-    this.tick();
-  }
-
-  public pause() {
-    this.isPlaying = false;
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
-    }
-  }
-
-  public seek(time: number) {
-    this.playhead = time;
-    this.updateNodes();
-  }
-
-  private tick = () => {
-    if (!this.isPlaying) return;
-
-    const now = performance.now();
-    const dt = now - this.lastTime;
-    this.lastTime = now;
-
-    this.playhead += dt;
-
-    if (this.playhead > this.duration) {
-      if (this.loop) {
-        this.playhead = this.playhead % this.duration;
-      } else {
-        this.playhead = this.duration;
-        this.pause();
+    
+    // Initialize Web Worker using modern ES module syntax
+    this.worker = new Worker(new URL('./playback.worker.js', import.meta.url), { type: 'module' });
+    
+    this.worker.onmessage = (e) => {
+      const { type, playhead, updates, data } = e.data;
+      if (type === 'STATE_UPDATE') {
+        this.playhead = playhead;
+        this.queueUpdate(updates);
+      } else if (type === 'EXPORT_READY') {
+        if (this.onExportReadyCallback) {
+          this.onExportReadyCallback(data);
+          this.onExportReadyCallback = null;
+        }
       }
+    };
+    
+    this.worker.postMessage({
+      type: 'INIT',
+      payload: { tracks: this.tracks, duration: this.duration, loop: this.loop }
+    });
+  }
+
+  private queueUpdate(updates: Record<string, any>) {
+    // If pendingUpdates is null, we schedule a rAF to process the batch
+    if (!this.pendingUpdates) {
+      this.pendingUpdates = {};
+      this.rafId = requestAnimationFrame(this.applyUpdates);
     }
-
-    this.updateNodes();
-
-    if (this.isPlaying) {
-      this.rafId = requestAnimationFrame(this.tick);
+    
+    // Merge new updates into pending (latest wins for the frame)
+    for (const [nodeId, nodeUpdates] of Object.entries(updates)) {
+      if (!this.pendingUpdates[nodeId]) {
+        this.pendingUpdates[nodeId] = {};
+      }
+      Object.assign(this.pendingUpdates[nodeId], nodeUpdates);
     }
   }
 
-  private getEasingFunction(type: EasingType = 'linear') {
-    switch (type) {
-      case 'easeInQuad': return easeInQuad;
-      case 'easeOutQuad': return easeOutQuad;
-      case 'easeInOutQuad': return easeInOutQuad;
-      default: return linear;
-    }
-  }
-
-  private binarySearchKeyframes(keyframes: Keyframe[], time: number): [Keyframe | null, Keyframe | null] {
-    if (keyframes.length === 0) return [null, null];
-    if (time <= keyframes[0].time) return [keyframes[0], keyframes[0]];
-    if (time >= keyframes[keyframes.length - 1].time) return [keyframes[keyframes.length - 1], keyframes[keyframes.length - 1]];
-
-    let low = 0;
-    let high = keyframes.length - 1;
-
-    while (low <= high) {
-      const mid = Math.floor((low + high) / 2);
-      if (keyframes[mid].time === time) return [keyframes[mid], keyframes[mid]];
-      if (keyframes[mid].time < time) {
-        low = mid + 1;
-      } else {
-        high = mid - 1;
-      }
-    }
-
-    return [keyframes[high], keyframes[low]];
-  }
-
-  private updateNodes() {
-    const updates = new Map<string, any>();
-
-    for (const track of this.tracks) {
-      const [start, end] = this.binarySearchKeyframes(track.keyframes, this.playhead);
-
-      if (!start || !end) continue;
-
-      let value = start.value;
-      if (start !== end) {
-        const progress = (this.playhead - start.time) / (end.time - start.time);
-        const easingFn = this.getEasingFunction(start.easing);
-        const easedProgress = easingFn(progress);
-        value = start.value + (end.value - start.value) * easedProgress;
-      }
-
-      if (!updates.has(track.nodeId)) {
-        updates.set(track.nodeId, {});
-      }
-      updates.get(track.nodeId)[track.property] = value;
-    }
-
+  private applyUpdates = () => {
+    this.rafId = null;
+    if (!this.pendingUpdates) return;
+    
     const storeState = this.store.getState();
     let requiresMatrixUpdate = false;
 
-    for (const [nodeId, nodeUpdates] of updates.entries()) {
+    for (const [nodeId, nodeUpdates] of Object.entries(this.pendingUpdates)) {
       storeState.updateNode(nodeId, nodeUpdates);
       requiresMatrixUpdate = true;
     }
 
     if (requiresMatrixUpdate) {
       storeState.recalculateMatrices();
+    }
+    
+    this.pendingUpdates = null;
+  }
+
+  public getPlayhead() { return this.playhead; }
+  public getTracks() { return this.tracks; }
+  public getIsPlaying() { return this.isPlaying; }
+  public getDuration() { return this.duration; }
+  
+  public setDuration(d: number) { 
+    this.duration = d; 
+    this.worker.postMessage({ type: 'SET_DURATION', payload: { duration: d } });
+  }
+  
+  public setTracks(tracks: Track[]) { 
+    this.tracks = tracks;
+    this.worker.postMessage({ type: 'SET_TRACKS', payload: { tracks: this.tracks } });
+  }
+
+  public addTrack(track: Track) {
+    track.keyframes.sort((a, b) => a.time - b.time);
+    this.tracks.push(track);
+    this.worker.postMessage({ type: 'SET_TRACKS', payload: { tracks: this.tracks } });
+  }
+
+  public play() {
+    if (this.isPlaying) return;
+    this.isPlaying = true;
+    this.worker.postMessage({ type: 'PLAY' });
+  }
+
+  public pause() {
+    if (!this.isPlaying) return;
+    this.isPlaying = false;
+    this.worker.postMessage({ type: 'PAUSE' });
+  }
+
+  public seek(time: number) {
+    this.playhead = time;
+    this.worker.postMessage({ type: 'SEEK', payload: { time } });
+  }
+
+  private onExportReadyCallback: ((data: any) => void) | null = null;
+  public exportFrames(): Promise<any> {
+    return new Promise((resolve) => {
+      this.onExportReadyCallback = resolve;
+      this.worker.postMessage({ type: 'EXPORT' });
+    });
+  }
+  
+  public destroy() {
+    this.worker.terminate();
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
     }
   }
 }
