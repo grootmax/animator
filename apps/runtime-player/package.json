@@ -9,6 +9,7 @@
   "dependencies": {
     "@monorepo/scene-graph": "*",
     "@monorepo/renderer": "*",
-    "@monorepo/animation-engine": "*"
+    "@monorepo/animation-engine": "*",
+    "@monorepo/serialization": "*"
   }
 }

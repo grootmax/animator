@@ -49,10 +49,23 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
+  try {
+    JSON.parse(content);
+  } catch (e) {
+    console.error('Validation Error: Invalid JSON Syntax');
+    return false;
+  }
+
   const { canceled, filePath } = await dialog.showSaveDialog({
     filters: [{ name: 'JSON files', extensions: ['json'] }]
   });
   if (canceled || !filePath) return false;
-  await fs.promises.writeFile(filePath, content, 'utf-8');
+
+  let finalPath = filePath;
+  if (!finalPath.toLowerCase().endsWith('.json')) {
+    finalPath += '.json';
+  }
+
+  await fs.promises.writeFile(finalPath, content, 'utf-8');
   return true;
 });

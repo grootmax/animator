@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
-import { SvgParser, SvgSerializer } from '@monorepo/serialization';
+import { SvgParser, SvgSerializer, ProjectValidator } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
@@ -73,14 +73,7 @@ function App() {
       const state = store.getState().nodes;
 
       // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
-      }
+      const cleanScene = ProjectValidator.cleanScene(state);
 
       const exportData = {
         scene: cleanScene,
@@ -91,7 +84,12 @@ function App() {
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      try {
+        ProjectValidator.validateStructure(exportData);
+        await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      } catch (e: any) {
+        alert(e.message);
+      }
     } else {
       alert("Electron API not available");
     }
