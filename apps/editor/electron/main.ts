@@ -34,7 +34,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'darwin' || process.env.TEST_MODE === 'true') {
     app.quit();
   }
 });
@@ -56,7 +56,7 @@ ipcMain.handle('dialog:openFile', async () => {
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
   if (process.env.TEST_MODE === 'true') {
-    const testFilePath = path.join(os.tmpdir(), 'test-save.json');
+    const testFilePath = process.env.TEST_SAVE_PATH || path.join(os.tmpdir(), 'test-save.json');
     await fs.promises.writeFile(testFilePath, content, 'utf-8');
     return true;
   }
