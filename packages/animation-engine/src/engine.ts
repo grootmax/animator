@@ -22,6 +22,8 @@ export class AnimationEngine {
   private isPlaying = false;
   private lastTime = 0;
   private rafId: number | null = null;
+  private accumulator = 0;
+  private readonly STEP_MS = 1000 / 60;
   public loop = true;
   private duration = 5000; // ms
 
@@ -45,12 +47,14 @@ export class AnimationEngine {
   public play() {
     if (this.isPlaying) return;
     this.isPlaying = true;
+    this.accumulator = 0;
     this.lastTime = performance.now();
     this.tick();
   }
 
   public pause() {
     this.isPlaying = false;
+    this.accumulator = 0;
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
@@ -59,6 +63,7 @@ export class AnimationEngine {
 
   public seek(time: number) {
     this.playhead = time;
+    this.accumulator = 0;
     this.updateNodes();
   }
 
@@ -69,18 +74,34 @@ export class AnimationEngine {
     const dt = now - this.lastTime;
     this.lastTime = now;
 
-    this.playhead += dt;
+    this.accumulator += dt;
 
-    if (this.playhead > this.duration) {
-      if (this.loop) {
-        this.playhead = this.playhead % this.duration;
-      } else {
-        this.playhead = this.duration;
-        this.pause();
-      }
+    // Cap the accumulator to prevent the "spiral of death"
+    const maxAccumulator = 10 * this.STEP_MS;
+    if (this.accumulator > maxAccumulator) {
+      this.accumulator = maxAccumulator;
     }
 
-    this.updateNodes();
+    while (this.accumulator >= this.STEP_MS) {
+      this.accumulator -= this.STEP_MS;
+      this.playhead += this.STEP_MS;
+
+      if (this.playhead > this.duration) {
+        if (this.loop) {
+          // Wrapping logic
+          this.playhead = this.playhead % this.duration;
+        } else {
+          this.playhead = this.duration;
+          this.pause();
+        }
+      }
+
+      this.updateNodes();
+
+      if (!this.isPlaying) {
+        break; // Stop updating if pause() was called inside the loop
+      }
+    }
 
     if (this.isPlaying) {
       this.rafId = requestAnimationFrame(this.tick);
