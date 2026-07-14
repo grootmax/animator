@@ -144,7 +144,6 @@ export class AnimationEngine {
 
     if (nodeIds.length > 0) {
       storeState.batchUpdateNodes(updates);
-      storeState.recalculateMatrices();
     }
   }
 }

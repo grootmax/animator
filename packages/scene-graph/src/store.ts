@@ -121,7 +121,46 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
         }
       }
 
-      return hasChanges ? { nodes: newNodes } : state;
+      if (!hasChanges) return state;
+
+      // Recalculate matrices inline to avoid a second state notification
+      const { rootId } = state;
+      if (rootId && newNodes[rootId]) {
+        const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
+          const node = newNodes[nodeId];
+          if (!node) return;
+
+          const isNowDirty = node.isDirty || parentWasDirty;
+          let currentWorldMatrix = parentWorldMatrix;
+
+          if (isNowDirty) {
+            const localMatrix = getTransformMatrix(
+              node.x, node.y, 
+              node.rotation, 
+              node.scaleX, node.scaleY,
+              node.skewX || 0, node.skewY || 0
+            );
+            currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
+
+            newNodes[nodeId] = {
+              ...node,
+              localMatrix,
+              worldMatrix: currentWorldMatrix,
+              isDirty: false
+            };
+          } else {
+              currentWorldMatrix = node.worldMatrix;
+          }
+
+          for (const childId of node.children) {
+            traverse(childId, currentWorldMatrix, isNowDirty);
+          }
+        };
+
+        traverse(rootId, createMatrix(), false);
+      }
+
+      return { nodes: newNodes };
     });
   },
 
