@@ -20,9 +20,8 @@ export class AnimationEngine {
   private tracks: Track[] = [];
   private playhead = 0;
   private isPlaying = false;
-  private lastTime = 0;
-  private rafId: number | null = null;
   public loop = true;
+  public fps = 60;
   private duration = 5000; // ms
 
   public getPlayhead() { return this.playhead; }
@@ -43,18 +42,11 @@ export class AnimationEngine {
   }
 
   public play() {
-    if (this.isPlaying) return;
     this.isPlaying = true;
-    this.lastTime = performance.now();
-    this.tick();
   }
 
   public pause() {
     this.isPlaying = false;
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
-    }
   }
 
   public seek(time: number) {
@@ -62,14 +54,21 @@ export class AnimationEngine {
     this.updateNodes();
   }
 
-  private tick = () => {
-    if (!this.isPlaying) return;
+  public setFrame(frameIndex: number) {
+    const time = (frameIndex / this.fps) * 1000;
+    this.seek(time);
+  }
 
-    const now = performance.now();
-    const dt = now - this.lastTime;
-    this.lastTime = now;
+  public getCurrentFrame(): number {
+    return Math.floor(this.playhead / (1000 / this.fps));
+  }
 
-    this.playhead += dt;
+  public getTotalFrames(): number {
+    return Math.floor(this.duration / (1000 / this.fps));
+  }
+
+  public step(deltaTimeMs: number) {
+    this.playhead += deltaTimeMs;
 
     if (this.playhead > this.duration) {
       if (this.loop) {
@@ -78,13 +77,19 @@ export class AnimationEngine {
         this.playhead = this.duration;
         this.pause();
       }
+    } else if (this.playhead < 0) {
+      if (this.loop) {
+        this.playhead = (this.playhead % this.duration + this.duration) % this.duration;
+      } else {
+        this.playhead = 0;
+      }
     }
 
     this.updateNodes();
+  }
 
-    if (this.isPlaying) {
-      this.rafId = requestAnimationFrame(this.tick);
-    }
+  public stepFrame(frameCount: number) {
+    this.setFrame(this.getCurrentFrame() + frameCount);
   }
 
   private getEasingFunction(type: EasingType = 'linear') {

@@ -12,6 +12,8 @@ export class RuntimePlayer {
   private store: ReturnType<typeof createSceneGraphStore>;
   private engine: AnimationEngine;
   private bridge: PixiBridge;
+  private rafId: number | null = null;
+  private lastTime = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.store = createSceneGraphStore();
@@ -52,10 +54,31 @@ export class RuntimePlayer {
   }
 
   public play() {
+    if (this.engine.getIsPlaying()) return;
     this.engine.play();
+    this.lastTime = performance.now();
+    this.rafId = requestAnimationFrame(this.tick);
   }
 
   public pause() {
     this.engine.pause();
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+  }
+
+  private tick = () => {
+    if (!this.engine.getIsPlaying()) return;
+
+    const now = performance.now();
+    const dt = now - this.lastTime;
+    this.lastTime = now;
+
+    this.engine.step(dt);
+
+    if (this.engine.getIsPlaying()) {
+      this.rafId = requestAnimationFrame(this.tick);
+    }
   }
 }

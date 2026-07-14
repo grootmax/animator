@@ -47,11 +47,22 @@ function App() {
 
   useEffect(() => {
     let frame: number;
-    const checkPlayState = () => {
+    let lastTime = performance.now();
+
+    const tick = () => {
+      const now = performance.now();
+      const dt = now - lastTime;
+      lastTime = now;
+
+      if (engine.getIsPlaying()) {
+        engine.step(dt);
+      }
       setIsPlaying(engine.getIsPlaying());
-      frame = requestAnimationFrame(checkPlayState);
+
+      frame = requestAnimationFrame(tick);
     };
-    frame = requestAnimationFrame(checkPlayState);
+
+    frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, []);
 
