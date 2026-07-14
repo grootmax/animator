@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, session, shell, protocol, net } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { setupSecurity } from './security';
@@ -143,6 +143,11 @@ function createWindow() {
 
 app.whenReady().then(() => {
   setupSecurity();
+  protocol.handle('asset', (request) => {
+    let fileUrl = request.url.replace('asset://', 'file://');
+    fileUrl = decodeURIComponent(fileUrl);
+    return net.fetch(fileUrl, { bypassCustomProtocolHandlers: true });
+  });
   createWindow();
 
   app.on('activate', () => {
@@ -189,6 +194,25 @@ ipcMain.handle('dialog:openFile', async () => {
   return fs.promises.readFile(filePaths[0], 'utf-8');
 });
 
+ipcMain.handle('dialog:openProject', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [{ name: 'JSON files', extensions: ['json'] }]
+  });
+  if (canceled || filePaths.length === 0) return null;
+  const content = await fs.promises.readFile(filePaths[0], 'utf-8');
+  return { path: filePaths[0], content };
+});
+
+ipcMain.handle('dialog:saveProject', async (_, content: string) => {
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    filters: [{ name: 'JSON files', extensions: ['json'] }]
+  });
+  if (canceled || !filePath) return null;
+  await fs.promises.writeFile(filePath, content, 'utf-8');
+  return filePath;
+});
+
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
   try {
     JSON.parse(content);
@@ -213,3 +237,8 @@ ipcMain.handle('dialog:saveFile', async (_, content: string) => {
     return false;
   }
 });
+
+ipcMain.handle('path:relative', (_, fromPath: string, toPath: string) => path.relative(fromPath, toPath));
+ipcMain.handle('path:resolve', (_, ...paths: string[]) => path.resolve(...paths));
+ipcMain.handle('path:dirname', (_, p: string) => path.dirname(p));
+ipcMain.handle('path:isAbsolute', (_, p: string) => path.isAbsolute(p));
