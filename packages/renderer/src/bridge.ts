@@ -5,25 +5,36 @@ import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
 import { tokenizePath } from '@monorepo/serialization';
 
+export interface RendererConfig {
+  canvas: any;
+  width: number;
+  height: number;
+  resolution: number;
+  backgroundColor?: number;
+}
+
 export class PixiBridge {
   private app: PIXI.Application;
-  private viewport: Viewport;
-  private handles: TransformHandles;
+  public viewport: Viewport;
+  public handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private config: RendererConfig;
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(config: RendererConfig, store: ReturnType<typeof createSceneGraphStore>) {
+    this.config = config;
     this.app = new PIXI.Application({
-      view: canvas,
-      resizeTo: window,
-      backgroundColor: 0x1a1a1a,
-      resolution: window.devicePixelRatio || 1,
+      view: config.canvas,
+      width: config.width,
+      height: config.height,
+      backgroundColor: config.backgroundColor ?? 0x1a1a1a,
+      resolution: config.resolution,
       autoDensity: true,
     });
 
     this.app.stage.sortableChildren = true;
 
-    this.viewport = new Viewport(this.app);
+    this.viewport = new Viewport(this.app, config);
     this.handles = new TransformHandles(store, this.viewport);
 
     // Add handles directly to the viewport so they pan and zoom with the nodes!
@@ -46,6 +57,17 @@ export class PixiBridge {
     this.app.ticker.add(() => {
         this.handles.update();
     });
+  }
+
+  public resize(width: number, height: number, resolution?: number) {
+    this.config.width = width;
+    this.config.height = height;
+    if (resolution) {
+      this.config.resolution = resolution;
+      this.app.renderer.resolution = resolution;
+    }
+    this.app.renderer.resize(width, height);
+    this.viewport.resize(width, height);
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {

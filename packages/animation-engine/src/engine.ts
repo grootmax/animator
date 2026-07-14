@@ -20,8 +20,6 @@ export class AnimationEngine {
   private tracks: Track[] = [];
   private playhead = 0;
   private isPlaying = false;
-  private lastTime = 0;
-  private rafId: number | null = null;
   public loop = true;
   private duration = 5000; // ms
 
@@ -43,18 +41,11 @@ export class AnimationEngine {
   }
 
   public play() {
-    if (this.isPlaying) return;
     this.isPlaying = true;
-    this.lastTime = performance.now();
-    this.tick();
   }
 
   public pause() {
     this.isPlaying = false;
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
-    }
   }
 
   public seek(time: number) {
@@ -62,12 +53,8 @@ export class AnimationEngine {
     this.updateNodes();
   }
 
-  private tick = () => {
+  public tick(dt: number) {
     if (!this.isPlaying) return;
-
-    const now = performance.now();
-    const dt = now - this.lastTime;
-    this.lastTime = now;
 
     this.playhead += dt;
 
@@ -81,10 +68,6 @@ export class AnimationEngine {
     }
 
     this.updateNodes();
-
-    if (this.isPlaying) {
-      this.rafId = requestAnimationFrame(this.tick);
-    }
   }
 
   private getEasingFunction(type: EasingType = 'linear') {

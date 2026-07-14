@@ -1,16 +1,19 @@
 import * as PIXI from 'pixi.js';
+import { RendererConfig } from './bridge';
 
 export class Viewport {
   public container: PIXI.Container;
   private app: PIXI.Application;
+  private config: RendererConfig;
 
   private isDragging = false;
   private lastPos = { x: 0, y: 0 };
 
   private grid: PIXI.Graphics;
 
-  constructor(app: PIXI.Application) {
+  constructor(app: PIXI.Application, config: RendererConfig) {
     this.app = app;
+    this.config = config;
 
     // Grid setup
     this.grid = new PIXI.Graphics();
@@ -23,10 +26,16 @@ export class Viewport {
     this.drawGrid();
   }
 
-  private drawGrid() {
+  public resize(width: number, height: number) {
+    this.config.width = width;
+    this.config.height = height;
+    this.drawGrid();
+  }
+
+  public drawGrid() {
     this.grid.clear();
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const width = this.config.width;
+    const height = this.config.height;
 
     const gridSize = 50 * this.container.scale.x;
     const offsetX = this.container.x % gridSize;
@@ -46,22 +55,17 @@ export class Viewport {
   }
 
   private setupEvents() {
-    const canvas = this.app.view as HTMLCanvasElement;
-
-    canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
-    canvas.addEventListener('pointermove', this.onPointerMove.bind(this));
-    window.addEventListener('pointerup', this.onPointerUp.bind(this));
-    canvas.addEventListener('wheel', this.onWheel.bind(this), { passive: false });
+    // We will let the runtime inject these events. We remove DOM event listeners.
   }
 
-  private onPointerDown(e: PointerEvent) {
+  public onPointerDown(e: any) {
     if (e.button === 1 || e.shiftKey) { // Middle click or shift+click for pan
       this.isDragging = true;
       this.lastPos = { x: e.clientX, y: e.clientY };
     }
   }
 
-  private onPointerMove(e: PointerEvent) {
+  public onPointerMove(e: any) {
     if (!this.isDragging) return;
 
     const dx = e.clientX - this.lastPos.x;
@@ -74,12 +78,11 @@ export class Viewport {
     this.drawGrid();
   }
 
-  private onPointerUp() {
+  public onPointerUp() {
     this.isDragging = false;
   }
 
-  private onWheel(e: WheelEvent) {
-    e.preventDefault();
+  public onWheel(e: any) {
 
     const zoomFactor = 1 - e.deltaY * 0.001;
     const localPos = this.container.toLocal(new PIXI.Point(e.clientX, e.clientY));
