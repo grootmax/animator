@@ -1,5 +1,5 @@
 import React from 'react';
-import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download } from 'lucide-react';
+import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download, FolderPlus, FolderOpen, Save, Image as ImageIcon } from 'lucide-react';
 
 interface ToolbarProps {
   tool: string;
@@ -8,9 +8,13 @@ interface ToolbarProps {
   togglePlay: () => void;
   onImport: () => void;
   onExport: () => void;
-  onExportSvg: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
+  onProjectCreate: () => void;
+  onProjectOpen: () => void;
+  onProjectSave: () => void;
+  onImportMedia: () => void;
+  hasProject: boolean;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -20,9 +24,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   togglePlay,
   onImport,
   onExport,
-  onExportSvg,
   onZoomIn,
-  onZoomOut
+  onZoomOut,
+  onProjectCreate,
+  onProjectOpen,
+  onProjectSave,
+  onImportMedia,
+  hasProject
 }) => {
   const ToolButton = ({ name, icon: Icon }: { name: string, icon: any }) => (
     <button
@@ -35,8 +43,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   );
 
   return (
-    <div className="flex items-center gap-2 p-2 bg-gray-800 border-b border-gray-700 text-gray-200">
+    <div className="flex items-center gap-2 p-2 bg-gray-800 border-b border-gray-700 text-gray-200 overflow-x-auto">
       <div className="flex gap-1 border-r border-gray-600 pr-2">
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-1" onClick={onProjectCreate} title="New Project">
+          <FolderPlus size={16} /> <span className="text-xs hidden sm:inline">New</span>
+        </button>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-1" onClick={onProjectOpen} title="Open Project">
+          <FolderOpen size={16} /> <span className="text-xs hidden sm:inline">Open</span>
+        </button>
+        <button className={`p-2 rounded-md flex items-center gap-1 ${hasProject ? 'hover:bg-gray-700' : 'opacity-50 cursor-not-allowed'}`} onClick={hasProject ? onProjectSave : undefined} title="Save Project">
+          <Save size={16} /> <span className="text-xs hidden sm:inline">Save</span>
+        </button>
+      </div>
+      <div className="flex gap-1 border-r border-gray-600 pr-2 pl-1">
         <ToolButton name="select" icon={MousePointer2} />
         <ToolButton name="pan" icon={Hand} />
       </div>
@@ -57,15 +76,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <ZoomIn size={20} />
         </button>
       </div>
+      <div className="flex gap-1 border-r border-gray-600 pr-2 pl-1">
+        <button className={`p-2 rounded-md flex items-center gap-1 ${hasProject ? 'hover:bg-gray-700' : 'opacity-50 cursor-not-allowed'}`} onClick={hasProject ? onImportMedia : undefined} title="Import Media (Image/Video)">
+          <ImageIcon size={16} /> <span className="text-xs">Import Media</span>
+        </button>
+      </div>
       <div className="flex gap-1 ml-auto">
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG">
-          <Upload size={20} /> <span className="text-sm">Import</span>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-1" onClick={onImport} title="Import SVG (Legacy)">
+          <Upload size={16} /> <span className="text-xs">SVG</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON">
-          <Download size={20} /> <span className="text-sm">JSON</span>
-        </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG">
-          <Download size={20} /> <span className="text-sm">SVG</span>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-1" onClick={onExport} title="Export JSON (Legacy)">
+          <Download size={16} /> <span className="text-xs">JSON</span>
         </button>
       </div>
     </div>

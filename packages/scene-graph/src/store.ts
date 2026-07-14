@@ -1,7 +1,7 @@
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline';
+export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image' | 'video';
 
 export interface SceneNode {
   id: string;
@@ -33,6 +33,8 @@ export interface SceneNode {
   x2?: number;
   y2?: number;
   points?: string;
+  src?: string;
+  assetId?: string;
 
   // Internal state
   localMatrix: Matrix3;
@@ -40,9 +42,20 @@ export interface SceneNode {
   isDirty: boolean;
 }
 
+export interface Asset {
+  id: string;
+  name: string;
+  relativePath: string;
+  type: 'image' | 'video';
+}
+
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
+  assets: Asset[];
+  setAssets: (assets: Asset[]) => void;
+  addAsset: (asset: Asset) => void;
+  clear: () => void;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
@@ -71,6 +84,11 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
 export const createSceneGraphStore = () => createStore<SceneGraphState>((set, get) => ({
   nodes: {},
   rootId: null,
+  assets: [],
+
+  setAssets: (assets) => set({ assets }),
+  addAsset: (asset) => set((state) => ({ assets: [...state.assets, asset] })),
+  clear: () => set({ nodes: {}, rootId: null, assets: [] }),
 
   addNode: (node) => {
     set((state) => {

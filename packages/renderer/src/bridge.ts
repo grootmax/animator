@@ -10,7 +10,7 @@ export class PixiBridge {
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -106,7 +106,28 @@ export class PixiBridge {
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
-        if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
+        if (node.type === 'image' || node.type === 'video') {
+          const sprite = new PIXI.Sprite();
+          if (node.src) {
+            const texture = PIXI.Texture.from(node.src);
+            sprite.texture = texture;
+            texture.baseTexture.on('loaded', () => {
+              if (node.width && node.height) {
+                sprite.width = node.width;
+                sprite.height = node.height;
+              }
+            });
+          }
+          if (node.type === 'video') {
+            const source = (sprite.texture.baseTexture.resource as any).source as HTMLVideoElement;
+            if (source && source.play) {
+              source.loop = true;
+              source.muted = true; // Auto-play policies
+              source.play().catch(() => {});
+            }
+          }
+          pixiNode = sprite;
+        } else if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
         } else {
           pixiNode = new PIXI.Container();
@@ -134,7 +155,15 @@ export class PixiBridge {
       pixiNode.visible = node.visible !== false;
       pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
-      if (pixiNode instanceof PIXI.Graphics) {
+      if (pixiNode instanceof PIXI.Sprite) {
+        if (node.width !== undefined && node.height !== undefined) {
+          pixiNode.width = node.width;
+          pixiNode.height = node.height;
+          // Set anchor to center to match other geometries like rect/circle if needed, 
+          // or top-left. It's usually top-left by default, but let's center it if the engine expects it
+          pixiNode.anchor.set(0.5);
+        }
+      } else if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();
 
         if (node.fill) {
