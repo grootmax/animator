@@ -20,23 +20,61 @@ export class AnimationEngine {
   private tracks: Track[] = [];
   private playhead = 0;
   private isPlaying = false;
-  private lastTime = 0;
+  private startTime = 0;
+  private startPlayhead = 0;
   private rafId: number | null = null;
   public loop = true;
   private duration = 5000; // ms
+  private fps = 60;
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
   public getIsPlaying() { return this.isPlaying; }
   public getDuration() { return this.duration; }
-  public setDuration(d: number) { this.duration = d; }
-  public setTracks(tracks: Track[]) { this.tracks = tracks; }
+  public getFps() { return this.fps; }
+
+  private getFrameDuration() {
+    return 1000 / this.fps;
+  }
+
+  private snapTime(time: number) {
+    const frameDuration = this.getFrameDuration();
+    return Math.round(time / frameDuration) * frameDuration;
+  }
+
+  private snapAllToCurrentFps() {
+    this.duration = this.snapTime(this.duration);
+    this.playhead = this.snapTime(this.playhead);
+    for (const track of this.tracks) {
+      for (const kf of track.keyframes) {
+        kf.time = this.snapTime(kf.time);
+      }
+    }
+    this.updateNodes();
+  }
+
+  public setFps(fps: number) {
+    this.fps = fps;
+    this.snapAllToCurrentFps();
+  }
+
+  public setDuration(d: number) {
+    this.duration = this.snapTime(d);
+  }
+
+  public setTracks(tracks: Track[]) {
+    this.tracks = tracks;
+    this.snapAllToCurrentFps();
+  }
 
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
   }
 
   public addTrack(track: Track) {
+    for (const kf of track.keyframes) {
+      kf.time = this.snapTime(kf.time);
+    }
     // Sort keyframes by time
     track.keyframes.sort((a, b) => a.time - b.time);
     this.tracks.push(track);
@@ -45,7 +83,8 @@ export class AnimationEngine {
   public play() {
     if (this.isPlaying) return;
     this.isPlaying = true;
-    this.lastTime = performance.now();
+    this.startTime = performance.now();
+    this.startPlayhead = this.playhead;
     this.tick();
   }
 
@@ -58,7 +97,7 @@ export class AnimationEngine {
   }
 
   public seek(time: number) {
-    this.playhead = time;
+    this.playhead = this.snapTime(time);
     this.updateNodes();
   }
 
@@ -66,21 +105,30 @@ export class AnimationEngine {
     if (!this.isPlaying) return;
 
     const now = performance.now();
-    const dt = now - this.lastTime;
-    this.lastTime = now;
+    const elapsed = now - this.startTime;
+    
+    let rawNewPlayhead = this.startPlayhead + elapsed;
+    let newPlayhead = this.snapTime(rawNewPlayhead);
 
-    this.playhead += dt;
-
-    if (this.playhead > this.duration) {
+    if (newPlayhead > this.duration) {
       if (this.loop) {
-        this.playhead = this.playhead % this.duration;
+        this.startTime = now;
+        rawNewPlayhead = rawNewPlayhead % this.duration;
+        this.startPlayhead = rawNewPlayhead;
+        newPlayhead = this.snapTime(rawNewPlayhead);
       } else {
-        this.playhead = this.duration;
+        newPlayhead = this.duration;
+        this.playhead = newPlayhead;
+        this.updateNodes();
         this.pause();
+        return;
       }
     }
 
-    this.updateNodes();
+    if (this.playhead !== newPlayhead) {
+      this.playhead = newPlayhead;
+      this.updateNodes();
+    }
 
     if (this.isPlaying) {
       this.rafId = requestAnimationFrame(this.tick);
