@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { createSceneGraphStore, transientState } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
@@ -61,7 +61,7 @@ function App() {
       if (svgContent) {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+        nodes.forEach(node => store.getState().addNode(node as any));
       }
     } else {
       alert("Electron API not available");
@@ -72,13 +72,14 @@ function App() {
     if (window.electronAPI) {
       const state = store.getState().nodes;
 
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
+      // Filter out internal state (localMatrix, worldMatrix, isDirty, isRenderDirty) to create clean export
       const cleanScene: Record<string, any> = {};
       for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
+        const cleanNode = { ...node, ...(transientState[id] || {}) };
         delete (cleanNode as any).localMatrix;
         delete (cleanNode as any).worldMatrix;
         delete (cleanNode as any).isDirty;
+        delete (cleanNode as any).isRenderDirty;
         cleanScene[id] = cleanNode;
       }
 

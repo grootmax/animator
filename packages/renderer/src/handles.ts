@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
+import { SceneNode, createSceneGraphStore, transientState } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 
 export class TransformHandles {
@@ -14,7 +14,7 @@ export class TransformHandles {
   private isDragging = false;
   private dragType: string | null = null;
   private dragStartPos = { x: 0, y: 0 };
-  private startNodeState: SceneNode | null = null;
+  private startNodeState: any = null;
 
   constructor(store: ReturnType<typeof createSceneGraphStore>, viewport: Viewport) {
     this.store = store;
@@ -55,8 +55,9 @@ export class TransformHandles {
 
     const state = this.store.getState();
     const node = state.nodes[this.selectedNodeId];
+    const tNode = transientState[this.selectedNodeId];
 
-    if (!node || node.locked || !node.visible) {
+    if (!node || node.locked || !node.visible || !tNode) {
       this.container.visible = false;
       return;
     }
@@ -64,7 +65,7 @@ export class TransformHandles {
     this.container.visible = true;
 
     // Use worldMatrix to position the handles relative to the viewport
-    const wm = node.worldMatrix;
+    const wm = tNode.worldMatrix;
 
     // Apply world matrix to the handles container
     this.container.setTransform(
@@ -111,7 +112,7 @@ export class TransformHandles {
     this.isDragging = true;
     this.dragType = type;
     this.dragStartPos = { x: e.globalX, y: e.globalY };
-    this.startNodeState = { ...this.store.getState().nodes[this.selectedNodeId] } as SceneNode;
+    this.startNodeState = { ...transientState[this.selectedNodeId] } as any;
   }
 
   private onDragMove(e: PointerEvent) {
@@ -137,7 +138,7 @@ export class TransformHandles {
        updates.scaleY = this.startNodeState.scaleY + scaleDelta;
     }
 
-    this.store.getState().updateNode(this.selectedNodeId, updates);
+    this.store.getState().updateTransientNode(this.selectedNodeId, updates);
     this.store.getState().recalculateMatrices();
   }
 
