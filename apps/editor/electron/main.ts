@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -23,6 +23,67 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  const ALLOWED_EXTERNAL_DOMAINS = ['github.com', 'electronjs.org'];
+
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    let csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self';";
+    
+    if (process.env.VITE_DEV_SERVER_URL) {
+      try {
+        const devUrl = new URL(process.env.VITE_DEV_SERVER_URL);
+        const origin = devUrl.origin;
+        csp = `default-src 'self' ${origin}; script-src 'self' 'unsafe-inline' 'unsafe-eval' ${origin}; style-src 'self' 'unsafe-inline' ${origin}; connect-src 'self' ${origin} ws://${devUrl.host} wss://${devUrl.host}; font-src 'self' ${origin} data:; img-src 'self' ${origin} data:;`;
+      } catch (e) {
+        // Ignore
+      }
+    }
+
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp]
+      }
+    });
+  });
+
+  app.on('web-contents-created', (_, contents) => {
+    contents.on('will-navigate', (event, navigationUrl) => {
+      try {
+        const parsedUrl = new URL(navigationUrl);
+        const isDev = !!process.env.VITE_DEV_SERVER_URL;
+        
+        if (isDev && process.env.VITE_DEV_SERVER_URL) {
+          const devUrl = new URL(process.env.VITE_DEV_SERVER_URL);
+          if (parsedUrl.origin === devUrl.origin) {
+            return;
+          }
+        } else if (!isDev && parsedUrl.protocol === 'file:') {
+          return;
+        }
+
+        if (parsedUrl.protocol === 'https:' && ALLOWED_EXTERNAL_DOMAINS.includes(parsedUrl.hostname)) {
+          shell.openExternal(navigationUrl);
+        }
+      } catch (e) {
+        // Ignore
+      }
+      
+      event.preventDefault();
+    });
+
+    contents.setWindowOpenHandler(({ url }) => {
+      try {
+        const parsedUrl = new URL(url);
+        if (parsedUrl.protocol === 'https:' && ALLOWED_EXTERNAL_DOMAINS.includes(parsedUrl.hostname)) {
+          shell.openExternal(url);
+        }
+      } catch (e) {
+        // Ignore
+      }
+      return { action: 'deny' };
+    });
+  });
+
   createWindow();
 
   app.on('activate', () => {
