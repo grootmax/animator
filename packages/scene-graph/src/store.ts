@@ -1,7 +1,7 @@
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline';
+export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image';
 
 export interface SceneNode {
   id: string;
@@ -33,6 +33,7 @@ export interface SceneNode {
   x2?: number;
   y2?: number;
   points?: string;
+  src?: string;
 
   // Internal state
   localMatrix: Matrix3;
@@ -43,11 +44,17 @@ export interface SceneNode {
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
+  viewport: { x: number; y: number; zoom: number };
+  selectedNodeId: string | null;
+  remoteSelections: Record<string, { nodeId: string; color: string; userName?: string }>;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
+  setViewport: (viewport: { x: number; y: number; zoom: number }) => void;
+  setSelectedNodeId: (id: string | null) => void;
+  setRemoteSelection: (userId: string, nodeId: string | null, color?: string, userName?: string) => void;
 }
 
 const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }): SceneNode => ({
@@ -71,6 +78,23 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
 export const createSceneGraphStore = () => createStore<SceneGraphState>((set, get) => ({
   nodes: {},
   rootId: null,
+  viewport: { x: 0, y: 0, zoom: 1 },
+  selectedNodeId: null,
+  remoteSelections: {},
+
+  setViewport: (viewport) => set({ viewport }),
+  
+  setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+  
+  setRemoteSelection: (userId, nodeId, color, userName) => set((state) => {
+    const newRemoteSelections = { ...state.remoteSelections };
+    if (nodeId === null) {
+      delete newRemoteSelections[userId];
+    } else {
+      newRemoteSelections[userId] = { nodeId, color: color || '#ff0000', userName };
+    }
+    return { remoteSelections: newRemoteSelections };
+  }),
 
   addNode: (node) => {
     set((state) => {
@@ -99,9 +123,13 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       const node = state.nodes[id];
       if (!node) return state;
 
-      // O(1) dirty marking: just mark the current node.
+      const SPATIAL_PROPERTIES = ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'skewX', 'skewY'];
+      const hasSpatialUpdate = Object.keys(updates).some(key => SPATIAL_PROPERTIES.includes(key));
+
+      // O(1) dirty marking: just mark the current node if spatial properties changed.
       // The recalculate step will propagate this to children automatically!
-      const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
+      const isDirty = node.isDirty || hasSpatialUpdate;
+      const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty } };
 
       return { nodes: newNodes };
     });
@@ -167,16 +195,20 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
         const node = newNodes[nodeId];
         if (!node) return;
 
-        const isNowDirty = node.isDirty || parentWasDirty;
+        const isWorldDirty = node.isDirty || parentWasDirty;
         let currentWorldMatrix = parentWorldMatrix;
 
-        if (isNowDirty) {
-          const localMatrix = getTransformMatrix(
-            node.x, node.y, 
-            node.rotation, 
-            node.scaleX, node.scaleY,
-            node.skewX || 0, node.skewY || 0
-          );
+        if (isWorldDirty) {
+          let localMatrix = node.localMatrix;
+
+          if (node.isDirty) {
+            localMatrix = getTransformMatrix(
+              node.x, node.y, 
+              node.rotation, 
+              node.scaleX, node.scaleY,
+              node.skewX || 0, node.skewY || 0
+            );
+          }
           currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
 
           newNodes[nodeId] = {
@@ -190,7 +222,7 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
         }
 
         for (const childId of node.children) {
-          traverse(childId, currentWorldMatrix, isNowDirty);
+          traverse(childId, currentWorldMatrix, isWorldDirty);
         }
       };
 
