@@ -1,5 +1,5 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
-import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { createSceneGraphStore, SPATIAL_X, SPATIAL_Y, SPATIAL_ROTATION, SPATIAL_SCALE_X, SPATIAL_SCALE_Y, SPATIAL_OPACITY, SPATIAL_IS_DIRTY } from '@monorepo/scene-graph';
 
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
 
@@ -14,6 +14,15 @@ export interface Track {
   property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity';
   keyframes: Keyframe[];
 }
+
+const PROPERTY_TO_OFFSET: Record<string, number> = {
+  'x': SPATIAL_X,
+  'y': SPATIAL_Y,
+  'rotation': SPATIAL_ROTATION,
+  'scaleX': SPATIAL_SCALE_X,
+  'scaleY': SPATIAL_SCALE_Y,
+  'opacity': SPATIAL_OPACITY
+};
 
 export class AnimationEngine {
   private store: ReturnType<typeof createSceneGraphStore>;
@@ -118,9 +127,19 @@ export class AnimationEngine {
   }
 
   private updateNodes() {
-    const updates = new Map<string, any>();
+    const state = this.store.getState();
+    const buffer = state.spatialBuffer;
+    const nodeOffsetMap = state.nodeOffsetMap;
+    
+    let requiresMatrixUpdate = false;
 
-    for (const track of this.tracks) {
+    // Loop directly over tracks to avoid allocations
+    for (let i = 0; i < this.tracks.length; i++) {
+      const track = this.tracks[i];
+      const offset = nodeOffsetMap[track.nodeId];
+      
+      if (offset === undefined) continue;
+
       const [start, end] = this.binarySearchKeyframes(track.keyframes, this.playhead);
 
       if (!start || !end) continue;
@@ -133,22 +152,17 @@ export class AnimationEngine {
         value = start.value + (end.value - start.value) * easedProgress;
       }
 
-      if (!updates.has(track.nodeId)) {
-        updates.set(track.nodeId, {});
+      const propOffset = PROPERTY_TO_OFFSET[track.property];
+      
+      if (buffer[offset + propOffset] !== value) {
+        buffer[offset + propOffset] = value;
+        buffer[offset + SPATIAL_IS_DIRTY] = 1;
+        requiresMatrixUpdate = true;
       }
-      updates.get(track.nodeId)[track.property] = value;
-    }
-
-    const storeState = this.store.getState();
-    let requiresMatrixUpdate = false;
-
-    for (const [nodeId, nodeUpdates] of updates.entries()) {
-      storeState.updateNode(nodeId, nodeUpdates);
-      requiresMatrixUpdate = true;
     }
 
     if (requiresMatrixUpdate) {
-      storeState.recalculateMatrices();
+      state.recalculateMatrices();
     }
   }
 }

@@ -39,13 +39,24 @@ export class PixiBridge {
     });
 
     this.store.subscribe((state) => {
-      this.syncNodes(state.nodes);
+      this.syncStructureAndShapes(state.nodes);
       this.handles.update();
     });
 
     this.app.ticker.add(() => {
+        this.syncSpatial();
         this.handles.update();
     });
+  }
+
+  private syncSpatial() {
+    const nodes = this.store.getState().nodes;
+    for (const [id, pixiNode] of this.pixiNodes.entries()) {
+      const node = nodes[id];
+      if (!node) continue;
+      pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
+      this.applyMatrix(pixiNode, node.localMatrix);
+    }
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
@@ -101,7 +112,7 @@ export class PixiBridge {
     }
   }
 
-  private syncNodes(nodes: Record<string, SceneNode>) {
+  private syncStructureAndShapes(nodes: Record<string, SceneNode>) {
     for (const [id, node] of Object.entries(nodes)) {
       let pixiNode = this.pixiNodes.get(id);
 
@@ -130,9 +141,8 @@ export class PixiBridge {
         }
       }
 
-      // Update visibility and opacity
+      // Update visibility (opacity is handled by syncSpatial)
       pixiNode.visible = node.visible !== false;
-      pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
       if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();
@@ -172,8 +182,6 @@ export class PixiBridge {
             pixiNode.endFill();
         }
       }
-
-      this.applyMatrix(pixiNode, node.localMatrix);
     }
   }
 }
