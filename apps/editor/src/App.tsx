@@ -10,6 +10,8 @@ import { Timeline } from './components/Timeline';
 import { DndProvider } from 'react-dnd';
 // @ts-ignore
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import { createWorkerTask } from './utils/workerUtils';
+import SerializationWorker from './workers/serialization.worker?worker';
 
 // Create singletons for the app
 const channel = new BroadcastChannel('scene-graph-sync');
@@ -40,8 +42,7 @@ function App() {
   const [storeVersion, setStoreVersion] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [saveProgress, setSaveProgress] = useState<number | null>(null);
-  const [showSaveProgress, setShowSaveProgress] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -101,73 +102,24 @@ function App() {
 
   const handleSaveState = async () => {
     if (window.electronAPI) {
-      const state = store.getState().nodes;
-      const nodeKeys = Object.keys(state);
-      const totalNodes = nodeKeys.length;
-      
-      const cleanScene: Record<string, any> = {};
-      
-      let currentIndex = 0;
-      
-      const showProgressTimeout = setTimeout(() => {
-        setShowSaveProgress(true);
-      }, 500);
-
-      const processBatch = (deadline?: any) => {
-        const startTime = performance.now();
+      setIsSaving(true);
+      try {
+        const state = store.getState().nodes;
+        const animations = engine.getTracks();
+        const duration = engine.getDuration();
         
-        while (currentIndex < totalNodes) {
-          if (deadline && deadline.timeRemaining) {
-            if (deadline.timeRemaining() < 2) break;
-          } else {
-            if (performance.now() - startTime > 10) break;
-          }
-          
-          const id = nodeKeys[currentIndex];
-          const node = state[id];
-          const cleanNode = { ...node };
-          delete (cleanNode as any).localMatrix;
-          delete (cleanNode as any).worldMatrix;
-          delete (cleanNode as any).isDirty;
-          cleanScene[id] = cleanNode;
-          
-          currentIndex++;
-        }
-        
-        setSaveProgress(Math.floor((currentIndex / totalNodes) * 100));
+        const serializationTask = createWorkerTask<any, string>(() => new SerializationWorker());
+        const jsonString = await serializationTask.run({
+          state,
+          animations,
+          duration
+        });
 
-        if (currentIndex < totalNodes) {
-          if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(processBatch);
-          } else {
-            setTimeout(processBatch, 0);
-          }
-        } else {
-          finishSave();
-        }
-      };
-
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
-          }
-        };
-
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
-      };
-      
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(processBatch);
-      } else {
-        setTimeout(processBatch, 0);
+        await window.electronAPI.saveFile(jsonString);
+      } catch (error: any) {
+        alert("Save failed: " + (error.message || "Unknown error"));
+      } finally {
+        setIsSaving(false);
       }
     } else {
       alert("Electron API not available");
@@ -302,6 +254,12 @@ function App() {
             onDragOver={handleDragOver}
           >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+            {isSaving && (
+              <div className="absolute top-4 left-4 bg-gray-800 border border-gray-600 px-4 py-2 rounded shadow-lg text-sm flex items-center space-x-2 z-10">
+                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <span>Saving in background...</span>
+              </div>
+            )}
             {/* Overlay a subtle test animation button for quick testing */}
             <button
                className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
@@ -314,15 +272,7 @@ function App() {
 
         <Timeline engine={engine} store={store} />
 
-        {showSaveProgress && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-gray-800 p-6 rounded-lg border border-gray-700 flex flex-col items-center gap-3">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-              <div className="text-sm font-medium">Saving Project...</div>
-              <div className="text-xs text-gray-400">{saveProgress}%</div>
-            </div>
-          </div>
-        )}
+
       </div>
     </DndProvider>
   );
