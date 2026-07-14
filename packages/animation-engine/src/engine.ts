@@ -25,6 +25,9 @@ export class AnimationEngine {
   public loop = true;
   private duration = 5000; // ms
 
+  private accumulator = 0;
+  private fixedStep = 1000 / 60;
+
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
   public getIsPlaying() { return this.isPlaying; }
@@ -45,6 +48,7 @@ export class AnimationEngine {
   public play() {
     if (this.isPlaying) return;
     this.isPlaying = true;
+    this.accumulator = 0;
     this.lastTime = performance.now();
     this.tick();
   }
@@ -59,28 +63,52 @@ export class AnimationEngine {
 
   public seek(time: number) {
     this.playhead = time;
-    this.updateNodes();
+    this.updateNodes(true);
   }
 
   private tick = () => {
     if (!this.isPlaying) return;
 
     const now = performance.now();
-    const dt = now - this.lastTime;
+    let dt = now - this.lastTime;
     this.lastTime = now;
 
-    this.playhead += dt;
+    if (dt > 250) {
+      dt = 250;
+    }
 
-    if (this.playhead > this.duration) {
-      if (this.loop) {
-        this.playhead = this.playhead % this.duration;
-      } else {
-        this.playhead = this.duration;
-        this.pause();
+    this.accumulator += dt;
+    let didStep = false;
+    let requiresMatrixUpdate = false;
+
+    while (this.accumulator >= this.fixedStep) {
+      this.playhead += this.fixedStep;
+
+      if (this.playhead > this.duration) {
+        if (this.loop) {
+          this.playhead = this.playhead % this.duration;
+        } else {
+          this.playhead = this.duration;
+          this.pause();
+        }
+      }
+
+      const didUpdateNodes = this.updateNodes(false);
+      if (didUpdateNodes) {
+        requiresMatrixUpdate = true;
+      }
+
+      this.accumulator -= this.fixedStep;
+      didStep = true;
+
+      if (!this.isPlaying) {
+        break;
       }
     }
 
-    this.updateNodes();
+    if (didStep && requiresMatrixUpdate) {
+      this.store.getState().recalculateMatrices();
+    }
 
     if (this.isPlaying) {
       this.rafId = requestAnimationFrame(this.tick);
@@ -117,7 +145,7 @@ export class AnimationEngine {
     return [keyframes[high], keyframes[low]];
   }
 
-  private updateNodes() {
+  private updateNodes(recalculate: boolean = true) {
     const updates = new Map<string, any>();
 
     for (const track of this.tracks) {
@@ -147,8 +175,10 @@ export class AnimationEngine {
       requiresMatrixUpdate = true;
     }
 
-    if (requiresMatrixUpdate) {
+    if (requiresMatrixUpdate && recalculate) {
       storeState.recalculateMatrices();
     }
+    
+    return requiresMatrixUpdate;
   }
 }
