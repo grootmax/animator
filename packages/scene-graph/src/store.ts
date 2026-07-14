@@ -48,14 +48,19 @@ export interface SceneGraphState {
   viewport: { x: number; y: number; zoom: number };
   selectedNodeId: string | null;
   remoteSelections: Record<string, { nodeId: string; color: string; userName?: string }>;
+  modifiedNodes: Set<string>;
+  deletedNodes: Set<string>;
+  loadProject: (nodes: Record<string, SceneNode>, rootId: string | null) => void;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
+  deleteNode: (id: string) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
   setViewport: (viewport: { x: number; y: number; zoom: number }) => void;
   setSelectedNodeId: (id: string | null) => void;
   setRemoteSelection: (userId: string, nodeId: string | null, color?: string, userName?: string) => void;
+  clearSaveDeltas: () => void;
 }
 
 const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }): SceneNode => ({
@@ -86,12 +91,32 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
   viewport: { x: 0, y: 0, zoom: 1 },
   selectedNodeId: null,
   remoteSelections: {},
+  modifiedNodes: new Set<string>(),
+  deletedNodes: new Set<string>(),
 
-  setViewport: (viewport) => set({ viewport }),
+  loadProject: (nodes: Record<string, SceneNode>, rootId: string | null) => {
+    const newNodes: Record<string, SceneNode> = {};
+    for (const [id, node] of Object.entries(nodes)) {
+      newNodes[id] = {
+        ...node,
+        localMatrix: createMatrix(),
+        worldMatrix: createMatrix(),
+        isDirty: true
+      };
+    }
+    set({
+      nodes: newNodes,
+      rootId,
+      modifiedNodes: new Set(),
+      deletedNodes: new Set()
+    });
+  },
+
+  setViewport: (viewport: { x: number; y: number; zoom: number }) => set({ viewport }),
   
-  setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+  setSelectedNodeId: (selectedNodeId: string | null) => set({ selectedNodeId }),
   
-  setRemoteSelection: (userId, nodeId, color, userName) => set((state) => {
+  setRemoteSelection: (userId: string, nodeId: string | null, color?: string, userName?: string) => set((state: SceneGraphState) => {
     const newRemoteSelections = { ...state.remoteSelections };
     if (nodeId === null) {
       delete newRemoteSelections[userId];
@@ -111,10 +136,13 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
       newNode.order = generateKeyBetween(lastSibling?.order || null, null);
       
       const newNodes = { ...state.nodes, [node.id]: newNode };
-      
+      const newModified = new Set(state.modifiedNodes);
+      newModified.add(node.id);
+
       return {
         nodes: newNodes,
-        rootId: state.rootId || (node.parentId === null ? node.id : state.rootId)
+        rootId: state.rootId || (node.parentId === null ? node.id : state.rootId),
+        modifiedNodes: newModified
       };
     }, false, { type: 'addNode', payload: node });
   },
@@ -127,12 +155,13 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
       const SPATIAL_PROPERTIES = ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'skewX', 'skewY'];
       const hasSpatialUpdate = Object.keys(updates).some(key => SPATIAL_PROPERTIES.includes(key));
 
-      // O(1) dirty marking: just mark the current node if spatial properties changed.
-      // The recalculate step will propagate this to children automatically!
       const isDirty = node.isDirty || hasSpatialUpdate;
       const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty } };
 
-      return { nodes: newNodes };
+      const newModified = new Set(state.modifiedNodes);
+      newModified.add(id);
+
+      return { nodes: newNodes, modifiedNodes: newModified };
     }, false, { type: 'updateNode', payload: { id, updates } });
   },
 
@@ -142,6 +171,8 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
       if (!node) return state;
 
       const newNodes = { ...state.nodes };
+      const newModified = new Set(state.modifiedNodes);
+      newModified.add(id);
 
       const siblings = Object.values(state.nodes).filter((n: any) => n.parentId === newParentId && n.id !== id);
       siblings.sort((a, b) => (a.order || '').localeCompare(b.order || ''));
@@ -153,8 +184,42 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
       newNodes[id] = { ...node, parentId: newParentId, order: newOrder, isDirty: true };
 
-      return { nodes: newNodes };
+      return { nodes: newNodes, modifiedNodes: newModified };
     }, false, { type: 'reorderNode', payload: { id, newParentId, index } });
+  },
+
+  deleteNode: (id: string) => {
+    set((state: SceneGraphState) => {
+      const node = state.nodes[id];
+      if (!node) return state;
+
+      const newNodes = { ...state.nodes };
+      const newDeleted = new Set(state.deletedNodes);
+      const newModified = new Set(state.modifiedNodes);
+
+      const deleteRecursively = (nodeId: string) => {
+        const n = newNodes[nodeId];
+        if (!n) return;
+
+        const children = Object.values(newNodes).filter((child: any) => child.parentId === nodeId);
+        for (const child of children) {
+          deleteRecursively(child.id);
+        }
+
+        delete newNodes[nodeId];
+        newDeleted.add(nodeId);
+        newModified.delete(nodeId);
+      };
+
+      deleteRecursively(id);
+
+      return {
+        nodes: newNodes,
+        deletedNodes: newDeleted,
+        modifiedNodes: newModified,
+        rootId: id === state.rootId ? null : state.rootId
+      };
+    }, false, { type: 'deleteNode', payload: { id } });
   },
 
   markDirty: (id: string) => {
@@ -214,7 +279,7 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
             currentWorldMatrix = node.worldMatrix;
         }
 
-        for (const childId of node.children) {
+        for (const childId of (childrenMap[nodeId] || [])) {
           traverse(childId, currentWorldMatrix, isWorldDirty);
         }
       };
@@ -223,6 +288,10 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
       return { nodes: newNodes };
     });
+  },
+
+  clearSaveDeltas: () => {
+    set({ modifiedNodes: new Set(), deletedNodes: new Set() });
   }
   });
   return createStore<SceneGraphState>(broadcastCb ? syncMiddleware(config as any, broadcastCb) as any : config as any);

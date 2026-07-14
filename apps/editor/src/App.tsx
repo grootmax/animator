@@ -30,6 +30,8 @@ declare global {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
       exportSvg: (content: string) => Promise<boolean>;
+      openProject: () => Promise<{success: boolean, data?: any, error?: string}>;
+      saveProject: (payload: string, isSaveAs?: boolean) => Promise<{success: boolean, savedPath?: string, error?: string}>;
     }
   }
 }
@@ -40,8 +42,7 @@ function App() {
   const [storeVersion, setStoreVersion] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [saveProgress, setSaveProgress] = useState<number | null>(null);
-  const [showSaveProgress, setShowSaveProgress] = useState(false);
+  const [hasSaved, setHasSaved] = useState(false);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -99,75 +100,77 @@ function App() {
     }
   };
 
-  const handleSaveState = async () => {
+  const handleSaveState = async (isSaveAs: boolean = false) => {
     if (window.electronAPI) {
-      const state = store.getState().nodes;
-      const nodeKeys = Object.keys(state);
-      const totalNodes = nodeKeys.length;
-      
-      const cleanScene: Record<string, any> = {};
-      
-      let currentIndex = 0;
-      
-      const showProgressTimeout = setTimeout(() => {
-        setShowSaveProgress(true);
-      }, 500);
 
-      const processBatch = (deadline?: any) => {
-        const startTime = performance.now();
-        
-        while (currentIndex < totalNodes) {
-          if (deadline && deadline.timeRemaining) {
-            if (deadline.timeRemaining() < 2) break;
-          } else {
-            if (performance.now() - startTime > 10) break;
-          }
-          
-          const id = nodeKeys[currentIndex];
-          const node = state[id];
+      const state = store.getState();
+      const nodes = state.nodes;
+      const modifiedNodes = state.modifiedNodes;
+      const deletedNodes = state.deletedNodes;
+
+      const isFirstSave = !hasSaved;
+      const isFullSave = isFirstSave || isSaveAs;
+
+      let payload: any = {};
+
+      if (isFullSave) {
+        // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
+        const cleanScene: Record<string, any> = {};
+        for (const [id, node] of Object.entries(nodes)) {
           const cleanNode = { ...node };
           delete (cleanNode as any).localMatrix;
           delete (cleanNode as any).worldMatrix;
           delete (cleanNode as any).isDirty;
           cleanScene[id] = cleanNode;
-          
-          currentIndex++;
         }
-        
-        setSaveProgress(Math.floor((currentIndex / totalNodes) * 100));
 
-        if (currentIndex < totalNodes) {
-          if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(processBatch);
-          } else {
-            setTimeout(processBatch, 0);
+        payload = {
+          type: 'full',
+          data: {
+            scene: cleanScene,
+            animations: engine.getTracks(),
+            metadata: {
+              version: "1.0.0",
+              duration: engine.getDuration()
+            }
           }
-        } else {
-          finishSave();
+        };
+      } else {
+        const addedOrModified: Record<string, any> = {};
+        for (const id of modifiedNodes) {
+          const node = nodes[id];
+          if (node) {
+            const cleanNode = { ...node };
+            delete (cleanNode as any).localMatrix;
+            delete (cleanNode as any).worldMatrix;
+            delete (cleanNode as any).isDirty;
+            addedOrModified[id] = cleanNode;
+          }
         }
-      };
 
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
+        payload = {
+          type: 'delta',
+          addedOrModified,
+          deleted: Array.from(deletedNodes),
           animations: engine.getTracks(),
           metadata: {
             version: "1.0.0",
             duration: engine.getDuration()
           }
         };
+      }
 
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
-      };
+      const t0 = performance.now();
+      const res = await window.electronAPI.saveProject(JSON.stringify(payload), isSaveAs);
+      const t1 = performance.now();
+      console.log(`Save took ${t1 - t0}ms`);
       
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(processBatch);
-      } else {
-        setTimeout(processBatch, 0);
+      if (res && res.success) {
+        setHasSaved(true);
+        state.clearSaveDeltas();
+      } else if (res && res.error === 'fallback_to_full' && !isFullSave) {
+         // Fallback to full save
+         await handleSaveState(true);
       }
     } else {
       alert("Electron API not available");
@@ -218,6 +221,28 @@ function App() {
         fill: '#ff0000'
       });
       state.recalculateMatrices();
+    }
+  };
+
+  const handleOpenProject = async () => {
+    if (window.electronAPI) {
+      const res = await window.electronAPI.openProject();
+      if (res && res.success && res.data) {
+        const { scene, animations } = res.data;
+        let rootId = null;
+        for (const [id, node] of Object.entries(scene)) {
+          if ((node as any).parentId === null) {
+             rootId = id;
+             break;
+          }
+        }
+        store.getState().loadProject(scene, rootId);
+        store.getState().recalculateMatrices();
+        engine.setTracks(animations || []);
+        setHasSaved(true);
+      }
+    } else {
+      alert("Electron API not available");
     }
   };
 
@@ -287,7 +312,8 @@ function App() {
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
           onImport={handleImportSvg}
-          onExport={handleSaveState}
+          onExport={() => handleSaveState(false)}
+          onOpenProject={handleOpenProject}
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
