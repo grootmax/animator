@@ -29,7 +29,12 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
-      exportSvg: (content: string) => Promise<boolean>;
+      exportSvg?: (content: string) => Promise<boolean>;
+      projectSaveStart: () => Promise<string | null>;
+      projectSaveChunk: (filePath: string, chunk: Uint8Array) => Promise<boolean>;
+      projectLoadStart: () => Promise<{filePath: string, size: number} | null>;
+      projectLoadChunk: (filePath: string, start: number, length: number) => Promise<Uint8Array>;
+      readTextFile: (filePath: string) => Promise<string>;
     }
   }
 }
@@ -51,7 +56,7 @@ function App() {
       (window as any).__bridge = bridge;
 
       // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
+      const unsubscribe = store.subscribe((state: any) => {
         setNodesCount(Object.keys(state.nodes).length);
         setStoreVersion(state.version);
       });
@@ -61,7 +66,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    return engine.subscribeUI((state) => {
+    return (engine as any).subscribeUI?.((state: any) => {
       setIsPlaying(state.isPlaying);
     });
   }, []);
@@ -70,107 +75,115 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().undo();
+        (store.getState() as any).undo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const handleImportSvg = async () => {
-    if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
-        const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
-        if (nodes.length > 0) {
-          store.getState().commitHistory();
-          nodes.forEach(node => store.getState().addNode(node));
-        }
+  const handleOpenProject = async () => {
+    if (!window.electronAPI) return alert("Electron API not available");
+    const result = await window.electronAPI.projectLoadStart();
+    if (!result) return;
+    const { filePath, size } = result;
+
+    if (filePath.endsWith('.svg')) {
+      const content = await window.electronAPI.readTextFile(filePath);
+      const parser = new SvgParser();
+      const nodes = parser.parse(content);
+      nodes.forEach((node: any) => store.getState().addNode(node));
+    } else if (filePath.endsWith('.json')) {
+      const content = await window.electronAPI.readTextFile(filePath);
+      const data = JSON.parse(content);
+      if (data.scene) {
+        Object.values(data.scene).forEach((node: any) => store.getState().addNode(node));
+      }
+      if (data.animations) {
+        data.animations.forEach((track: any) => engine.addTrack(track));
       }
     } else {
-      alert("Electron API not available");
+      // Chunked binary load
+      const worker = new Worker(new URL('./workers/load.worker.ts', import.meta.url), { type: 'module' });
+      worker.postMessage({ type: 'start' });
+
+      worker.onmessage = (e) => {
+        if (e.data.type === 'success') {
+          const { scene, animations } = e.data.payload;
+          Object.values(scene).forEach((node: any) => store.getState().addNode(node));
+          if (animations) {
+            animations.forEach((track: any) => engine.addTrack(track));
+          }
+          worker.terminate();
+        } else if (e.data.type === 'error') {
+          alert('Error loading project: ' + e.data.error);
+          worker.terminate();
+        }
+      };
+
+      const CHUNK_SIZE = 5 * 1024 * 1024;
+      for (let start = 0; start < size; start += CHUNK_SIZE) {
+        const chunk = await window.electronAPI.projectLoadChunk(filePath, start, Math.min(CHUNK_SIZE, size - start));
+        worker.postMessage({ type: 'chunk', data: chunk }, [chunk.buffer]);
+      }
+      worker.postMessage({ type: 'done' });
     }
   };
 
-  const handleSaveState = async () => {
-    if (window.electronAPI) {
-      const state = store.getState().nodes;
-      const nodeKeys = Object.keys(state);
-      const totalNodes = nodeKeys.length;
-      
+  const handleSaveProject = async () => {
+    if (!window.electronAPI) return alert("Electron API not available");
+    const filePath = await window.electronAPI.projectSaveStart();
+    if (!filePath) return;
+
+    setShowSaveProgress(true);
+    setSaveProgress(0);
+
+    const state = store.getState().nodes;
+    const exportData = {
+      scene: state,
+      animations: engine.getTracks(),
+      metadata: { version: "1.0.0", duration: engine.getDuration() }
+    };
+
+    if (filePath.endsWith('.json')) {
       const cleanScene: Record<string, any> = {};
-      
-      let currentIndex = 0;
-      
-      const showProgressTimeout = setTimeout(() => {
-        setShowSaveProgress(true);
-      }, 500);
-
-      const processBatch = (deadline?: any) => {
-        const startTime = performance.now();
-        
-        while (currentIndex < totalNodes) {
-          if (deadline && deadline.timeRemaining) {
-            if (deadline.timeRemaining() < 2) break;
-          } else {
-            if (performance.now() - startTime > 10) break;
-          }
-          
-          const id = nodeKeys[currentIndex];
-          const node = state[id];
-          const cleanNode = { ...node };
-          delete (cleanNode as any).localMatrix;
-          delete (cleanNode as any).worldMatrix;
-          delete (cleanNode as any).isDirty;
-          cleanScene[id] = cleanNode;
-          
-          currentIndex++;
-        }
-        
-        setSaveProgress(Math.floor((currentIndex / totalNodes) * 100));
-
-        if (currentIndex < totalNodes) {
-          if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(processBatch);
-          } else {
-            setTimeout(processBatch, 0);
-          }
-        } else {
-          finishSave();
-        }
-      };
-
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
-          }
-        };
-
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
-      };
-      
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(processBatch);
-      } else {
-        setTimeout(processBatch, 0);
+      for (const [id, node] of Object.entries(state)) {
+        const cleanNode = { ...(node as any) };
+        delete cleanNode.localMatrix;
+        delete cleanNode.worldMatrix;
+        delete cleanNode.isDirty;
+        cleanScene[id] = cleanNode;
       }
+      exportData.scene = cleanScene;
+      
+      const content = JSON.stringify(exportData, null, 2);
+      const encoder = new TextEncoder();
+      const chunk = encoder.encode(content);
+      await window.electronAPI.projectSaveChunk(filePath, chunk);
+      setSaveProgress(100);
+      setShowSaveProgress(false);
+      setSaveProgress(null);
     } else {
-      alert("Electron API not available");
+      // BINARY FORMAT via WORKER
+      const worker = new Worker(new URL('./workers/save.worker.ts', import.meta.url), { type: 'module' });
+      worker.postMessage({ action: 'save', payload: exportData });
+
+      worker.onmessage = async (e) => {
+        if (e.data.type === 'chunk') {
+          await window.electronAPI!.projectSaveChunk(filePath, e.data.data);
+        } else if (e.data.type === 'done') {
+          worker.terminate();
+          setSaveProgress(100);
+          setShowSaveProgress(false);
+          setSaveProgress(null);
+        }
+      };
     }
   };
 
@@ -179,7 +192,11 @@ function App() {
       const state = store.getState().nodes;
       const serializer = new SvgSerializer();
       const svgString = serializer.serialize(state);
-      await window.electronAPI.exportSvg(svgString);
+      if (window.electronAPI.exportSvg) {
+        await window.electronAPI.exportSvg(svgString);
+      } else {
+        await window.electronAPI.saveFile(svgString);
+      }
     } else {
       alert("Electron API not available");
     }
@@ -193,15 +210,15 @@ function App() {
       engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: {
-          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
-          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
-        }
+        keyframes: [
+          { id: 'a', time: 0, value: 0, easing: 'linear' },
+          { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        ]
       });
       engine.play();
     } else {
-      store.getState().commitHistory();
+      (store.getState() as any).commitHistory?.();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
@@ -286,11 +303,13 @@ function App() {
           setTool={setTool}
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
-          onImport={handleImportSvg}
-          onExport={handleSaveState}
+          onImport={handleOpenProject}
+          onExport={handleSaveProject}
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
+          isSaving={showSaveProgress}
+          saveProgress={saveProgress || 0}
         />
 
         <div className="flex flex-1 overflow-hidden">

@@ -87,11 +87,11 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
   selectedNodeId: null,
   remoteSelections: {},
 
-  setViewport: (viewport) => set({ viewport }),
+  setViewport: (viewport: { x: number; y: number; zoom: number }) => set({ viewport }),
   
-  setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+  setSelectedNodeId: (selectedNodeId: string | null) => set({ selectedNodeId }),
   
-  setRemoteSelection: (userId, nodeId, color, userName) => set((state) => {
+  setRemoteSelection: (userId: string, nodeId: string | null, color?: string, userName?: string) => set((state: SceneGraphState) => {
     const newRemoteSelections = { ...state.remoteSelections };
     if (nodeId === null) {
       delete newRemoteSelections[userId];
@@ -197,13 +197,14 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
           if (node.isDirty) {
             localMatrix = getTransformMatrix(
+              node.localMatrix || createMatrix(),
               node.x, node.y, 
               node.rotation, 
               node.scaleX, node.scaleY,
               node.skewX || 0, node.skewY || 0
             );
           }
-          currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
+          currentWorldMatrix = multiplyMatrix(createMatrix(), parentWorldMatrix, localMatrix);
 
           newNodes[nodeId] = {
             ...node,
@@ -214,8 +215,9 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
             currentWorldMatrix = node.worldMatrix;
         }
 
-        for (const childId of node.children) {
-          traverse(childId, currentWorldMatrix, isWorldDirty);
+        const childNodes = Object.values(newNodes).filter((n: any) => n.parentId === nodeId);
+        for (const child of childNodes) {
+          traverse(child.id, currentWorldMatrix, isWorldDirty);
         }
       };
 

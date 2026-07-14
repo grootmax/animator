@@ -5,6 +5,10 @@ vi.mock('electron', () => {
   class MockBrowserWindow {
     loadURL = vi.fn();
     loadFile = vi.fn();
+    webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
     static getAllWindows = vi.fn().mockReturnValue([]);
   }
 
@@ -13,6 +17,7 @@ vi.mock('electron', () => {
       whenReady: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
       quit: vi.fn(),
+      getAppPath: vi.fn().mockReturnValue('/app/animator/apps/editor'),
     },
     BrowserWindow: MockBrowserWindow,
     ipcMain: {
@@ -59,7 +64,9 @@ describe('IPC Integrity Suite', () => {
     
     // Strict check for exactly what is exposed
     const exposedAPI = (contextBridge.exposeInMainWorld as any).mock.calls[0][1];
-    expect(Object.keys(exposedAPI)).toEqual(['openFile', 'saveFile']);
+    expect(Object.keys(exposedAPI)).toEqual(
+      expect.arrayContaining(['openFile', 'saveFile', 'projectSaveStart', 'projectSaveChunk', 'projectLoadStart', 'projectLoadChunk', 'readTextFile'])
+    );
     
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledWith(
       'electronAPI',
@@ -103,7 +110,7 @@ describe('IPC Integrity Suite', () => {
     let openResult = await openFileHandler();
     expect(dialog.showOpenDialog).toHaveBeenCalledWith(expect.objectContaining({
       properties: ['openFile'],
-      filters: [{ name: 'SVG files', extensions: ['svg'] }]
+      filters: [{ name: 'All Supported', extensions: ['svg', 'json', 'bspf'] }]
     }));
     expect(fs.promises.readFile).toHaveBeenCalledWith('/test/path.svg', 'utf-8');
     expect(openResult).toBe('<svg></svg>');
@@ -119,7 +126,7 @@ describe('IPC Integrity Suite', () => {
 
     let saveResult = await saveFileHandler(null, '{"test":true}');
     expect(dialog.showSaveDialog).toHaveBeenCalledWith(expect.objectContaining({
-      filters: [{ name: 'JSON files', extensions: ['json'] }]
+      filters: [{ name: 'Supported Files', extensions: ['json', 'svg'] }]
     }));
     expect(fs.promises.writeFile).toHaveBeenCalledWith('/test/path.json', '{"test":true}', 'utf-8');
     expect(saveResult).toBe(true);

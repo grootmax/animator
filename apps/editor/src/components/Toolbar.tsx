@@ -68,11 +68,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <span>Saving... {Math.round(saveProgress * 100)}%</span>
           </div>
         )}
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG" disabled={isSaving}>
-          <Upload size={20} /> <span className="text-sm">Import</span>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Open Project" disabled={isSaving}>
+          <Upload size={20} /> <span className="text-sm">Open</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON" disabled={isSaving}>
-          <Download size={20} /> <span className="text-sm">JSON</span>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Save Project" disabled={isSaving}>
+          <Download size={20} /> <span className="text-sm">Save</span>
         </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG" disabled={isSaving}>
           <Download size={20} /> <span className="text-sm">SVG</span>
