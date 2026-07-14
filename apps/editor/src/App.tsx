@@ -17,8 +17,8 @@ const engine = new AnimationEngine(store);
 declare global {
   interface Window {
     electronAPI?: {
-      openFile: () => Promise<string | null>;
-      saveFile: (content: string) => Promise<boolean>;
+      openFile: (options?: { binary?: boolean }) => Promise<string | Uint8Array | null>;
+      saveFile: (content: string | Uint8Array, options?: { forceDialog?: boolean }) => Promise<boolean>;
     }
   }
 }
@@ -57,8 +57,9 @@ function App() {
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
+      // Currently, SVGs are parsed as strings. Binary assets could be supported in the future.
       const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
+      if (typeof svgContent === 'string') {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
         nodes.forEach(node => store.getState().addNode(node));
@@ -68,7 +69,7 @@ function App() {
     }
   };
 
-  const handleSaveState = async () => {
+  const handleSaveState = async (forceDialog: boolean = false) => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
 
@@ -91,18 +92,18 @@ function App() {
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2), { forceDialog });
     } else {
       alert("Electron API not available");
     }
   };
 
-  const handleExportSvg = async () => {
+  const handleExportSvg = async (forceDialog: boolean = false) => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
       const serializer = new SvgSerializer();
       const svgString = serializer.serialize(state);
-      await window.electronAPI.saveFile(svgString);
+      await window.electronAPI.saveFile(svgString, { forceDialog });
     } else {
       alert("Electron API not available");
     }
@@ -175,8 +176,10 @@ function App() {
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
           onImport={handleImportSvg}
-          onExport={handleSaveState}
-          onExportSvg={handleExportSvg}
+          onExport={() => handleSaveState(false)}
+          onExportAs={() => handleSaveState(true)}
+          onExportSvg={() => handleExportSvg(false)}
+          onExportSvgAs={() => handleExportSvg(true)}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
         />

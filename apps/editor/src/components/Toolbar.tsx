@@ -8,7 +8,9 @@ interface ToolbarProps {
   togglePlay: () => void;
   onImport: () => void;
   onExport: () => void;
+  onExportAs: () => void;
   onExportSvg: () => void;
+  onExportSvgAs: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
 }
@@ -20,7 +22,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   togglePlay,
   onImport,
   onExport,
+  onExportAs,
   onExportSvg,
+  onExportSvgAs,
   onZoomIn,
   onZoomOut
 }) => {
@@ -58,14 +62,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </button>
       </div>
       <div className="flex gap-1 ml-auto">
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG">
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import">
           <Upload size={20} /> <span className="text-sm">Import</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON">
-          <Download size={20} /> <span className="text-sm">JSON</span>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Save JSON">
+          <Download size={20} /> <span className="text-sm">Save JSON</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG">
-          <Download size={20} /> <span className="text-sm">SVG</span>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportAs} title="Save JSON As...">
+          <Download size={20} /> <span className="text-sm">JSON As...</span>
+        </button>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Save SVG">
+          <Download size={20} /> <span className="text-sm">Save SVG</span>
+        </button>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvgAs} title="Save SVG As...">
+          <Download size={20} /> <span className="text-sm">SVG As...</span>
         </button>
       </div>
     </div>
