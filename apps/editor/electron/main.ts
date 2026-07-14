@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { setupSecurity } from './security';
@@ -6,71 +6,33 @@ import { setupSecurity } from './security';
 setupSecurity();
 
 let mainWindow: BrowserWindow | null = null;
+let lastOpenedFilePath: string | null = null;
 
-const DOMAIN_WHITELIST = [
-  'https://fonts.googleapis.com',
-  'https://fonts.gstatic.com'
-];
+const getConfigPath = () => path.join(app.getPath('userData'), 'editor-config.json');
 
-function setupSecurity() {
-  const isDev = !!process.env.VITE_DEV_SERVER_URL;
-  const devUrl = isDev ? new URL(process.env.VITE_DEV_SERVER_URL!).origin : '';
-
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const cspRules = [
-      `default-src 'self' ${isDev ? devUrl : ''}`,
-      `script-src 'self' ${isDev ? "'unsafe-inline' 'unsafe-eval' " + devUrl : ''}`,
-      `style-src 'self' 'unsafe-inline' ${DOMAIN_WHITELIST.join(' ')}`,
-      `font-src 'self' data: ${DOMAIN_WHITELIST.join(' ')}`,
-      `img-src 'self' data: blob: ${DOMAIN_WHITELIST.join(' ')} ${isDev ? devUrl : ''}`,
-      `connect-src 'self' ${isDev ? devUrl + " ws: wss:" : ''} ${DOMAIN_WHITELIST.join(' ')}`
-    ];
-
-    const csp = cspRules.map(rule => rule.trim()).filter(Boolean).join('; ');
-
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [csp]
+const loadConfig = () => {
+  try {
+    const configPath = getConfigPath();
+    if (fs.existsSync(configPath)) {
+      const data = fs.readFileSync(configPath, 'utf-8');
+      const config = JSON.parse(data);
+      if (config.lastOpenedFilePath) {
+        lastOpenedFilePath = config.lastOpenedFilePath;
       }
-    });
-  });
+    }
+  } catch (e) {
+    console.error('Failed to load config', e);
+  }
+};
 
-  app.on('web-contents-created', (event, contents) => {
-    contents.on('will-navigate', (event, navigationUrl) => {
-      try {
-        const parsedUrl = new URL(navigationUrl);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
-          event.preventDefault();
-          shell.openExternal(navigationUrl);
-        }
-      } catch (err) {
-        event.preventDefault();
-      }
-    });
-
-    contents.setWindowOpenHandler(({ url }) => {
-      try {
-        const parsedUrl = new URL(url);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
-          shell.openExternal(url);
-          return { action: 'deny' };
-        }
-        return { action: 'allow' };
-      } catch (err) {
-        return { action: 'deny' };
-      }
-    });
-  });
-}
+const saveConfig = () => {
+  try {
+    const configPath = getConfigPath();
+    fs.writeFileSync(configPath, JSON.stringify({ lastOpenedFilePath }), 'utf-8');
+  } catch (e) {
+    console.error('Failed to save config', e);
+  }
+};
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -143,6 +105,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   setupSecurity();
+  loadConfig();
   createWindow();
 
   app.on('activate', () => {
@@ -180,36 +143,76 @@ app.on('window-all-closed', () => {
 });
 
 // IPC Handlers
-ipcMain.handle('dialog:openFile', async () => {
-  const { canceled, filePaths } = await dialog.showOpenDialog({
-    properties: ['openFile'],
-    filters: [{ name: 'SVG files', extensions: ['svg'] }]
-  });
-  if (canceled) return null;
-  return fs.promises.readFile(filePaths[0], 'utf-8');
+ipcMain.handle('app:getLastOpenedPath', () => {
+  return lastOpenedFilePath;
 });
 
-ipcMain.handle('dialog:saveFile', async (_, content: string) => {
-  try {
-    JSON.parse(content);
-  } catch (error) {
-    return false;
-  }
+ipcMain.handle('dialog:openFile', async (_, options?: { filePath?: string; useBinary?: boolean; returnDetails?: boolean }) => {
+  let targetPath = options?.filePath;
 
+  if (!targetPath) {
+    const defaultPath = lastOpenedFilePath ? path.dirname(lastOpenedFilePath) : undefined;
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      defaultPath,
+      properties: ['openFile'],
+      filters: [
+        { name: 'All Supported Files', extensions: ['svg', 'json'] },
+        { name: 'SVG files', extensions: ['svg'] },
+        { name: 'JSON files', extensions: ['json'] }
+      ]
+    });
+    
+    if (canceled || filePaths.length === 0) return null;
+    targetPath = filePaths[0];
+  }
+  
+  if (!targetPath) return null;
+  
   try {
+    const isBinary = options?.useBinary;
+    const content = await fs.promises.readFile(targetPath, isBinary ? null : 'utf-8');
+
+    lastOpenedFilePath = targetPath;
+    saveConfig();
+
+    if (options?.returnDetails) {
+      return { content, filePath: targetPath };
+    }
+    return content;
+  } catch (e) {
+    console.error("Failed to read file", e);
+    return null;
+  }
+});
+
+ipcMain.handle('dialog:saveFile', async (_, content: string | Uint8Array, options?: { filePath?: string; showDialog?: boolean }) => {
+  let targetPath = options?.filePath;
+
+  if (options?.showDialog || !targetPath) {
+    const defaultPath = lastOpenedFilePath ? (targetPath || path.dirname(lastOpenedFilePath)) : undefined;
     const { canceled, filePath } = await dialog.showSaveDialog({
-      filters: [{ name: 'JSON files', extensions: ['json'] }]
+      defaultPath,
+      filters: [
+        { name: 'JSON files', extensions: ['json'] },
+        { name: 'SVG files', extensions: ['svg'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
     });
 
-    if (canceled || !filePath) return false;
-
-    if (path.extname(filePath).toLowerCase() !== '.json') {
-      return false;
-    }
-
-    await fs.promises.writeFile(filePath, content, 'utf-8');
-    return true;
-  } catch (error) {
-    return false;
+    if (canceled || !filePath) return null;
+    targetPath = filePath;
   }
+
+  if (!targetPath) return null;
+
+  if (content instanceof Uint8Array || Buffer.isBuffer(content)) {
+    await fs.promises.writeFile(targetPath, Buffer.from(content));
+  } else {
+    await fs.promises.writeFile(targetPath, content, 'utf-8');
+  }
+
+  lastOpenedFilePath = targetPath;
+  saveConfig();
+
+  return targetPath;
 });

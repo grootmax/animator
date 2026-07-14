@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
@@ -27,9 +27,9 @@ const engine = new AnimationEngine(store);
 declare global {
   interface Window {
     electronAPI?: {
-      openFile: () => Promise<string | null>;
-      saveFile: (content: string) => Promise<boolean>;
-      exportSvg: (content: string) => Promise<boolean>;
+      openFile: (options?: { filePath?: string; useBinary?: boolean; returnDetails?: boolean }) => Promise<any>;
+      saveFile: (content: string | Uint8Array, options?: { filePath?: string; showDialog?: boolean }) => Promise<string | null>;
+      getLastOpenedPath: () => Promise<string | null>;
     }
   }
 }
@@ -42,6 +42,42 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [showSaveProgress, setShowSaveProgress] = useState(false);
+  const [activePath, setActivePath] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (window.electronAPI) {
+      window.electronAPI.getLastOpenedPath().then(path => {
+        if (path) {
+          setActivePath(path);
+          window.electronAPI!.openFile({ filePath: path, returnDetails: true, useBinary: true }).then(result => {
+             if (result && result.content) {
+                let contentString = result.content;
+                if (contentString instanceof Uint8Array || (typeof contentString === 'object' && contentString.buffer)) {
+                  contentString = new TextDecoder().decode(contentString);
+                }
+        
+                if (result.filePath.endsWith('.json')) {
+                  try {
+                    const parsed = JSON.parse(contentString);
+                    if (parsed.scene) {
+                      Object.values(parsed.scene).forEach((node: any) => store.getState().addNode(node));
+                    }
+                  } catch (e) {
+                    console.error("Failed to parse JSON", e);
+                  }
+                } else {
+                  const parser = new SvgParser();
+                  const nodes = parser.parse(contentString);
+                  nodes.forEach(node => store.getState().addNode(node));
+                }
+             }
+          }).catch(err => {
+             console.error("Failed to load active file", err);
+          });
+        }
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -53,7 +89,7 @@ function App() {
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
-        setStoreVersion(state.version);
+        setStoreVersion(state.past.length);
       });
 
       return () => unsubscribe();
@@ -85,12 +121,31 @@ function App() {
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
-        const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
-        if (nodes.length > 0) {
-          store.getState().commitHistory();
+      const result = await window.electronAPI.openFile({ returnDetails: true, useBinary: true });
+      if (result && result.content) {
+        setActivePath(result.filePath);
+        
+        let contentString = result.content;
+        if (contentString instanceof Uint8Array || (typeof contentString === 'object' && contentString.buffer)) {
+          contentString = new TextDecoder().decode(contentString);
+        }
+
+        if (result.filePath.endsWith('.json')) {
+          try {
+            const parsed = JSON.parse(contentString);
+            if (parsed.scene) {
+              store.getState().commitHistory();
+              Object.values(parsed.scene).forEach((node: any) => store.getState().addNode(node));
+            }
+          } catch (e) {
+            console.error("Failed to parse JSON", e);
+          }
+        } else {
+          const parser = new SvgParser();
+          const nodes = parser.parse(contentString);
+          if (nodes.length > 0) {
+            store.getState().commitHistory();
+          }
           nodes.forEach(node => store.getState().addNode(node));
         }
       }
@@ -99,7 +154,7 @@ function App() {
     }
   };
 
-  const handleSaveState = async () => {
+  const handleSaveState = useCallback(async (forceDialog = false) => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
       const nodeKeys = Object.keys(state);
@@ -161,7 +216,17 @@ function App() {
           }
         };
 
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+        const jsonString = JSON.stringify(exportData, null, 2);
+        const binaryData = new TextEncoder().encode(jsonString);
+
+        const savedPath = await window.electronAPI!.saveFile(binaryData, {
+          filePath: activePath || undefined,
+          showDialog: forceDialog || !activePath
+        });
+
+        if (savedPath) {
+          setActivePath(savedPath);
+        }
       };
       
       if ('requestIdleCallback' in window) {
@@ -172,14 +237,31 @@ function App() {
     } else {
       alert("Electron API not available");
     }
-  };
+  }, [activePath]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSaveState(e.shiftKey);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleSaveState]);
 
   const handleExportSvg = async () => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
       const serializer = new SvgSerializer();
       const svgString = serializer.serialize(state);
-      await window.electronAPI.exportSvg(svgString);
+      const savedPath = await window.electronAPI.saveFile(svgString, {
+        filePath: activePath && activePath.endsWith('.svg') ? activePath : undefined,
+        showDialog: !activePath || !activePath.endsWith('.svg')
+      });
+      if (savedPath) {
+        setActivePath(savedPath);
+      }
     } else {
       alert("Electron API not available");
     }
@@ -193,11 +275,11 @@ function App() {
       engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: {
-          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
-          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
-        }
+        keyframes: [
+          { id: 'a', time: 0, value: 0, easing: 'linear' },
+          { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        ]
       });
       engine.play();
     } else {
@@ -287,7 +369,7 @@ function App() {
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
           onImport={handleImportSvg}
-          onExport={handleSaveState}
+          onExport={() => handleSaveState(false)}
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}

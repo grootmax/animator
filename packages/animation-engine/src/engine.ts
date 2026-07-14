@@ -16,6 +16,13 @@ export interface Track {
   keyframes: Keyframe[];
 }
 
+export interface Heartbeat {
+  playhead: number;
+  isPlaying: boolean;
+}
+
+export type NetworkRole = 'leader' | 'follower' | 'standalone';
+
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
   let c = hex.substring(1).split('');
@@ -110,6 +117,19 @@ export class AnimationEngine {
   private heartbeatTimer: any = null;
   private heartbeatRate = 100;
   public driftThreshold = 150;
+
+  private listeners: Set<(state: { playhead: number, isPlaying: boolean }) => void> = new Set();
+
+  public subscribeUI(listener: (state: { playhead: number, isPlaying: boolean }) => void) {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
+  private notifyListeners() {
+    for (const listener of this.listeners) {
+      listener({ playhead: this.playhead, isPlaying: this.isPlaying });
+    }
+  }
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
