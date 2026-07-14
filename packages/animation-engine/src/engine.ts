@@ -142,6 +142,18 @@ export class AnimationEngine {
     const storeState = this.store.getState();
     let requiresMatrixUpdate = false;
 
+    // Synchronize media nodes with global clock
+    const nodes = storeState.nodes;
+    for (const [nodeId, node] of Object.entries(nodes)) {
+      if (node.type === 'media' && node.mediaType === 'video') {
+        if (!updates.has(nodeId)) {
+          updates.set(nodeId, {});
+        }
+        // convert ms to seconds for video playback
+        updates.get(nodeId).currentTime = this.playhead / 1000;
+      }
+    }
+
     for (const [nodeId, nodeUpdates] of updates.entries()) {
       storeState.updateNode(nodeId, nodeUpdates);
       requiresMatrixUpdate = true;
