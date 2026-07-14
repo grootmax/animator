@@ -49,10 +49,34 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
+  try {
+    const data = JSON.parse(content);
+    
+    if (!data || typeof data !== 'object') {
+      return false;
+    }
+    
+    if (!data.metadata || typeof data.metadata !== 'object') {
+      return false;
+    }
+    
+    if (!data.scene || typeof data.scene !== 'object') {
+      return false;
+    }
+    
+    if (!Array.isArray(data.animations)) {
+      return false;
+    }
+  } catch (error) {
+    // Fails on invalid JSON or other parsing errors
+    return false;
+  }
+
   const { canceled, filePath } = await dialog.showSaveDialog({
     filters: [{ name: 'JSON files', extensions: ['json'] }]
   });
   if (canceled || !filePath) return false;
+  
   await fs.promises.writeFile(filePath, content, 'utf-8');
   return true;
 });
