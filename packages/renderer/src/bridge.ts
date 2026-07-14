@@ -10,7 +10,7 @@ export class PixiBridge {
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -108,6 +108,9 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'resource') {
+          pixiNode = new PIXI.Sprite();
+          (pixiNode as PIXI.Sprite).anchor.set(0.5);
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -170,6 +173,36 @@ export class PixiBridge {
 
         if (node.fill) {
             pixiNode.endFill();
+        }
+      } else if (node.type === 'resource' && pixiNode instanceof PIXI.Sprite) {
+        if (node.sourceUri && (pixiNode as any)._sourceUri !== node.sourceUri) {
+          (pixiNode as any)._sourceUri = node.sourceUri;
+          
+          let url = node.sourceUri;
+          if (!url.startsWith('http') && !url.startsWith('asset://')) {
+            url = `asset://${encodeURIComponent(url)}`;
+          }
+
+          const texture = PIXI.Texture.from(url);
+          pixiNode.texture = texture;
+          
+          texture.baseTexture.on('error', () => {
+             const errorCanvas = document.createElement('canvas');
+             errorCanvas.width = node.assetWidth || 100;
+             errorCanvas.height = node.assetHeight || 100;
+             const ctx = errorCanvas.getContext('2d')!;
+             ctx.fillStyle = '#ff0000';
+             ctx.fillRect(0, 0, errorCanvas.width, errorCanvas.height);
+             ctx.fillStyle = '#ffffff';
+             ctx.font = '16px Arial';
+             ctx.fillText('Missing Asset', 10, 20);
+             pixiNode.texture = PIXI.Texture.from(errorCanvas);
+          });
+        }
+        
+        if (node.assetWidth && node.assetHeight) {
+          pixiNode.width = node.assetWidth;
+          pixiNode.height = node.assetHeight;
         }
       }
 

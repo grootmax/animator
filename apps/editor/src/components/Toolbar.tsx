@@ -9,6 +9,7 @@ interface ToolbarProps {
   onImport: () => void;
   onExport: () => void;
   onExportSvg: () => void;
+  onOpenProject: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
 }
@@ -21,6 +22,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onImport,
   onExport,
   onExportSvg,
+  onOpenProject,
   onZoomIn,
   onZoomOut
 }) => {
@@ -58,11 +60,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </button>
       </div>
       <div className="flex gap-1 ml-auto">
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onOpenProject} title="Open Project">
+          <Upload size={20} /> <span className="text-sm">Open</span>
+        </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG">
           <Upload size={20} /> <span className="text-sm">Import</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON">
-          <Download size={20} /> <span className="text-sm">JSON</span>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Save JSON">
+          <Download size={20} /> <span className="text-sm">Save</span>
         </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG">
           <Download size={20} /> <span className="text-sm">SVG</span>

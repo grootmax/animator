@@ -37,6 +37,11 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
       store.getState().updateNode(id, { locked: !node.locked });
     };
 
+    const togglePathType = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      store.getState().updateNode(id, { pathType: node.pathType === 'relative' ? 'absolute' : 'relative' });
+    };
+
     const handleRename = () => {
       if (editName.trim()) {
         store.getState().updateNode(id, { name: editName });
@@ -120,6 +125,11 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
           )}
 
           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            {node.type === 'resource' && (
+              <button onClick={togglePathType} className="px-1 text-[10px] bg-gray-700 rounded hover:bg-gray-600" title="Toggle Path (Abs/Rel)">
+                {node.pathType === 'relative' ? 'Rel' : 'Abs'}
+              </button>
+            )}
             <button onClick={toggleLock} className="p-1 hover:text-white" title={node.locked ? "Unlock" : "Lock"}>
               {node.locked ? <Lock size={14} /> : <Unlock size={14} />}
             </button>
