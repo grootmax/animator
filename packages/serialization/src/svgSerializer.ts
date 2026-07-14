@@ -63,6 +63,9 @@ export class SvgSerializer {
       case 'path':
         elementStr += `${indent}<path ${commonAttrs} d="${node.pathData || ''}" />\n`;
         break;
+      case 'image':
+        elementStr += `${indent}<image ${commonAttrs} href="${node.src || ''}" width="${node.width || 0}" height="${node.height || 0}" />\n`;
+        break;
     }
 
     return elementStr;
