@@ -91,7 +91,11 @@ function App() {
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      try {
+        await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      } catch (error: any) {
+        alert(`Save failed: ${error.message}`);
+      }
     } else {
       alert("Electron API not available");
     }
@@ -102,7 +106,11 @@ function App() {
       const state = store.getState().nodes;
       const serializer = new SvgSerializer();
       const svgString = serializer.serialize(state);
-      await window.electronAPI.saveFile(svgString);
+      try {
+        await window.electronAPI.saveFile(svgString);
+      } catch (error: any) {
+        alert(`Save failed: ${error.message}`);
+      }
     } else {
       alert("Electron API not available");
     }
