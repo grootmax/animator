@@ -15,6 +15,28 @@ function createWindow() {
     },
   });
 
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const isDevUrl = !!process.env.VITE_DEV_SERVER_URL && url.startsWith(process.env.VITE_DEV_SERVER_URL);
+    const isLocalUrl = url.startsWith('file://');
+    
+    if (!isDevUrl && !isLocalUrl) {
+      event.preventDefault();
+    }
+  });
+
+  mainWindow.webContents.on('will-redirect', (event, url) => {
+    const isDevUrl = !!process.env.VITE_DEV_SERVER_URL && url.startsWith(process.env.VITE_DEV_SERVER_URL);
+    const isLocalUrl = url.startsWith('file://');
+    
+    if (!isDevUrl && !isLocalUrl) {
+      event.preventDefault();
+    }
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(() => {
+    return { action: 'deny' };
+  });
+
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
