@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
+import { SceneNode, createSceneGraphStore, AssetRegistry } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
@@ -10,7 +10,7 @@ export class PixiBridge {
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -108,6 +108,8 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'image') {
+          pixiNode = new PIXI.Sprite();
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -170,6 +172,15 @@ export class PixiBridge {
 
         if (node.fill) {
             pixiNode.endFill();
+        }
+      } else if (node.type === 'image' && pixiNode instanceof PIXI.Sprite) {
+        if (node.assetId && (pixiNode as any)._assetId !== node.assetId) {
+          const dataUrl = AssetRegistry.getAsset(node.assetId);
+          if (dataUrl) {
+            pixiNode.texture = PIXI.Texture.from(dataUrl);
+            pixiNode.anchor.set(0.5);
+            (pixiNode as any)._assetId = node.assetId;
+          }
         }
       }
 

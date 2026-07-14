@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { createSceneGraphStore, AssetRegistry } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
@@ -57,11 +57,27 @@ function App() {
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
-        const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+      const content = await window.electronAPI.openFile();
+      if (content) {
+        if (content.trim().startsWith('{')) {
+          try {
+            const data = JSON.parse(content);
+            if (data.assets) {
+              AssetRegistry.loadAssets(data.assets);
+            }
+            if (data.scene) {
+              Object.values(data.scene).forEach((node: any) => store.getState().addNode(node));
+              store.getState().recalculateMatrices();
+            }
+          } catch (e) {
+            console.error("Failed to parse project file", e);
+          }
+        } else {
+          const parser = new SvgParser();
+          const nodes = parser.parse(content);
+          nodes.forEach(node => store.getState().addNode(node));
+          store.getState().recalculateMatrices();
+        }
       }
     } else {
       alert("Electron API not available");
@@ -85,6 +101,7 @@ function App() {
       const exportData = {
         scene: cleanScene,
         animations: engine.getTracks(),
+        assets: AssetRegistry.getAllAssets(),
         metadata: {
           version: "1.0.0",
           duration: engine.getDuration()
@@ -184,7 +201,45 @@ function App() {
         <div className="flex flex-1 overflow-hidden">
           <LayerPanel store={store} nodesCount={nodesCount} />
 
-          <div className="flex-1 relative bg-[#1a1a1a]">
+          <div 
+            className="flex-1 relative bg-[#1a1a1a]"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const file = e.dataTransfer.files[0];
+              if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                  if (ev.target?.result) {
+                    const dataUrl = ev.target.result as string;
+                    const assetId = 'asset_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                    AssetRegistry.registerAsset(assetId, dataUrl);
+                    
+                    const img = new window.Image();
+                    img.onload = () => {
+                      store.getState().addNode({
+                        id: 'image_' + Date.now(),
+                        type: 'image',
+                        parentId: null,
+                        children: [],
+                        x: window.innerWidth / 2,
+                        y: window.innerHeight / 2,
+                        rotation: 0,
+                        scaleX: 1,
+                        scaleY: 1,
+                        width: img.width,
+                        height: img.height,
+                        assetId: assetId
+                      });
+                      store.getState().recalculateMatrices();
+                    };
+                    img.src = dataUrl;
+                  }
+                };
+                reader.readAsDataURL(file);
+              }
+            }}
+          >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
             {/* Overlay a subtle test animation button for quick testing */}
             <button

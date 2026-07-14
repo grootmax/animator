@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-import { Eye, EyeOff, Lock, Unlock, ChevronRight, ChevronDown } from 'lucide-react';
+import { Eye, EyeOff, Lock, Unlock, ChevronRight, ChevronDown, Trash2 } from 'lucide-react';
 import { useDrag, useDrop } from 'react-dnd';
 
 interface LayerPanelProps {
@@ -35,6 +35,11 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
     const toggleLock = (e: React.MouseEvent) => {
       e.stopPropagation();
       store.getState().updateNode(id, { locked: !node.locked });
+    };
+
+    const handleDelete = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      store.getState().deleteNode(id);
     };
 
     const handleRename = () => {
@@ -125,6 +130,9 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
             </button>
             <button onClick={toggleVisible} className="p-1 hover:text-white" title={node.visible ? "Hide" : "Show"}>
               {node.visible ? <Eye size={14} /> : <EyeOff size={14} />}
+            </button>
+            <button onClick={handleDelete} className="p-1 hover:text-red-400 text-gray-400" title="Delete">
+              <Trash2 size={14} />
             </button>
           </div>
 

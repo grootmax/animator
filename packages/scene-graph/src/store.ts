@@ -1,7 +1,8 @@
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
+import { AssetRegistry } from './assetRegistry';
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline';
+export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image';
 
 export interface SceneNode {
   id: string;
@@ -33,6 +34,7 @@ export interface SceneNode {
   x2?: number;
   y2?: number;
   points?: string;
+  assetId?: string;
 
   // Internal state
   localMatrix: Matrix3;
@@ -45,6 +47,7 @@ export interface SceneGraphState {
   rootId: string | null;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  deleteNode: (id: string) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
@@ -104,6 +107,46 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
       const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty: true } };
 
       return { nodes: newNodes };
+    });
+  },
+
+  deleteNode: (id) => {
+    set((state) => {
+      const node = state.nodes[id];
+      if (!node) return state;
+
+      const newNodes = { ...state.nodes };
+      
+      const deleteRecursive = (nodeId: string) => {
+        const n = newNodes[nodeId];
+        if (!n) return;
+        
+        n.children.forEach(childId => deleteRecursive(childId));
+        
+        // Remove asset if it's an image and no other node references it
+        if (n.type === 'image' && n.assetId) {
+          const isReferencedElsewhere = Object.values(newNodes).some(
+            (otherNode) => otherNode.id !== nodeId && otherNode.type === 'image' && otherNode.assetId === n.assetId
+          );
+          if (!isReferencedElsewhere) {
+            AssetRegistry.removeAsset(n.assetId!);
+          }
+        }
+        
+        delete newNodes[nodeId];
+      };
+      
+      deleteRecursive(id);
+      
+      if (node.parentId && newNodes[node.parentId]) {
+        const parent = newNodes[node.parentId];
+        newNodes[node.parentId] = {
+          ...parent,
+          children: parent.children.filter(childId => childId !== id)
+        };
+      }
+
+      return { nodes: newNodes, rootId: state.rootId === id ? null : state.rootId };
     });
   },
 
