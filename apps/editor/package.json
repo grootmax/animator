@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "package": "electron-builder build --mac --win --linux"
+    "package": "electron-builder build --mac --win --linux",
+    "test:e2e": "npm run build && xvfb-run --auto-servernum -- playwright test"
   },
   "build": {
     "appId": "com.monorepo.editor",
@@ -39,11 +40,12 @@
     "zustand": "^4.4.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.40.0",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
     "@vitejs/plugin-react": "^4.0.3",
     "autoprefixer": "^10.4.15",
-    "electron": "^25.3.0",
+    "electron": "^25.9.8",
     "electron-builder": "^24.6.4",
     "postcss": "^8.4.29",
     "tailwindcss": "^3.3.3",
