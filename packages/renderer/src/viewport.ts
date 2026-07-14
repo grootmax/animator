@@ -9,24 +9,25 @@ export class Viewport {
 
   private grid: PIXI.Graphics;
 
+  public width: number = 800;
+  public height: number = 600;
+
   constructor(app: PIXI.Application) {
     this.app = app;
 
-    // Grid setup
     this.grid = new PIXI.Graphics();
     this.app.stage.addChild(this.grid);
 
     this.container = new PIXI.Container();
     this.app.stage.addChild(this.container);
 
-    this.setupEvents();
     this.drawGrid();
   }
 
-  private drawGrid() {
+  public drawGrid() {
     this.grid.clear();
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const width = this.width;
+    const height = this.height;
 
     const gridSize = 50 * this.container.scale.x;
     const offsetX = this.container.x % gridSize;
@@ -45,23 +46,14 @@ export class Viewport {
     }
   }
 
-  private setupEvents() {
-    const canvas = this.app.view as HTMLCanvasElement;
-
-    canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
-    canvas.addEventListener('pointermove', this.onPointerMove.bind(this));
-    window.addEventListener('pointerup', this.onPointerUp.bind(this));
-    canvas.addEventListener('wheel', this.onWheel.bind(this), { passive: false });
-  }
-
-  private onPointerDown(e: PointerEvent) {
-    if (e.button === 1 || e.shiftKey) { // Middle click or shift+click for pan
+  public onPointerDown(e: { clientX: number, clientY: number, button: number, shiftKey: boolean }) {
+    if (e.button === 1 || e.shiftKey) {
       this.isDragging = true;
       this.lastPos = { x: e.clientX, y: e.clientY };
     }
   }
 
-  private onPointerMove(e: PointerEvent) {
+  public onPointerMove(e: { clientX: number, clientY: number }) {
     if (!this.isDragging) return;
 
     const dx = e.clientX - this.lastPos.x;
@@ -74,13 +66,11 @@ export class Viewport {
     this.drawGrid();
   }
 
-  private onPointerUp() {
+  public onPointerUp() {
     this.isDragging = false;
   }
 
-  private onWheel(e: WheelEvent) {
-    e.preventDefault();
-
+  public onWheel(e: { deltaY: number, clientX: number, clientY: number }) {
     const zoomFactor = 1 - e.deltaY * 0.001;
     const localPos = this.container.toLocal(new PIXI.Point(e.clientX, e.clientY));
 
