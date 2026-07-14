@@ -111,7 +111,15 @@ export class TransformHandles {
     this.isDragging = true;
     this.dragType = type;
     this.dragStartPos = { x: e.globalX, y: e.globalY };
-    this.startNodeState = { ...this.store.getState().nodes[this.selectedNodeId] } as SceneNode;
+    const node = this.store.getState().nodes[this.selectedNodeId];
+    this.startNodeState = {
+      ...node,
+      x: node.x,
+      y: node.y,
+      rotation: node.rotation,
+      scaleX: node.scaleX,
+      scaleY: node.scaleY
+    } as any;
   }
 
   private onDragMove(e: PointerEvent) {
@@ -139,6 +147,9 @@ export class TransformHandles {
 
     this.store.getState().updateNode(this.selectedNodeId, updates);
     this.store.getState().recalculateMatrices();
+    if (this.store.getState().flushChanges) {
+      this.store.getState().flushChanges();
+    }
   }
 
   private onDragEnd() {
