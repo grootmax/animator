@@ -49,10 +49,32 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
+  if (!content || typeof content !== 'string' || content.trim() === '') {
+    throw new Error('Save failed: Content must be a non-empty string');
+  }
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(content);
+  } catch (error) {
+    throw new Error('Save failed: Content is not valid JSON');
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('Save failed: Content must be a JSON object');
+  }
+
   const { canceled, filePath } = await dialog.showSaveDialog({
     filters: [{ name: 'JSON files', extensions: ['json'] }]
   });
+  
   if (canceled || !filePath) return false;
-  await fs.promises.writeFile(filePath, content, 'utf-8');
+
+  let finalPath = filePath;
+  if (!finalPath.toLowerCase().endsWith('.json')) {
+    finalPath += '.json';
+  }
+
+  await fs.promises.writeFile(finalPath, content, 'utf-8');
   return true;
 });

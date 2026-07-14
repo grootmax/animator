@@ -70,28 +70,32 @@ function App() {
 
   const handleSaveState = async () => {
     if (window.electronAPI) {
-      const state = store.getState().nodes;
+      try {
+        const state = store.getState().nodes;
 
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
-      }
-
-      const exportData = {
-        scene: cleanScene,
-        animations: engine.getTracks(),
-        metadata: {
-          version: "1.0.0",
-          duration: engine.getDuration()
+        // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
+        const cleanScene: Record<string, any> = {};
+        for (const [id, node] of Object.entries(state)) {
+          const cleanNode = { ...node };
+          delete (cleanNode as any).localMatrix;
+          delete (cleanNode as any).worldMatrix;
+          delete (cleanNode as any).isDirty;
+          cleanScene[id] = cleanNode;
         }
-      };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+        const exportData = {
+          scene: cleanScene,
+          animations: engine.getTracks(),
+          metadata: {
+            version: "1.0.0",
+            duration: engine.getDuration()
+          }
+        };
+
+        await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      } catch (error: any) {
+        alert(error.message || 'Failed to save project');
+      }
     } else {
       alert("Electron API not available");
     }
@@ -99,10 +103,14 @@ function App() {
 
   const handleExportSvg = async () => {
     if (window.electronAPI) {
-      const state = store.getState().nodes;
-      const serializer = new SvgSerializer();
-      const svgString = serializer.serialize(state);
-      await window.electronAPI.saveFile(svgString);
+      try {
+        const state = store.getState().nodes;
+        const serializer = new SvgSerializer();
+        const svgString = serializer.serialize(state);
+        await window.electronAPI.saveFile(svgString);
+      } catch (error: any) {
+        alert(error.message || 'Failed to export SVG');
+      }
     } else {
       alert("Electron API not available");
     }
