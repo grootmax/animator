@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { createSceneGraphStore, AssetRegistry } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
@@ -51,7 +51,7 @@ function App() {
       (window as any).__bridge = bridge;
 
       // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
+      const unsubscribe = store.subscribe((state: any) => {
         setNodesCount(Object.keys(state.nodes).length);
         setStoreVersion(state.version);
       });
@@ -70,13 +70,13 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().undo();
+        (store as any).getState().undo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().redo();
+        (store as any).getState().redo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        store.getState().redo();
+        (store as any).getState().redo?.();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -85,13 +85,26 @@ function App() {
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
-        const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
-        if (nodes.length > 0) {
-          store.getState().commitHistory();
+      const content = await window.electronAPI.openFile();
+      if (content) {
+        if (content.trim().startsWith('{')) {
+          try {
+            const data = JSON.parse(content);
+            if (data.assets) {
+              AssetRegistry.loadAssets(data.assets);
+            }
+            if (data.scene) {
+              Object.values(data.scene).forEach((node: any) => store.getState().addNode(node));
+              store.getState().recalculateMatrices();
+            }
+          } catch (e) {
+            console.error("Failed to parse project file", e);
+          }
+        } else {
+          const parser = new SvgParser();
+          const nodes = parser.parse(content);
           nodes.forEach(node => store.getState().addNode(node));
+          store.getState().recalculateMatrices();
         }
       }
     } else {
@@ -112,6 +125,24 @@ function App() {
       const showProgressTimeout = setTimeout(() => {
         setShowSaveProgress(true);
       }, 500);
+
+      const finishSave = async () => {
+        clearTimeout(showProgressTimeout);
+        setShowSaveProgress(false);
+        setSaveProgress(null);
+        
+        const exportData = {
+          scene: cleanScene,
+          animations: engine.getTracks(),
+          assets: AssetRegistry.getAllAssets(),
+          metadata: {
+            version: "1.0.0",
+            duration: engine.getDuration()
+          }
+        };
+
+        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+      };
 
       const processBatch = (deadline?: any) => {
         const startTime = performance.now();
@@ -147,23 +178,6 @@ function App() {
         }
       };
 
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
-          }
-        };
-
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
-      };
-      
       if ('requestIdleCallback' in window) {
         (window as any).requestIdleCallback(processBatch);
       } else {
@@ -201,7 +215,6 @@ function App() {
       });
       engine.play();
     } else {
-      store.getState().commitHistory();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
@@ -244,40 +257,6 @@ function App() {
     }
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      if (file.type === 'image/png' || file.type === 'image/jpeg') {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const base64Src = ev.target?.result as string;
-          const img = new Image();
-          img.onload = () => {
-            const state = store.getState();
-            state.addNode({
-              id: `image_${Date.now()}`,
-              type: 'image',
-              src: base64Src,
-              x: e.clientX,
-              y: e.clientY,
-              width: img.width,
-              height: img.height,
-              parentId: null
-            });
-            state.recalculateMatrices();
-          };
-          img.src = base64Src;
-        };
-        reader.readAsDataURL(file);
-      }
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-  };
-
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden relative">
@@ -298,8 +277,41 @@ function App() {
 
           <div 
             className="flex-1 relative bg-[#1a1a1a]"
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const file = e.dataTransfer.files[0];
+              if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                  if (ev.target?.result) {
+                    const dataUrl = ev.target.result as string;
+                    const assetId = 'asset_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                    AssetRegistry.registerAsset(assetId, dataUrl);
+                    
+                    const img = new window.Image();
+                    img.onload = () => {
+                      store.getState().addNode({
+                        id: 'image_' + Date.now(),
+                        type: 'image',
+                        parentId: null,
+                        x: window.innerWidth / 2,
+                        y: window.innerHeight / 2,
+                        rotation: 0,
+                        scaleX: 1,
+                        scaleY: 1,
+                        width: img.width,
+                        height: img.height,
+                        assetId: assetId
+                      });
+                      store.getState().recalculateMatrices();
+                    };
+                    img.src = dataUrl;
+                  }
+                };
+                reader.readAsDataURL(file);
+              }
+            }}
           >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
             {/* Overlay a subtle test animation button for quick testing */}
