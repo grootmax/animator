@@ -11,6 +11,7 @@ export class TransformHandles {
   private handles: Record<string, PIXI.Graphics> = {};
 
   private isDragging = false;
+  private hasMoved = false;
   private dragType: string | null = null;
   private dragStartPos = { x: 0, y: 0 };
   private startNodeState: SceneNode | null = null;
@@ -28,6 +29,9 @@ export class TransformHandles {
     this.container.zIndex = 1000;
 
     this.box = new PIXI.Graphics();
+    this.box.interactive = true;
+    this.box.cursor = 'move';
+    this.box.on('pointerdown', (e: PIXI.FederatedPointerEvent) => this.onDragStart(e, 'move'));
     this.container.addChild(this.box);
 
     const corners = ['tl', 'tr', 'bl', 'br', 'rot'];
@@ -101,6 +105,7 @@ export class TransformHandles {
     }
 
     this.box.clear();
+    this.box.beginFill(0xffffff, 0.01); // Almost transparent fill to catch pointer events
     this.box.lineStyle(2, 0x00aaff, 1);
     this.box.drawRect(minX, minY, w, h);
 
@@ -134,6 +139,7 @@ export class TransformHandles {
     if (!selectedNodeId) return;
 
     this.isDragging = true;
+    this.hasMoved = false;
     this.dragType = type;
     this.dragStartPos = { x: e.globalX, y: e.globalY };
     this.startNodeState = { ...this.store.getState().nodes[selectedNodeId] } as SceneNode;
@@ -142,6 +148,11 @@ export class TransformHandles {
   private onDragMove(e: PointerEvent) {
     const selectedNodeId = this.store.getState().selectedNodeId;
     if (!this.isDragging || !selectedNodeId || !this.startNodeState) return;
+
+    if (!this.hasMoved) {
+      this.store.getState().commitHistory();
+      this.hasMoved = true;
+    }
 
     const dx = e.clientX - this.dragStartPos.x;
     const dy = e.clientY - this.dragStartPos.y;
@@ -157,6 +168,9 @@ export class TransformHandles {
        const startAngle = Math.atan2(this.dragStartPos.y - cy, this.dragStartPos.x - cx);
        const currentAngle = Math.atan2(e.clientY - cy, e.clientX - cx);
        updates.rotation = this.startNodeState.rotation + (currentAngle - startAngle);
+    } else if (this.dragType === 'move') {
+       updates.x = this.startNodeState.x + dx / this.viewport.container.scale.x;
+       updates.y = this.startNodeState.y + dy / this.viewport.container.scale.y;
     } else {
        const scaleDelta = dx / 100;
        updates.scaleX = this.startNodeState.scaleX + scaleDelta;
@@ -169,6 +183,7 @@ export class TransformHandles {
 
   private onDragEnd() {
     this.isDragging = false;
+    this.hasMoved = false;
     this.dragType = null;
     this.startNodeState = null;
   }

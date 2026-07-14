@@ -65,13 +65,33 @@ function App() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        store.getState().undo();
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        store.getState().redo();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        store.getState().redo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const handleImportSvg = async () => {
     if (window.electronAPI) {
       const svgContent = await window.electronAPI.openFile();
       if (svgContent) {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+        if (nodes.length > 0) {
+          store.getState().commitHistory();
+          nodes.forEach(node => store.getState().addNode(node));
+        }
       }
     } else {
       alert("Electron API not available");
@@ -180,6 +200,7 @@ function App() {
       });
       engine.play();
     } else {
+      store.getState().commitHistory();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
