@@ -136,7 +136,6 @@ export class PixiBridge {
       if (node.type === 'path' && node.pathData) {
         usedPaths.add(node.pathData);
       }
-
       if (!node.isChanged) {
         continue;
       }
@@ -176,6 +175,11 @@ export class PixiBridge {
         if (pixiNode.parent !== expectedParent) {
           expectedParent.addChild(pixiNode);
         }
+      }
+
+      const expectedParent = (node.parentId && this.pixiNodes.get(node.parentId)) || this.viewport.container;
+      if (pixiNode.parent !== expectedParent) {
+        expectedParent.addChild(pixiNode);
       }
 
       // Update visibility and opacity
@@ -268,7 +272,6 @@ export class PixiBridge {
         this.pathCache.delete(path);
       }
     }
-
     this.store.getState().resetChangeFlags();
   }
 }
