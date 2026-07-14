@@ -3,8 +3,9 @@ const { spawn } = require('child_process');
 const path = require('path');
 
 async function run() {
+  try { require('child_process').execSync('fuser -k 4173/tcp 2>/dev/null || true'); } catch(e) {}
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  const viteProcess = spawn('npx', ['vite', '--port', '4173', '--strictPort'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
@@ -36,7 +37,15 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('pageerror', (err) => console.error('PAGE ERROR:', err.stack || err.toString()));
+    page.on('console', async (msg) => {
+      try {
+        const args = await Promise.all(msg.args().map(a => a.jsonValue().catch(() => a.toString())));
+        console.log('BROWSER:', ...args);
+      } catch (e) {
+        console.log('BROWSER:', msg.text());
+      }
+    });
 
     console.log('Navigating to http://localhost:4173 ...');
     await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });

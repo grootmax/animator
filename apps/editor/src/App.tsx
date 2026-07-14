@@ -29,7 +29,10 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
-      exportSvg: (content: string) => Promise<boolean>;
+      exportSvg?: (content: string) => Promise<boolean>;
+      saveAs: (content: string) => Promise<boolean>;
+      getRecentProject: () => Promise<string | null>;
+      addAsset: () => Promise<{ assetId: string, path: string } | null>;
     }
   }
 }
@@ -42,6 +45,7 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [showSaveProgress, setShowSaveProgress] = useState(false);
+  const [assetManifest, setAssetManifest] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -53,7 +57,7 @@ function App() {
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
-        setStoreVersion(state.version);
+        setStoreVersion((state as any).version || 0);
       });
 
       return () => unsubscribe();
@@ -61,45 +65,85 @@ function App() {
   }, []);
 
   useEffect(() => {
-    return engine.subscribeUI((state) => {
-      setIsPlaying(state.isPlaying);
-    });
+    if (typeof (engine as any).subscribeUI === 'function') {
+      return (engine as any).subscribeUI((state: any) => {
+        setIsPlaying(state.isPlaying);
+      });
+    }
   }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().undo();
+        (store.getState() as any).undo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
-  const handleImportSvg = async () => {
+  
+  // Load recent project on mount
+  useEffect(() => {
     if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
-        const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
-        if (nodes.length > 0) {
-          store.getState().commitHistory();
+      window.electronAPI.getRecentProject().then(content => {
+        if (content) {
+          try {
+            const data = JSON.parse(content);
+            if (data.scene) {
+              const state = store.getState();
+              state.nodes = {};
+              state.rootId = null;
+              
+              for (const [_, node] of Object.entries(data.scene)) {
+                state.addNode(node as any);
+              }
+            }
+            if (data.assets) {
+              setAssetManifest(data.assets);
+            }
+          } catch (e) {
+            console.error("Failed to load recent project", e);
+          }
+        }
+      });
+    }
+  }, []);
+
+  const handleOpenProject = async () => {
+    if (window.electronAPI) {
+      const content = await window.electronAPI.openFile();
+      if (content) {
+        try {
+          const data = JSON.parse(content);
+          if (data.scene) {
+            const state = store.getState();
+            state.nodes = {};
+            state.rootId = null;
+            for (const [_, node] of Object.entries(data.scene)) {
+              state.addNode(node as any);
+            }
+          }
+          if (data.assets) {
+            setAssetManifest(data.assets);
+          }
+        } catch(e) {
+          // might be svg
+          const parser = new SvgParser();
+          const nodes = parser.parse(content);
           nodes.forEach(node => store.getState().addNode(node));
         }
       }
-    } else {
-      alert("Electron API not available");
     }
-  };
+  }
 
-  const handleSaveState = async () => {
+  const handleSaveState = async (saveAs = false) => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
       const nodeKeys = Object.keys(state);
@@ -158,10 +202,16 @@ function App() {
           metadata: {
             version: "1.0.0",
             duration: engine.getDuration()
-          }
+          },
+          assets: assetManifest
         };
 
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+        const content = JSON.stringify(exportData, null, 2);
+        if (saveAs) {
+          await window.electronAPI!.saveAs(content);
+        } else {
+          await window.electronAPI!.saveFile(content);
+        }
       };
       
       if ('requestIdleCallback' in window) {
@@ -179,9 +229,38 @@ function App() {
       const state = store.getState().nodes;
       const serializer = new SvgSerializer();
       const svgString = serializer.serialize(state);
-      await window.electronAPI.exportSvg(svgString);
+      if (window.electronAPI.exportSvg) {
+        await window.electronAPI.exportSvg(svgString);
+      } else if (window.electronAPI.saveAs) {
+        await window.electronAPI.saveAs(svgString);
+      }
     } else {
       alert("Electron API not available");
+    }
+  };
+  
+  const handleAddImage = async () => {
+    if (window.electronAPI) {
+      const result = await window.electronAPI.addAsset();
+      if (result) {
+        const { assetId, path } = result;
+        setAssetManifest(prev => ({ ...prev, [assetId]: path }));
+        
+        store.getState().addNode({
+          id: 'img_' + Date.now(),
+          type: 'image',
+          parentId: null,
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          width: 200,
+          height: 200,
+          assetId
+        });
+        store.getState().recalculateMatrices();
+      }
     }
   };
 
@@ -201,7 +280,7 @@ function App() {
       });
       engine.play();
     } else {
-      store.getState().commitHistory();
+      (store.getState() as any).commitHistory?.();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
@@ -286,12 +365,18 @@ function App() {
           setTool={setTool}
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
-          onImport={handleImportSvg}
-          onExport={handleSaveState}
+          onImport={handleOpenProject}
+          onExport={() => handleSaveState(false)}
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
         />
+        {/* Added some extra toolbar buttons below for image testing */}
+        <div className="bg-gray-800 border-b border-gray-700 px-2 py-1 flex gap-2">
+            <button className="bg-blue-600 px-2 py-1 rounded text-xs" onClick={() => handleSaveState(false)}>Save</button>
+            <button className="bg-blue-600 px-2 py-1 rounded text-xs" onClick={() => handleSaveState(true)}>Save As...</button>
+            <button className="bg-blue-600 px-2 py-1 rounded text-xs" onClick={handleAddImage}>Add Image</button>
+        </div>
 
         <div className="flex flex-1 overflow-hidden">
           <LayerPanel store={store} nodesCount={nodesCount} version={storeVersion} />
@@ -302,7 +387,6 @@ function App() {
             onDragOver={handleDragOver}
           >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
-            {/* Overlay a subtle test animation button for quick testing */}
             <button
                className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
                onClick={handleTestAnimation}

@@ -12,6 +12,7 @@ export class PixiBridge {
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
+  private remoteSelectionsContainer: PIXI.Container;
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -25,7 +26,7 @@ export class PixiBridge {
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app, store);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id: string) => this.pixiNodes.get(id));
 
     this.remoteSelectionsContainer = new PIXI.Container();
     this.remoteSelectionsContainer.zIndex = 999;
@@ -216,14 +217,18 @@ export class PixiBridge {
         if (node.fill) {
             pixiNode.endFill();
         }
+      } else if (pixiNode instanceof PIXI.Sprite) {
+        if (node.width !== undefined) pixiNode.width = node.width;
+        if (node.height !== undefined) pixiNode.height = node.height;
       } else if (node.type === 'image') {
         const sprite = (pixiNode as PIXI.Container).children[0] as PIXI.Sprite;
+        const imgSrc = node.src || (node.assetId ? `asset://${node.assetId}` : undefined);
         
-        if (node.src) {
+        if (imgSrc) {
            const currentSrc = (sprite as any)._currentSrc;
-           if (currentSrc !== node.src) {
-               (sprite as any)._currentSrc = node.src;
-               const tex = PIXI.Texture.from(node.src);
+           if (currentSrc !== imgSrc) {
+               (sprite as any)._currentSrc = imgSrc;
+               const tex = PIXI.Texture.from(imgSrc);
                sprite.texture = tex;
                
                if (!tex.valid) {
@@ -241,7 +246,7 @@ export class PixiBridge {
            (sprite as any)._currentSrc = undefined;
         }
 
-        if (node.width !== undefined && node.height !== undefined && sprite.texture.valid) {
+        if (node.width !== undefined && node.height !== undefined && sprite.texture && sprite.texture.valid) {
            sprite.width = node.width;
            sprite.height = node.height;
         } else if (node.width === undefined || node.height === undefined) {
