@@ -15,5 +15,10 @@
   "devDependencies": {
     "turbo": "^1.10.0",
     "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "lucide-react": "^1.24.0",
+    "react-dnd": "^16.0.1",
+    "react-dnd-html5-backend": "^16.0.1"
   }
 }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AnimationEngine, Track } from '@monorepo/animation-engine';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-import { Play, Pause, SkipBack } from 'lucide-react';
+
 
 interface TimelineProps {
   engine: AnimationEngine;
@@ -80,10 +80,10 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
       <div className="flex border-b border-gray-700 bg-gray-900 p-1">
         <div className="w-64 border-r border-gray-700 flex items-center px-2 gap-2">
            <button className="p-1 hover:text-white" onClick={() => engine.seek(0)} title="Reset">
-              <SkipBack size={16} />
+              {"|<<"}
            </button>
            <button className="p-1 hover:text-white" onClick={togglePlay}>
-              {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+              {isPlaying ? "Pause" : "Play"}
            </button>
            <span className="font-mono text-xs ml-auto">{(playhead/1000).toFixed(2)}s</span>
         </div>

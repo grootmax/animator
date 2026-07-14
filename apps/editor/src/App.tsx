@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
-import { SvgParser, SvgSerializer } from '@monorepo/serialization';
+import { SvgParser } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
@@ -17,9 +17,12 @@ const engine = new AnimationEngine(store);
 declare global {
   interface Window {
     electronAPI?: {
-      openFile: () => Promise<string | null>;
-      saveFile: (content: string) => Promise<boolean>;
+      openFile: () => Promise<{content: Uint8Array, path: string} | null>;
+      saveFile: (content: Uint8Array | string) => Promise<string | boolean>;
+      saveFileAs: (content: Uint8Array | string) => Promise<string | boolean>;
+      getInitialFile: () => Promise<{content: Uint8Array, path: string} | null>;
     }
+
   }
 }
 
@@ -28,6 +31,14 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [currentPath, setCurrentPath] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -55,13 +66,41 @@ function App() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  useEffect(() => {
+    if (window.electronAPI && window.electronAPI.getInitialFile) {
+      window.electronAPI.getInitialFile().then((data) => {
+        if (data) {
+          try {
+            const strContent = new TextDecoder().decode(data.content);
+            const parsed = JSON.parse(strContent);
+            if (parsed.scene) {
+              store.getState().loadState(parsed.scene);
+              setCurrentPath(data.path);
+            }
+          } catch (e) {
+            console.error("Failed to parse initial file", e);
+          }
+        }
+      });
+    }
+  }, []);
+
   const handleImportSvg = async () => {
     if (window.electronAPI) {
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
-        const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+      const fileData = await window.electronAPI.openFile();
+      if (fileData) {
+        const strContent = new TextDecoder().decode(fileData.content);
+        setCurrentPath(fileData.path);
+        try {
+          const parsed = JSON.parse(strContent);
+          if (parsed.scene) {
+            store.getState().loadState(parsed.scene);
+          }
+        } catch(e) {
+          const parser = new SvgParser();
+          const nodes = parser.parse(strContent);
+          nodes.forEach((node: any) => store.getState().addNode(node));
+        }
       }
     } else {
       alert("Electron API not available");
@@ -91,18 +130,47 @@ function App() {
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      const jsonStr = JSON.stringify(exportData, null, 2);
+      const binaryData = new TextEncoder().encode(jsonStr);
+      const success = await window.electronAPI.saveFile(binaryData);
+      if (success) {
+        if (typeof success === "string") setCurrentPath(success);
+        showToast("File saved successfully");
+      }
     } else {
       alert("Electron API not available");
     }
   };
 
-  const handleExportSvg = async () => {
+  const handleSaveAsState = async () => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
-      const serializer = new SvgSerializer();
-      const svgString = serializer.serialize(state);
-      await window.electronAPI.saveFile(svgString);
+
+      const cleanScene: Record<string, any> = {};
+      for (const [id, node] of Object.entries(state)) {
+        const cleanNode = { ...node };
+        delete (cleanNode as any).localMatrix;
+        delete (cleanNode as any).worldMatrix;
+        delete (cleanNode as any).isDirty;
+        cleanScene[id] = cleanNode;
+      }
+
+      const exportData = {
+        scene: cleanScene,
+        animations: engine.getTracks(),
+        metadata: {
+          version: "1.0.0",
+          duration: engine.getDuration()
+        }
+      };
+
+      const jsonStr = JSON.stringify(exportData, null, 2);
+      const binaryData = new TextEncoder().encode(jsonStr);
+      const success = await window.electronAPI.saveFileAs(binaryData);
+      if (success) {
+        if (typeof success === "string") setCurrentPath(success);
+        showToast("File saved successfully");
+      }
     } else {
       alert("Electron API not available");
     }
@@ -169,6 +237,7 @@ function App() {
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden">
+        <div className="text-xs text-gray-500 px-2 pt-1 absolute top-0 right-0 z-50 bg-black/50">{currentPath || "Untitled"}</div>
         <Toolbar
           tool={tool}
           setTool={setTool}
@@ -176,11 +245,16 @@ function App() {
           togglePlay={handleTogglePlay}
           onImport={handleImportSvg}
           onExport={handleSaveState}
-          onExportSvg={handleExportSvg}
+          onExportSvg={handleSaveAsState}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
         />
 
+        {toastMessage && (
+          <div className="absolute bottom-4 right-4 bg-green-600 text-white px-4 py-2 rounded shadow-lg z-50">
+            {toastMessage}
+          </div>
+        )}
         <div className="flex flex-1 overflow-hidden">
           <LayerPanel store={store} nodesCount={nodesCount} />
 
