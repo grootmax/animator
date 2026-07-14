@@ -5,47 +5,107 @@ import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
 import { tokenizePath } from '@monorepo/serialization';
 
+export interface BridgeConfig {
+  canvas: OffscreenCanvas | HTMLCanvasElement;
+  width: number;
+  height: number;
+  resolution: number;
+  sharedBuffer: SharedArrayBuffer | ArrayBuffer;
+  dispatch: (msg: any) => void;
+}
+
 export class PixiBridge {
   private app: PIXI.Application;
-  private viewport: Viewport;
-  private handles: TransformHandles;
-  private store: ReturnType<typeof createSceneGraphStore>;
+  public viewport: Viewport;
+  public handles: TransformHandles;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private sharedMatrices: Float32Array;
+  private nodeConfigs: Map<string, any> = new Map();
+  private dispatch: (msg: any) => void;
+  private floati32Map: Map<string, number> = new Map(); // map id to bufferIndex
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(config: BridgeConfig) {
+    this.dispatch = config.dispatch;
+    this.sharedMatrices = new Float32Array(config.sharedBuffer);
+
     this.app = new PIXI.Application({
-      view: canvas,
-      resizeTo: window,
+      view: config.canvas as any,
+      width: config.width,
+      height: config.height,
       backgroundColor: 0x1a1a1a,
-      resolution: window.devicePixelRatio || 1,
+      resolution: config.resolution,
       autoDensity: true,
     });
 
     this.app.stage.sortableChildren = true;
 
-    this.viewport = new Viewport(this.app);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.viewport = new Viewport(this.app, config.width, config.height);
+    this.handles = new TransformHandles(this.viewport, this.dispatch);
 
-    // Add handles directly to the viewport so they pan and zoom with the nodes!
     this.viewport.container.addChild(this.handles.container);
-
-    this.store = store;
 
     this.viewport.container.interactive = true;
     this.viewport.container.on('pointerdown', (e) => {
       if (e.target === this.viewport.container) {
          this.handles.setSelectedNode(null);
+         this.dispatch({ type: 'SELECT_NODE', id: null });
       }
     });
 
-    this.store.subscribe((state) => {
-      this.syncNodes(state.nodes);
-      this.handles.update();
-    });
-
     this.app.ticker.add(() => {
-        this.handles.update();
+        this.updateFromSharedMemory();
+        this.handles.update(this.nodeConfigs, this.sharedMatrices);
     });
+  }
+
+  public resize(width: number, height: number, resolution: number) {
+    this.app.renderer.resize(width, height);
+    this.viewport.resize(width, height);
+  }
+
+  public setSharedBuffer(buffer: SharedArrayBuffer | ArrayBuffer) {
+    this.sharedMatrices = new Float32Array(buffer);
+  }
+
+  public dispatchEvent(event: any) {
+    this.viewport.handleEvent(event);
+    this.handles.handleEvent(event);
+  }
+
+  private updateFromSharedMemory() {
+    for (const [id, pixiNode] of this.pixiNodes.entries()) {
+      const bufferIndex = this.floati32Map.get(id);
+      if (bufferIndex !== undefined) {
+        const offset = bufferIndex * 18;
+        
+        // Read localMatrix from shared memory
+        const a = this.sharedMatrices[offset];
+        const b = this.sharedMatrices[offset + 1];
+        const c = this.sharedMatrices[offset + 3];
+        const d = this.sharedMatrices[offset + 4];
+        const tx = this.sharedMatrices[offset + 6];
+        const ty = this.sharedMatrices[offset + 7];
+        
+        const scaleX = Math.sqrt(a * a + b * b);
+        const rotation = Math.atan2(b, a);
+        
+        const cosR = Math.cos(rotation);
+        const sinR = Math.sin(rotation);
+        const cR = c * cosR + d * sinR;
+        const dR = -c * sinR + d * cosR;
+        
+        const scaleY = Math.sqrt(cR * cR + dR * dR) * Math.sign(dR || 1);
+        const skewX = Math.atan2(cR, dR);
+        
+        pixiNode.setTransform(
+          tx, ty, 
+          scaleX, scaleY, 
+          rotation, 
+          skewX, 0,
+          0, 0
+        );
+      }
+    }
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
@@ -101,8 +161,13 @@ export class PixiBridge {
     }
   }
 
-  private syncNodes(nodes: Record<string, SceneNode>) {
+  public syncNodes(nodes: Record<string, any>) {
     for (const [id, node] of Object.entries(nodes)) {
+      this.nodeConfigs.set(id, node);
+      if (node.bufferIndex !== undefined) {
+        this.floati32Map.set(id, node.bufferIndex);
+      }
+
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
@@ -115,9 +180,10 @@ export class PixiBridge {
         pixiNode.interactive = true;
         pixiNode.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
             e.stopPropagation();
-            const n = this.store.getState().nodes[id];
+            const n = this.nodeConfigs.get(id);
             if (n && !n.locked && n.visible) {
               this.handles.setSelectedNode(id);
+              this.dispatch({ type: 'SELECT_NODE', id });
             }
         });
 
@@ -173,7 +239,6 @@ export class PixiBridge {
         }
       }
 
-      this.applyMatrix(pixiNode, node.localMatrix);
+      }
     }
   }
-}

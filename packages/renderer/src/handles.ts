@@ -4,8 +4,8 @@ import { Viewport } from './viewport';
 
 export class TransformHandles {
   public container: PIXI.Container;
-  private store: ReturnType<typeof createSceneGraphStore>;
   private viewport: Viewport;
+  private dispatch: (msg: any) => void;
   private selectedNodeId: string | null = null;
 
   private box: PIXI.Graphics;
@@ -14,11 +14,11 @@ export class TransformHandles {
   private isDragging = false;
   private dragType: string | null = null;
   private dragStartPos = { x: 0, y: 0 };
-  private startNodeState: SceneNode | null = null;
+  private startNodeState: any | null = null;
 
-  constructor(store: ReturnType<typeof createSceneGraphStore>, viewport: Viewport) {
-    this.store = store;
+  constructor(viewport: Viewport, dispatch: (msg: any) => void) {
     this.viewport = viewport;
+    this.dispatch = dispatch;
     this.container = new PIXI.Container();
     this.container.zIndex = 1000;
 
@@ -36,25 +36,27 @@ export class TransformHandles {
       this.handles[id] = handle;
       this.container.addChild(handle);
     }
+  }
 
-    // Add global pointer move/up
-    window.addEventListener('pointermove', this.onDragMove.bind(this));
-    window.addEventListener('pointerup', this.onDragEnd.bind(this));
+  public handleEvent(e: any) {
+    if (e.type === 'pointermove') {
+      this.onDragMove(e);
+    } else if (e.type === 'pointerup') {
+      this.onDragEnd();
+    }
   }
 
   public setSelectedNode(id: string | null) {
     this.selectedNodeId = id;
-    this.update();
   }
 
-  public update() {
+  public update(nodeConfigs: Map<string, any>, sharedMatrices: Float32Array) {
     if (!this.selectedNodeId) {
       this.container.visible = false;
       return;
     }
 
-    const state = this.store.getState();
-    const node = state.nodes[this.selectedNodeId];
+    const node = nodeConfigs.get(this.selectedNodeId);
 
     if (!node || node.locked || !node.visible) {
       this.container.visible = false;
@@ -63,14 +65,22 @@ export class TransformHandles {
 
     this.container.visible = true;
 
-    // Use worldMatrix to position the handles relative to the viewport
-    const wm = node.worldMatrix;
+    // Read world matrix from shared memory
+    const bufferIndex = node.bufferIndex;
+    const offset = bufferIndex * 18 + 9; // world matrix starts at 9
+    
+    const wm0 = sharedMatrices[offset];
+    const wm1 = sharedMatrices[offset + 1];
+    const wm3 = sharedMatrices[offset + 3];
+    const wm4 = sharedMatrices[offset + 4];
+    const wm6 = sharedMatrices[offset + 6];
+    const wm7 = sharedMatrices[offset + 7];
 
     // Apply world matrix to the handles container
     this.container.setTransform(
-      wm[6], wm[7],
-      Math.hypot(wm[0], wm[1]), Math.hypot(wm[3], wm[4]),
-      Math.atan2(wm[1], wm[0])
+      wm6, wm7,
+      Math.hypot(wm0, wm1), Math.hypot(wm3, wm4),
+      Math.atan2(wm1, wm0)
     );
 
     let w = node.width || (node.radius ? node.radius * 2 : 100);
@@ -82,8 +92,8 @@ export class TransformHandles {
 
     // The handle visual size needs to counter-scale BOTH the local node's world scale AND the viewport zoom
     // We apply viewport scaling in bridge.ts by making handles a child of viewport.
-    const globalScaleX = Math.hypot(wm[0], wm[1]);
-    const globalScaleY = Math.hypot(wm[3], wm[4]);
+    const globalScaleX = Math.hypot(wm0, wm1);
+    const globalScaleY = Math.hypot(wm3, wm4);
 
     const sizeX = 10 / globalScaleX;
     const sizeY = 10 / globalScaleY;
@@ -111,10 +121,16 @@ export class TransformHandles {
     this.isDragging = true;
     this.dragType = type;
     this.dragStartPos = { x: e.globalX, y: e.globalY };
-    this.startNodeState = { ...this.store.getState().nodes[this.selectedNodeId] } as SceneNode;
+    
+    // Send a message to get the exact node state when dragging starts
+    this.dispatch({ type: 'REQUEST_NODE_STATE', id: this.selectedNodeId });
   }
 
-  private onDragMove(e: PointerEvent) {
+  public setStartNodeState(state: any) {
+    this.startNodeState = state;
+  }
+
+  private onDragMove(e: any) {
     if (!this.isDragging || !this.selectedNodeId || !this.startNodeState) return;
 
     const dx = e.clientX - this.dragStartPos.x;
@@ -137,8 +153,7 @@ export class TransformHandles {
        updates.scaleY = this.startNodeState.scaleY + scaleDelta;
     }
 
-    this.store.getState().updateNode(this.selectedNodeId, updates);
-    this.store.getState().recalculateMatrices();
+    this.dispatch({ type: 'UPDATE_NODE', id: this.selectedNodeId, updates });
   }
 
   private onDragEnd() {
