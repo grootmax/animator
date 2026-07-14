@@ -22,6 +22,7 @@
     { "path": "../../packages/scene-graph" },
     { "path": "../../packages/renderer" },
     { "path": "../../packages/animation-engine" },
-    { "path": "../../packages/serialization" }
+    { "path": "../../packages/serialization" },
+    { "path": "../../packages/assets" }
   ]
 }

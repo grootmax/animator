@@ -8,6 +8,7 @@
   "references": [
     { "path": "../math" },
     { "path": "../scene-graph" },
-    { "path": "../serialization" }
+    { "path": "../serialization" },
+    { "path": "../assets" }
   ]
 }

@@ -3,6 +3,7 @@ import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
+import { createAssetRegistry } from '@monorepo/assets';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
@@ -12,6 +13,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 // Create singletons for the app
 const store = createSceneGraphStore();
 const engine = new AnimationEngine(store);
+const assetStore = createAssetRegistry();
 
 // Extend Window interface for Electron IPC
 declare global {
@@ -19,6 +21,7 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
+      openImageFile: () => Promise<{ buffer: ArrayBuffer, name: string, type: string } | null>;
     }
   }
 }
@@ -32,7 +35,7 @@ function App() {
   useEffect(() => {
     if (canvasRef.current) {
       // Initialize renderer
-      const bridge = new PixiBridge(canvasRef.current, store);
+      const bridge = new PixiBridge(canvasRef.current, store, assetStore);
       // We keep bridge instance alive
       (window as any).__bridge = bridge;
 
@@ -54,6 +57,38 @@ function App() {
     frame = requestAnimationFrame(checkPlayState);
     return () => cancelAnimationFrame(frame);
   }, []);
+
+  const handleImportAsset = async () => {
+    // If not using Electron or if openImageFile is unavailable, we fallback to a native input element
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png, image/jpeg';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        const assetId = await assetStore.getState().addAsset(file);
+        // Also add the image to the scene graph
+        const asset = assetStore.getState().assets[assetId];
+        store.getState().addNode({
+          id: `node_${Date.now()}`,
+          name: file.name,
+          type: 'image',
+          parentId: store.getState().rootId || null,
+          children: [],
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          width: asset?.width || 200,
+          height: asset?.height || 200,
+          assetId
+        });
+        store.getState().recalculateMatrices();
+      }
+    };
+    input.click();
+  };
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
@@ -82,8 +117,16 @@ function App() {
         cleanScene[id] = cleanNode;
       }
 
+      const cleanAssets: Record<string, any> = {};
+      for (const [id, asset] of Object.entries(assetStore.getState().assets)) {
+        const cleanAsset: any = { ...asset };
+        delete cleanAsset.url; // url is ephemeral dataURI/objectURL for renderer
+        cleanAssets[id] = cleanAsset;
+      }
+
       const exportData = {
         scene: cleanScene,
+        assets: cleanAssets,
         animations: engine.getTracks(),
         metadata: {
           version: "1.0.0",
@@ -175,6 +218,7 @@ function App() {
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
           onImport={handleImportSvg}
+          onImportAsset={handleImportAsset}
           onExport={handleSaveState}
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
