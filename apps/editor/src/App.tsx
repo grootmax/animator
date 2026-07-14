@@ -19,6 +19,9 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
+      saveProject: (content: string) => Promise<string | null>;
+      openProject: () => Promise<string | null>;
+      getProjectPath: () => Promise<string | null>;
     }
   }
 }
@@ -68,6 +71,31 @@ function App() {
     }
   };
 
+  const handleOpenProject = async () => {
+    if (window.electronAPI) {
+      const projectDataString = await window.electronAPI.openProject();
+      if (projectDataString) {
+        try {
+          const projectData = JSON.parse(projectDataString);
+          
+          // Clear current store logic if needed
+          // Simple hack: window.location.reload() doesn't work if state is not persisted.
+          // Better: just add all nodes.
+          store.setState({ nodes: {}, rootId: null });
+          
+          for (const node of Object.values(projectData.scene)) {
+            store.getState().addNode(node as any);
+          }
+          store.getState().recalculateMatrices();
+        } catch (e) {
+          console.error("Failed to load project", e);
+        }
+      }
+    } else {
+      alert("Electron API not available");
+    }
+  };
+
   const handleSaveState = async () => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
@@ -91,7 +119,14 @@ function App() {
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      const result = await window.electronAPI.saveProject(JSON.stringify(exportData, null, 2));
+      if (result) {
+        // Update nodes in store with the returned relative paths
+        const savedData = JSON.parse(result);
+        for (const [nodeId, node] of Object.entries(savedData.scene)) {
+          store.getState().updateNode(nodeId, { source: (node as any).source });
+        }
+      }
     } else {
       alert("Electron API not available");
     }
@@ -166,6 +201,38 @@ function App() {
     }
   };
 
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      const isImage = file.type.startsWith('image/');
+      const isVideo = file.type.startsWith('video/');
+      if (isImage || isVideo) {
+        // file.path is available in Electron
+        const sourcePath = (file as any).path || URL.createObjectURL(file);
+        const id = `media_${Date.now()}`;
+        
+        store.getState().addNode({
+          id,
+          type: isImage ? 'image' : 'video',
+          parentId: null,
+          children: [],
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          source: sourcePath,
+        });
+        store.getState().recalculateMatrices();
+      }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden">
@@ -179,12 +246,17 @@ function App() {
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
+          onOpenProject={handleOpenProject}
         />
 
         <div className="flex flex-1 overflow-hidden">
           <LayerPanel store={store} nodesCount={nodesCount} />
 
-          <div className="flex-1 relative bg-[#1a1a1a]">
+          <div 
+            className="flex-1 relative bg-[#1a1a1a]"
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+          >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
             {/* Overlay a subtle test animation button for quick testing */}
             <button

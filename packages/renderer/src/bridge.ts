@@ -108,6 +108,9 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'image' || node.type === 'video') {
+          pixiNode = new PIXI.Sprite();
+          (pixiNode as PIXI.Sprite).anchor.set(0.5); // Center origin like graphics
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -171,6 +174,52 @@ export class PixiBridge {
         if (node.fill) {
             pixiNode.endFill();
         }
+      } else if (pixiNode instanceof PIXI.Sprite) {
+        if (node.source && node.source !== (pixiNode as any).__source) {
+          (pixiNode as any).__source = node.source;
+          
+          const resolveSource = async () => {
+             let src = node.source!;
+             const isRelative = !src.startsWith('/') && !src.startsWith('file://') && !src.startsWith('http') && !src.match(/^[a-zA-Z]:[\\/]/);
+             
+             if (isRelative) {
+                const globalWindow = window as any;
+                const projectPath = globalWindow.electronAPI ? await globalWindow.electronAPI.getProjectPath() : null;
+                if (projectPath) {
+                   src = `file://${projectPath}/${src}`;
+                }
+             } else if (!src.startsWith('file://') && !src.startsWith('http')) {
+                src = `file://${src}`;
+             }
+             
+             if (src) {
+                const texture = PIXI.Texture.from(src);
+                pixiNode.texture = texture;
+                
+                if (node.type === 'video') {
+                   const resource = texture.baseTexture.resource as any;
+                   if (resource && resource.source) {
+                      resource.source.loop = true;
+                      resource.source.play().catch(() => {});
+                   } else {
+                     // Poll until source is available
+                     const check = setInterval(() => {
+                       const res = texture.baseTexture.resource as any;
+                       if (res && res.source) {
+                         clearInterval(check);
+                         res.source.loop = true;
+                         res.source.play().catch(() => {});
+                       }
+                     }, 100);
+                   }
+                }
+             }
+          };
+          resolveSource();
+        }
+        
+        if (node.width !== undefined) pixiNode.width = node.width;
+        if (node.height !== undefined) pixiNode.height = node.height;
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);
