@@ -13,7 +13,7 @@ export class RuntimePlayer {
   private engine: AnimationEngine;
   private bridge: PixiBridge;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
     this.store = createSceneGraphStore();
     this.engine = new AnimationEngine(this.store);
     this.bridge = new PixiBridge(canvas, this.store);
@@ -57,5 +57,20 @@ export class RuntimePlayer {
 
   public pause() {
     this.engine.pause();
+  }
+
+  public seek(time: number) {
+    this.engine.seek(time);
+  }
+
+  public setViewport(transform: { x: number; y: number; scaleX: number; scaleY: number }) {
+    if ((this.bridge as any).viewport) {
+      const vp = (this.bridge as any).viewport;
+      vp.container.x = transform.x;
+      vp.container.y = transform.y;
+      vp.container.scale.x = transform.scaleX;
+      vp.container.scale.y = transform.scaleY;
+      vp.drawGrid();
+    }
   }
 }

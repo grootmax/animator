@@ -6,9 +6,13 @@ import { Play, Pause, SkipBack } from 'lucide-react';
 interface TimelineProps {
   engine: AnimationEngine;
   store: ReturnType<typeof createSceneGraphStore>;
+  onPlay?: () => void;
+  onPause?: () => void;
+  onSeek?: (time: number) => void;
+  isPlayingProp?: boolean;
 }
 
-export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
+export const Timeline: React.FC<TimelineProps> = ({ engine, store, onPlay, onPause, onSeek, isPlayingProp }) => {
   const [playhead, setPlayhead] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const duration = engine.getDuration();
@@ -19,19 +23,43 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
   const [isScrubbing, setIsScrubbing] = useState(false);
 
   useEffect(() => {
+    setIsPlaying(!!isPlayingProp);
+  }, [isPlayingProp]);
+
+  useEffect(() => {
     let frame: number;
+    let lastTime = performance.now();
+    
     const update = () => {
-      setPlayhead(engine.getPlayhead());
-      setIsPlaying(engine.getIsPlaying());
+      const now = performance.now();
+      const dt = now - lastTime;
+      lastTime = now;
+      
+      // If we are relying on external play state, we manually advance the playhead locally
+      // just for the UI, without triggering engine.tick() which updates the store.
+      if (isPlayingProp && !isScrubbing) {
+         setPlayhead(p => {
+             let next = p + dt;
+             if (next > duration) next = engine.loop ? (next % duration) : duration;
+             return next;
+         });
+      } else {
+         // Fallback to engine's playhead if not playing externally (e.g. paused or scrubbing)
+         setPlayhead(engine.getPlayhead());
+      }
+      
       frame = requestAnimationFrame(update);
     };
     frame = requestAnimationFrame(update);
     return () => cancelAnimationFrame(frame);
-  }, [engine]);
+  }, [engine, isPlayingProp, isScrubbing, duration]);
 
   const togglePlay = () => {
-    if (engine.getIsPlaying()) engine.pause();
-    else engine.play();
+    if (isPlayingProp) {
+        if (onPause) onPause();
+    } else {
+        if (onPlay) onPlay();
+    }
   };
 
   const handleSeek = (e: React.MouseEvent) => {
@@ -41,6 +69,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
     const time = (x / rect.width) * duration;
     engine.seek(time);
     setPlayhead(time);
+    if (onSeek) onSeek(time);
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -56,6 +85,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
          const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
          const time = (x / rect.width) * duration;
          engine.seek(time);
+         if (onSeek) onSeek(time);
       }
     };
     const handlePointerUp = () => setIsScrubbing(false);
@@ -79,7 +109,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
     <div className="h-64 bg-gray-800 border-t border-gray-700 flex flex-col text-sm text-gray-300 select-none">
       <div className="flex border-b border-gray-700 bg-gray-900 p-1">
         <div className="w-64 border-r border-gray-700 flex items-center px-2 gap-2">
-           <button className="p-1 hover:text-white" onClick={() => engine.seek(0)} title="Reset">
+           <button className="p-1 hover:text-white" onClick={() => { engine.seek(0); if (onSeek) onSeek(0); }} title="Reset">
               <SkipBack size={16} />
            </button>
            <button className="p-1 hover:text-white" onClick={togglePlay}>

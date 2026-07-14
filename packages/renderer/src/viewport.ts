@@ -25,8 +25,8 @@ export class Viewport {
 
   private drawGrid() {
     this.grid.clear();
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const width = typeof window !== 'undefined' ? window.innerWidth : this.app.screen.width;
+    const height = typeof window !== 'undefined' ? window.innerHeight : this.app.screen.height;
 
     const gridSize = 50 * this.container.scale.x;
     const offsetX = this.container.x % gridSize;
@@ -46,7 +46,10 @@ export class Viewport {
   }
 
   private setupEvents() {
+    if (typeof window === 'undefined') return;
+
     const canvas = this.app.view as HTMLCanvasElement;
+    if (!canvas.addEventListener) return;
 
     canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
     canvas.addEventListener('pointermove', this.onPointerMove.bind(this));
