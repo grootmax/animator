@@ -20,6 +20,28 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    try {
+      const parsedUrl = new URL(url);
+      if (process.env.VITE_DEV_SERVER_URL) {
+        const devUrl = new URL(process.env.VITE_DEV_SERVER_URL);
+        if (parsedUrl.origin !== devUrl.origin) {
+          event.preventDefault();
+        }
+      } else {
+        if (parsedUrl.protocol !== 'file:' || !parsedUrl.pathname.includes('/dist/index.html')) {
+          event.preventDefault();
+        }
+      }
+    } catch {
+      event.preventDefault();
+    }
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(() => {
+    return { action: 'deny' };
+  });
 }
 
 app.whenReady().then(() => {
