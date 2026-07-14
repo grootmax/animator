@@ -42,6 +42,28 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [showSaveProgress, setShowSaveProgress] = useState(false);
+  const workerRef = useRef<Worker | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    workerRef.current = new Worker(new URL('./playback.worker.ts', import.meta.url), { type: 'module' });
+    
+    if (previewCanvasRef.current) {
+      const offscreen = previewCanvasRef.current.transferControlToOffscreen();
+      workerRef.current.postMessage({ type: 'init', payload: offscreen }, [offscreen]);
+    }
+    
+    // Listen for playhead updates from worker
+    workerRef.current.onmessage = (e) => {
+      if (e.data.type === 'playhead') {
+         // Optionally sync playhead if needed
+      }
+    };
+
+    return () => {
+      workerRef.current?.terminate();
+    };
+  }, []);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -199,7 +221,9 @@ function App() {
           'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
         }
       });
-      engine.play();
+      if (!isPlaying) {
+         handleTogglePlay();
+      }
     } else {
       store.getState().commitHistory();
       // Create a test node if none exist
@@ -222,8 +246,51 @@ function App() {
   };
 
   const handleTogglePlay = () => {
-    if (engine.getIsPlaying()) engine.pause();
-    else engine.play();
+    if (isPlaying) {
+      engine.pause(); // Just in case
+      workerRef.current?.postMessage({ type: 'pause' });
+      setIsPlaying(false);
+    } else {
+      // Pause local engine
+      engine.pause();
+      
+      const state = store.getState().nodes;
+      const cleanScene: Record<string, any> = {};
+      for (const [id, node] of Object.entries(state)) {
+        const cleanNode = { ...node };
+        delete (cleanNode as any).localMatrix;
+        delete (cleanNode as any).worldMatrix;
+        delete (cleanNode as any).isDirty;
+        cleanScene[id] = cleanNode;
+      }
+
+      const exportData = {
+        scene: cleanScene,
+        animations: engine.getTracks(),
+        metadata: {
+          version: "1.0.0",
+          duration: engine.getDuration()
+        }
+      };
+
+      workerRef.current?.postMessage({ type: 'load', payload: exportData });
+      
+      const bridge = (window as any).__bridge;
+      if (bridge && bridge.viewport) {
+         workerRef.current?.postMessage({ 
+            type: 'setViewport', 
+            payload: {
+               x: bridge.viewport.container.x,
+               y: bridge.viewport.container.y,
+               scaleX: bridge.viewport.container.scale.x,
+               scaleY: bridge.viewport.container.scale.y
+            }
+         });
+      }
+
+      workerRef.current?.postMessage({ type: 'play' });
+      setIsPlaying(true);
+    }
   };
 
   const handleZoomIn = () => {
@@ -301,7 +368,18 @@ function App() {
             onDrop={handleDrop}
             onDragOver={handleDragOver}
           >
-            <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+            {/* Main thread canvas for editing */}
+            <canvas 
+               ref={canvasRef} 
+               className="absolute inset-0 w-full h-full" 
+               style={{ visibility: isPlaying ? 'hidden' : 'visible' }}
+            />
+            {/* Worker thread canvas for isolated playback */}
+            <canvas 
+               ref={previewCanvasRef} 
+               className="absolute inset-0 w-full h-full pointer-events-none" 
+               style={{ visibility: isPlaying ? 'visible' : 'hidden' }}
+            />
             {/* Overlay a subtle test animation button for quick testing */}
             <button
                className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
@@ -312,7 +390,14 @@ function App() {
           </div>
         </div>
 
-        <Timeline engine={engine} store={store} />
+        <Timeline 
+          engine={engine} 
+          store={store} 
+          isPlayingProp={isPlaying}
+          onPlay={handleTogglePlay}
+          onPause={handleTogglePlay}
+          onSeek={(time) => workerRef.current?.postMessage({ type: 'seek', payload: time })}
+        />
 
         {showSaveProgress && (
           <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">

@@ -12,14 +12,16 @@ export class RuntimePlayer {
   private sharedBuffer: SharedArrayBuffer;
   private syncArray: Float32Array;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
     // SharedArrayBuffer for node state sync (up to 100k nodes * 16 floats per node)
     this.sharedBuffer = new SharedArrayBuffer(100000 * 16 * 4);
     this.syncArray = new Float32Array(this.sharedBuffer);
 
     let offscreen: OffscreenCanvas | HTMLCanvasElement = canvas;
-    if ('transferControlToOffscreen' in canvas) {
-      offscreen = canvas.transferControlToOffscreen();
+    if (typeof HTMLCanvasElement !== 'undefined' && canvas instanceof HTMLCanvasElement) {
+      if ('transferControlToOffscreen' in canvas) {
+        offscreen = canvas.transferControlToOffscreen();
+      }
     }
 
     this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
@@ -28,10 +30,12 @@ export class RuntimePlayer {
       payload: { canvas: offscreen, sharedBuffer: this.sharedBuffer }
     }, offscreen instanceof OffscreenCanvas ? [offscreen] : []);
 
-    // Proxy viewport events to the worker
-    canvas.addEventListener('pointerdown', (e) => this.proxyEvent('pointerdown', e));
-    canvas.addEventListener('pointermove', (e) => this.proxyEvent('pointermove', e));
-    canvas.addEventListener('pointerup', (e) => this.proxyEvent('pointerup', e));
+    if (typeof HTMLCanvasElement !== 'undefined' && canvas instanceof HTMLCanvasElement) {
+      // Proxy viewport events to the worker
+      canvas.addEventListener('pointerdown', (e) => this.proxyEvent('pointerdown', e));
+      canvas.addEventListener('pointermove', (e) => this.proxyEvent('pointermove', e));
+      canvas.addEventListener('pointerup', (e) => this.proxyEvent('pointerup', e));
+    }
   }
 
   private proxyEvent(type: string, e: PointerEvent) {
@@ -76,5 +80,9 @@ export class RuntimePlayer {
 
   public updateNode(id: string, updates: any) {
     this.worker.postMessage({ type: 'updateNode', payload: { id, updates } });
+  }
+
+  public setViewport(transform: { x: number; y: number; scaleX: number; scaleY: number }) {
+    this.worker.postMessage({ type: 'setViewport', payload: transform });
   }
 }

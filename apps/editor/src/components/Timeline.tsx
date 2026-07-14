@@ -6,10 +6,15 @@ import { Play, Pause, SkipBack } from 'lucide-react';
 interface TimelineProps {
   engine: AnimationEngine;
   store: ReturnType<typeof createSceneGraphStore>;
+  onPlay?: () => void;
+  onPause?: () => void;
+  onSeek?: (time: number) => void;
+  isPlayingProp?: boolean;
 }
 
-export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
-  const [isPlaying, setIsPlaying] = useState(() => engine.getIsPlaying());
+export const Timeline: React.FC<TimelineProps> = ({ engine, store, onPlay, onPause, onSeek, isPlayingProp }) => {
+  const [playhead, setPlayhead] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
   const duration = engine.getDuration();
   const tracks = engine.getTracks();
   const state = store.getState();
@@ -24,10 +29,30 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
   const [clientHeight, setClientHeight] = useState(0);
 
   useEffect(() => {
+    setIsPlaying(!!isPlayingProp);
+  }, [isPlayingProp]);
+
+  useEffect(() => {
     let frame: number;
+    let lastTime = performance.now();
+    
     const update = () => {
-      const currentPlayhead = engine.getPlayhead();
-      const currentlyPlaying = engine.getIsPlaying();
+      const now = performance.now();
+      const dt = now - lastTime;
+      lastTime = now;
+      
+      let currentPlayhead = 0;
+      if (isPlayingProp && !isScrubbing) {
+        setPlayhead(p => {
+          let next = p + dt;
+          if (next > duration) next = engine.loop ? (next % duration) : duration;
+          currentPlayhead = next;
+          return next;
+        });
+      } else {
+        currentPlayhead = engine.getPlayhead();
+        setPlayhead(currentPlayhead);
+      }
 
       if (playheadRef.current) {
         playheadRef.current.style.left = `${(currentPlayhead / duration) * 100}%`;
@@ -36,16 +61,11 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
         timeDisplayRef.current.textContent = `${(currentPlayhead / 1000).toFixed(2)}s`;
       }
 
-      setIsPlaying((prev) => {
-        if (prev !== currentlyPlaying) return currentlyPlaying;
-        return prev;
-      });
-
       frame = requestAnimationFrame(update);
     };
     frame = requestAnimationFrame(update);
     return () => cancelAnimationFrame(frame);
-  }, [engine, duration]);
+  }, [engine, isPlayingProp, isScrubbing, duration]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -73,8 +93,11 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
   }, []);
 
   const togglePlay = () => {
-    if (engine.getIsPlaying()) engine.pause();
-    else engine.play();
+    if (isPlayingProp) {
+        if (onPause) onPause();
+    } else {
+        if (onPlay) onPlay();
+    }
   };
 
   const handleSeek = (e: React.MouseEvent | PointerEvent) => {
@@ -84,13 +107,14 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
     const time = (x / rect.width) * duration;
     engine.seek(time);
 
-    // Immediate DOM update for responsiveness during scrub
+    setPlayhead(time);
     if (playheadRef.current) {
       playheadRef.current.style.left = `${(time / duration) * 100}%`;
     }
     if (timeDisplayRef.current) {
       timeDisplayRef.current.textContent = `${(time / 1000).toFixed(2)}s`;
     }
+    if (onSeek) onSeek(time);
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -107,12 +131,14 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
          const time = (x / rect.width) * duration;
          engine.seek(time);
          
+         setPlayhead(time);
          if (playheadRef.current) {
            playheadRef.current.style.left = `${(time / duration) * 100}%`;
          }
          if (timeDisplayRef.current) {
            timeDisplayRef.current.textContent = `${(time / 1000).toFixed(2)}s`;
          }
+         if (onSeek) onSeek(time);
       }
     };
     const handlePointerUp = () => setIsScrubbing(false);
@@ -159,7 +185,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
     <div className="h-64 bg-gray-800 border-t border-gray-700 flex flex-col text-sm text-gray-300 select-none">
       <div className="flex border-b border-gray-700 bg-gray-900 p-1">
         <div className="w-64 border-r border-gray-700 flex items-center px-2 gap-2">
-           <button className="p-1 hover:text-white" onClick={() => engine.seek(0)} title="Reset">
+           <button className="p-1 hover:text-white" onClick={() => { engine.seek(0); if (onSeek) onSeek(0); }} title="Reset">
               <SkipBack size={16} />
            </button>
            <button className="p-1 hover:text-white" onClick={togglePlay}>

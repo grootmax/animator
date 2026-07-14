@@ -68,7 +68,19 @@ self.onmessage = (e) => {
       break;
     }
     case 'seek': {
-      engine.seek(payload.time);
+      const time = typeof payload === 'number' ? payload : payload?.time;
+      if (typeof time === 'number') engine.seek(time);
+      break;
+    }
+    case 'setViewport': {
+      if (bridge && (bridge as any).viewport) {
+        const vp = (bridge as any).viewport;
+        vp.container.x = payload.x;
+        vp.container.y = payload.y;
+        vp.container.scale.x = payload.scaleX;
+        vp.container.scale.y = payload.scaleY;
+        vp.drawGrid();
+      }
       break;
     }
     case 'updateNode': {

@@ -30,6 +30,7 @@
     "@monorepo/runtime-player": "*",
     "@monorepo/animation-engine": "*",
     "@monorepo/renderer": "*",
+    "@monorepo/runtime-player": "*",
     "@monorepo/scene-graph": "*",
     "@monorepo/serialization": "*",
     "lucide-react": "^0.279.0",
