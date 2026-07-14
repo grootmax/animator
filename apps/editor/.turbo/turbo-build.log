@@ -4,33 +4,34 @@
 
 vite v4.5.14 building for production...
 transforming...
-(node:44013) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/apps/editor/postcss.config.js is not specified and it doesn't parse as CommonJS.
+(node:11224) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///app/apps/editor/postcss.config.js is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /app/apps/editor/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
-✓ 1880 modules transformed.
+✓ 1883 modules transformed.
 rendering chunks...
 computing gzip size...
-dist/index.html                   0.40 kB │ gzip:   0.28 kB
-dist/assets/index-781584d6.css   10.84 kB │ gzip:   2.79 kB
-dist/assets/index-2dedd75b.js   691.69 kB │ gzip: 210.61 kB
+dist/index.html                             0.40 kB │ gzip:   0.28 kB
+dist/assets/serializerWorker-e2a058b7.js    0.83 kB
+dist/assets/index-e11440fa.css             11.48 kB │ gzip:   2.94 kB
+dist/assets/index-b44ef5b7.js             696.23 kB │ gzip: 212.03 kB
 
 (!) Some chunks are larger than 500 kBs after minification. Consider:
 - Using dynamic import() to code-split the application
 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
-✓ built in 2.60s
+✓ built in 7.10s
 vite v4.5.14 building for production...
 transforming...
 ✓ 1 modules transformed.
 rendering chunks...
 computing gzip size...
-dist-electron/main.js  1.30 kB │ gzip: 0.74 kB
-✓ built in 11ms
+dist-electron/main.js  1.88 kB │ gzip: 0.93 kB
+✓ built in 31ms
 vite v4.5.14 building for production...
 transforming...
 ✓ 1 modules transformed.
 rendering chunks...
 computing gzip size...
-dist-electron/preload.js  0.20 kB │ gzip: 0.15 kB
-✓ built in 8ms
+dist-electron/preload.js  0.39 kB │ gzip: 0.20 kB
+✓ built in 16ms
