@@ -5,6 +5,19 @@ import { PixiBridge } from '@monorepo/renderer';
 let store: ReturnType<typeof createSceneGraphStore>;
 let engine: AnimationEngine;
 let bridge: PixiBridge;
+let lastTime = 0;
+let rafId: number | null = null;
+
+function tick() {
+  if (!engine || !engine.getIsPlaying()) return;
+  const now = performance.now();
+  const dt = now - lastTime;
+  lastTime = now;
+  engine.step(dt);
+  if (engine.getIsPlaying()) {
+    rafId = self.requestAnimationFrame(tick);
+  }
+}
 
 // Virtualize requestAnimationFrame if missing
 if (typeof self.requestAnimationFrame !== 'function') {
@@ -60,11 +73,18 @@ self.onmessage = (e) => {
       break;
     }
     case 'play': {
+      if (!engine || engine.getIsPlaying()) break;
       engine.play();
+      lastTime = performance.now();
+      rafId = self.requestAnimationFrame(tick);
       break;
     }
     case 'pause': {
-      engine.pause();
+      if (engine) engine.pause();
+      if (rafId !== null) {
+        self.cancelAnimationFrame(rafId);
+        rafId = null;
+      }
       break;
     }
     case 'seek': {

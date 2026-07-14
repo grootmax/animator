@@ -1,19 +1,12 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { EasingType, Keyframe, Track } from './types';
 
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
+export type NetworkRole = 'standalone' | 'leader' | 'follower';
 
-export interface Keyframe {
-  id: string;
-  time: number; // in milliseconds
-  value: number | string;
-  easing?: EasingType;
-}
-
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
+export interface Heartbeat {
+  playhead: number;
+  isPlaying: boolean;
 }
 
 function parseHexColor(hex: string) {
@@ -99,10 +92,8 @@ export class AnimationEngine {
   private tracks: Track[] = [];
   private playhead = 0;
   private isPlaying = false;
-  private lastTime = 0;
-  private drift = 0;
-  private rafId: number | null = null;
   public loop = true;
+  public fps = 60;
   private duration = 5000; // ms
 
   public role: NetworkRole = 'standalone';
@@ -127,11 +118,7 @@ export class AnimationEngine {
   }
 
   public play() {
-    if (this.isPlaying) return;
     this.isPlaying = true;
-    this.lastTime = performance.now();
-    this.drift = 0;
-    this.tick();
 
     if (this.role === 'leader') {
       this.broadcastHeartbeat();
@@ -141,10 +128,6 @@ export class AnimationEngine {
 
   public pause() {
     this.isPlaying = false;
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
-    }
 
     if (this.role === 'leader') {
       this.stopHeartbeat();
@@ -153,8 +136,7 @@ export class AnimationEngine {
   }
 
   public seek(time: number) {
-    this.drift = 0;
-    this.playhead = Math.round(time / 16.67) * 16.67;
+    this.playhead = time;
     this.updateNodes();
 
     if (this.role === 'leader') {
@@ -216,18 +198,21 @@ export class AnimationEngine {
     }
   }
 
-  private tick = () => {
-    if (!this.isPlaying) return;
+  public setFrame(frameIndex: number) {
+    const time = (frameIndex / this.fps) * 1000;
+    this.seek(time);
+  }
 
-    const now = performance.now();
-    const dt = now - this.lastTime;
-    this.lastTime = now;
+  public getCurrentFrame(): number {
+    return Math.floor(this.playhead / (1000 / this.fps));
+  }
 
-    const exactDt = dt + this.drift;
-    const quantizedDt = Math.round(exactDt / 16.67) * 16.67;
-    this.drift = exactDt - quantizedDt;
+  public getTotalFrames(): number {
+    return Math.floor(this.duration / (1000 / this.fps));
+  }
 
-    this.playhead += quantizedDt;
+  public step(deltaTimeMs: number) {
+    this.playhead += deltaTimeMs;
 
     if (this.playhead > this.duration) {
       if (this.loop) {
@@ -236,13 +221,19 @@ export class AnimationEngine {
         this.playhead = this.duration;
         this.pause();
       }
+    } else if (this.playhead < 0) {
+      if (this.loop) {
+        this.playhead = (this.playhead % this.duration + this.duration) % this.duration;
+      } else {
+        this.playhead = 0;
+      }
     }
 
     this.updateNodes();
+  }
 
-    if (this.isPlaying) {
-      this.rafId = requestAnimationFrame(this.tick);
-    }
+  public stepFrame(frameCount: number) {
+    this.setFrame(this.getCurrentFrame() + frameCount);
   }
 
   private getEasingFunction(type: EasingType = 'linear') {
@@ -280,7 +271,7 @@ export class AnimationEngine {
 
     for (const track of this.tracks) {
       const keyframesArray = Object.values(track.keyframes).sort((a, b) => {
-        if (a.time === b.time) return a.id.localeCompare(b.id);
+        if (a.time === b.time) return (a.id || '').localeCompare(b.id || '');
         return a.time - b.time;
       });
       const [start, end] = this.binarySearchKeyframes(keyframesArray, this.playhead);
@@ -305,11 +296,9 @@ export class AnimationEngine {
     let requiresMatrixUpdate = false;
 
     if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
       for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
+        storeState.updateNode(nodeId, nodeUpdates);
       }
-      storeState.updateNodesBatch(batchUpdates);
       requiresMatrixUpdate = true;
     }
 
