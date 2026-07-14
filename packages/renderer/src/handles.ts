@@ -1,10 +1,15 @@
 import * as PIXI from 'pixi.js';
-import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
+import { SceneNode } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
+
+export interface IWorkerStore {
+  nodes: Record<string, SceneNode>;
+  updateNode: (id: string, updates: Partial<SceneNode>) => void;
+}
 
 export class TransformHandles {
   public container: PIXI.Container;
-  private store: ReturnType<typeof createSceneGraphStore>;
+  private store: IWorkerStore;
   private viewport: Viewport;
   private selectedNodeId: string | null = null;
 
@@ -16,7 +21,7 @@ export class TransformHandles {
   private dragStartPos = { x: 0, y: 0 };
   private startNodeState: SceneNode | null = null;
 
-  constructor(store: ReturnType<typeof createSceneGraphStore>, viewport: Viewport) {
+  constructor(store: IWorkerStore, viewport: Viewport) {
     this.store = store;
     this.viewport = viewport;
     this.container = new PIXI.Container();
@@ -36,10 +41,6 @@ export class TransformHandles {
       this.handles[id] = handle;
       this.container.addChild(handle);
     }
-
-    // Add global pointer move/up
-    window.addEventListener('pointermove', this.onDragMove.bind(this));
-    window.addEventListener('pointerup', this.onDragEnd.bind(this));
   }
 
   public setSelectedNode(id: string | null) {
@@ -53,8 +54,7 @@ export class TransformHandles {
       return;
     }
 
-    const state = this.store.getState();
-    const node = state.nodes[this.selectedNodeId];
+    const node = this.store.nodes[this.selectedNodeId];
 
     if (!node || node.locked || !node.visible) {
       this.container.visible = false;
@@ -63,10 +63,8 @@ export class TransformHandles {
 
     this.container.visible = true;
 
-    // Use worldMatrix to position the handles relative to the viewport
     const wm = node.worldMatrix;
 
-    // Apply world matrix to the handles container
     this.container.setTransform(
       wm[6], wm[7],
       Math.hypot(wm[0], wm[1]), Math.hypot(wm[3], wm[4]),
@@ -80,8 +78,6 @@ export class TransformHandles {
     this.box.lineStyle(2, 0x00aaff, 1);
     this.box.drawRect(-w/2, -h/2, w, h);
 
-    // The handle visual size needs to counter-scale BOTH the local node's world scale AND the viewport zoom
-    // We apply viewport scaling in bridge.ts by making handles a child of viewport.
     const globalScaleX = Math.hypot(wm[0], wm[1]);
     const globalScaleY = Math.hypot(wm[3], wm[4]);
 
@@ -91,7 +87,7 @@ export class TransformHandles {
     const drawHandle = (g: PIXI.Graphics, x: number, y: number) => {
       g.clear();
       g.beginFill(0xffffff);
-      g.lineStyle(1 / Math.min(globalScaleX, globalScaleY), 0x00aaff); // line width invariant
+      g.lineStyle(1 / Math.min(globalScaleX, globalScaleY), 0x00aaff);
       g.drawRect(x - sizeX/2, y - sizeY/2, sizeX, sizeY);
       g.endFill();
     };
@@ -111,10 +107,10 @@ export class TransformHandles {
     this.isDragging = true;
     this.dragType = type;
     this.dragStartPos = { x: e.globalX, y: e.globalY };
-    this.startNodeState = { ...this.store.getState().nodes[this.selectedNodeId] } as SceneNode;
+    this.startNodeState = { ...this.store.nodes[this.selectedNodeId] } as SceneNode;
   }
 
-  private onDragMove(e: PointerEvent) {
+  public onDragMove(e: { clientX: number, clientY: number }) {
     if (!this.isDragging || !this.selectedNodeId || !this.startNodeState) return;
 
     const dx = e.clientX - this.dragStartPos.x;
@@ -123,8 +119,6 @@ export class TransformHandles {
     const updates: any = {};
 
     if (this.dragType === 'rot') {
-       // get container absolute pos on screen to calculate angle
-       const rect = (this.viewport.container as any).parent.parent?.getBounds?.() || {x:0, y:0};
        const cx = this.container.x * this.viewport.container.scale.x + this.viewport.container.x;
        const cy = this.container.y * this.viewport.container.scale.y + this.viewport.container.y;
 
@@ -137,11 +131,10 @@ export class TransformHandles {
        updates.scaleY = this.startNodeState.scaleY + scaleDelta;
     }
 
-    this.store.getState().updateNode(this.selectedNodeId, updates);
-    this.store.getState().recalculateMatrices();
+    this.store.updateNode(this.selectedNodeId, updates);
   }
 
-  private onDragEnd() {
+  public onDragEnd() {
     this.isDragging = false;
     this.dragType = null;
     this.startNodeState = null;

@@ -150,19 +150,15 @@ function App() {
 
   const handleZoomIn = () => {
     const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x *= 1.2;
-      bridge.viewport.container.scale.y *= 1.2;
-      bridge.viewport.drawGrid();
+    if (bridge && bridge.zoomIn) {
+      bridge.zoomIn();
     }
   };
 
   const handleZoomOut = () => {
     const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x /= 1.2;
-      bridge.viewport.container.scale.y /= 1.2;
-      bridge.viewport.drawGrid();
+    if (bridge && bridge.zoomOut) {
+      bridge.zoomOut();
     }
   };
 
