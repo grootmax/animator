@@ -10,7 +10,7 @@ export class PixiBridge {
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -108,6 +108,9 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'sprite') {
+          pixiNode = new PIXI.Sprite();
+          (pixiNode as PIXI.Sprite).anchor.set(0.5); // Center anchor for rotation like rects
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -133,6 +136,18 @@ export class PixiBridge {
       // Update visibility and opacity
       pixiNode.visible = node.visible !== false;
       pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
+
+      if (node.type === 'sprite' && node.assetUrl && pixiNode instanceof PIXI.Sprite) {
+        const fullUrl = `asset://${node.assetUrl}`;
+        if ((pixiNode as any)._currentAssetUrl !== fullUrl) {
+          (pixiNode as any)._currentAssetUrl = fullUrl;
+          (pixiNode as PIXI.Sprite).texture = PIXI.Texture.from(fullUrl);
+        }
+        if (node.width && node.height) {
+          (pixiNode as PIXI.Sprite).width = node.width;
+          (pixiNode as PIXI.Sprite).height = node.height;
+        }
+      }
 
       if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();
