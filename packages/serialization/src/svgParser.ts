@@ -171,7 +171,16 @@ export class SvgParser {
     const id = element.id || generateId();
     let type: NodeType = 'group';
 
-    switch (element.tagName.toLowerCase()) {
+    const tagName = element.tagName.toLowerCase();
+    if (!['g', 'svg', 'symbol', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'path'].includes(tagName)) {
+      // Recurse into unsupported tags like <defs> without creating a SceneNode for them
+      Array.from(element.children).forEach(child => {
+        this.processElement(child, parentId, nodesList, parentMatrix);
+      });
+      return;
+    }
+
+    switch (tagName) {
       case 'g': 
       case 'svg':
       case 'symbol':
@@ -283,7 +292,7 @@ export class SvgParser {
     nodesList.push(sceneNode);
 
     Array.from(element.children).forEach(child => {
-      this.processElement(child, id, nodesList, combinedMatrix);
+      this.processElement(child, id, nodesList, finalMatrix);
     });
   }
 }
