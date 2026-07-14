@@ -18,5 +18,8 @@
     "turbo": "^1.10.0",
     "typescript": "^5.0.0"
   },
-  "packageManager": "npm@9.8.1"
+  "packageManager": "npm@9.8.1",
+  "dependencies": {
+    "lucide-react": "^0.279.0"
+  }
 }

@@ -16,6 +16,7 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    { name: 'ignore-worker', transform(code, id) { if (id.includes('runtime-player/dist/index.js')) return code.replace('import.meta.url', '""'); } },
     electron([
       {
         entry: 'electron/main.ts',

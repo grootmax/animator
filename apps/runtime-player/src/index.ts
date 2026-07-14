@@ -1,5 +1,6 @@
-import { SceneNode } from '@monorepo/scene-graph';
-import { Track } from '@monorepo/animation-engine';
+import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
+import { Track, AnimationEngine } from '@monorepo/animation-engine';
+import { PixiBridge } from '@monorepo/renderer';
 
 export interface ExportedProject {
   scene: Record<string, Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>>;
@@ -7,41 +8,15 @@ export interface ExportedProject {
   metadata: any;
 }
 
-export class RuntimePlayer {
-  private worker: Worker;
-  private sharedBuffer: SharedArrayBuffer;
-  private syncArray: Float32Array;
+export class InnerRuntimePlayer {
+  public store: ReturnType<typeof createSceneGraphStore>;
+  public engine: AnimationEngine;
+  private bridge: PixiBridge;
 
-  constructor(canvas: HTMLCanvasElement) {
-    // SharedArrayBuffer for node state sync (up to 100k nodes * 16 floats per node)
-    this.sharedBuffer = new SharedArrayBuffer(100000 * 16 * 4);
-    this.syncArray = new Float32Array(this.sharedBuffer);
-
-    let offscreen: OffscreenCanvas | HTMLCanvasElement = canvas;
-    if ('transferControlToOffscreen' in canvas) {
-      offscreen = canvas.transferControlToOffscreen();
-    }
-
-    this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-    this.worker.postMessage({
-      type: 'init',
-      payload: { canvas: offscreen, sharedBuffer: this.sharedBuffer }
-    }, offscreen instanceof OffscreenCanvas ? [offscreen] : []);
-
-    // Proxy viewport events to the worker
-    canvas.addEventListener('pointerdown', (e) => this.proxyEvent('pointerdown', e));
-    canvas.addEventListener('pointermove', (e) => this.proxyEvent('pointermove', e));
-    canvas.addEventListener('pointerup', (e) => this.proxyEvent('pointerup', e));
-  }
-
-  private proxyEvent(type: string, e: PointerEvent) {
-    this.worker.postMessage({
-      type: 'interaction',
-      payload: {
-        eventType: type,
-        eventData: { clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId }
-      }
-    });
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, devicePixelRatio?: number) {
+    this.store = createSceneGraphStore();
+    this.engine = new AnimationEngine(this.store);
+    this.bridge = new PixiBridge(canvas, this.store, devicePixelRatio);
   }
 
   public load(json: string | ExportedProject) {
@@ -56,25 +31,236 @@ export class RuntimePlayer {
       data = json;
     }
 
-    this.worker.postMessage({
-      type: 'load',
-      payload: { data }
-    });
+    if (data.scene) {
+      Object.values(data.scene).forEach(node => {
+        this.store.getState().addNode(node as any);
+      });
+      this.store.getState().recalculateMatrices();
+    }
+
+    if (data.metadata?.duration) {
+      this.engine.setDuration(data.metadata.duration);
+    }
+
+    if (data.animations) {
+      data.animations.forEach(track => {
+        this.engine.addTrack(track);
+      });
+    }
   }
 
   public play() {
-    this.worker.postMessage({ type: 'play' });
+    this.engine.play();
   }
 
   public pause() {
-    this.worker.postMessage({ type: 'pause' });
+    this.engine.pause();
   }
 
   public seek(time: number) {
-    this.worker.postMessage({ type: 'seek', payload: { time } });
+    if (typeof (this.engine as any).seek === 'function') {
+      (this.engine as any).seek(time);
+    }
+  }
+
+  public resize(width: number, height: number) {
+    if (this.bridge && this.bridge.app) {
+      this.bridge.app.renderer.resize(width, height);
+    }
   }
 
   public updateNode(id: string, updates: any) {
-    this.worker.postMessage({ type: 'updateNode', payload: { id, updates } });
+    this.store.getState().updateNode(id, updates);
+  }
+
+  public addNode(node: any) {
+    this.store.getState().addNode(node);
+    this.store.getState().recalculateMatrices();
+  }
+
+  public addTrack(track: any) {
+    this.engine.addTrack(track);
+  }
+}
+
+export class RuntimePlayer {
+  private worker: Worker | null = null;
+  private fallbackPlayer: InnerRuntimePlayer | null = null;
+  private subscribers: Array<(nodes: Record<string, SceneNode>) => void> = [];
+
+  // Local state for Timeline UI
+  private playhead = 0;
+  private isPlaying = false;
+  private duration = 5000;
+  private tracks: Track[] = [];
+  private lastTime = 0;
+  private rafId: number | null = null;
+
+  public getPlayhead() { return this.playhead; }
+  public getIsPlaying() { return this.isPlaying; }
+  public getDuration() { return this.duration; }
+  public getTracks() { return this.tracks; }
+
+  constructor(canvas: HTMLCanvasElement) {
+    const supportsOffscreen = typeof HTMLCanvasElement.prototype.transferControlToOffscreen === 'function';
+
+    if (supportsOffscreen) {
+      try {
+        const offscreen = canvas.transferControlToOffscreen();
+        const baseUrl = (typeof import.meta !== 'undefined' && import.meta.url)
+          ? import.meta.url
+          : (typeof document !== 'undefined' ? document.baseURI : location.href);
+        const workerUrl = new URL('./player.worker.js', baseUrl);
+        this.worker = new Worker(workerUrl, { type: 'module' });
+        
+        this.worker.onmessage = (e) => {
+          if (e.data.type === 'STATE_SYNC') {
+            const buffer = e.data.payload as ArrayBuffer;
+            const decoder = new TextDecoder();
+            const json = decoder.decode(buffer);
+            try {
+              const nodes = JSON.parse(json);
+              this.notifySubscribers(nodes);
+            } catch (e) {}
+          }
+        };
+
+        this.worker.postMessage({
+          type: 'INIT',
+          payload: {
+            canvas: offscreen,
+            width: canvas.clientWidth || 800,
+            height: canvas.clientHeight || 600,
+            devicePixelRatio: window.devicePixelRatio || 1
+          }
+        }, [offscreen]);
+      } catch (err) {
+        console.warn('OffscreenCanvas Worker init failed, using main thread fallback:', err);
+        this.worker = null;
+        this.fallbackPlayer = new InnerRuntimePlayer(canvas, window.devicePixelRatio || 1);
+        this.fallbackPlayer.store.subscribe((state) => {
+          this.notifySubscribers(state.nodes);
+        });
+      }
+    } else {
+      this.fallbackPlayer = new InnerRuntimePlayer(canvas, window.devicePixelRatio || 1);
+      this.fallbackPlayer.store.subscribe((state) => {
+        this.notifySubscribers(state.nodes);
+      });
+    }
+  }
+
+  public subscribe(callback: (nodes: Record<string, SceneNode>) => void) {
+    this.subscribers.push(callback);
+    return () => {
+      this.subscribers = this.subscribers.filter(cb => cb !== callback);
+    };
+  }
+
+  private notifySubscribers(nodes: Record<string, SceneNode>) {
+    this.subscribers.forEach(cb => cb(nodes));
+  }
+
+  public load(json: string | ExportedProject) {
+    if (this.worker) {
+      this.worker.postMessage({ type: 'LOAD', payload: { json } });
+    } else if (this.fallbackPlayer) {
+      this.fallbackPlayer.load(json);
+    }
+  }
+
+  public play() {
+    if (this.isPlaying) return;
+    this.isPlaying = true;
+    this.lastTime = performance.now();
+    this.tick();
+
+    if (this.worker) {
+      this.worker.postMessage({ type: 'PLAY', payload: {} });
+    } else if (this.fallbackPlayer) {
+      this.fallbackPlayer.play();
+    }
+  }
+
+  public pause() {
+    this.isPlaying = false;
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+
+    if (this.worker) {
+      this.worker.postMessage({ type: 'PAUSE', payload: {} });
+    } else if (this.fallbackPlayer) {
+      this.fallbackPlayer.pause();
+    }
+  }
+
+  private tick = () => {
+    if (!this.isPlaying) return;
+
+    const now = performance.now();
+    const dt = now - this.lastTime;
+    this.lastTime = now;
+
+    this.playhead += dt;
+
+    if (this.playhead > this.duration) {
+      this.playhead = this.playhead % this.duration;
+    }
+
+    if (this.isPlaying) {
+      this.rafId = requestAnimationFrame(this.tick);
+    }
+  }
+
+  public seek(time: number) {
+    this.playhead = time;
+    if (this.worker) {
+      this.worker.postMessage({ type: 'SEEK', payload: { time } });
+    } else if (this.fallbackPlayer) {
+      this.fallbackPlayer.seek(time);
+    }
+  }
+
+  public resize(width: number, height: number) {
+    if (this.worker) {
+      this.worker.postMessage({ type: 'RESIZE', payload: { width, height } });
+    } else if (this.fallbackPlayer) {
+      this.fallbackPlayer.resize(width, height);
+    }
+  }
+  
+  public updateNode(id: string, updates: any) {
+    if (this.worker) {
+      this.worker.postMessage({ type: 'UPDATE_NODE', payload: { id, updates } });
+    } else if (this.fallbackPlayer) {
+      this.fallbackPlayer.updateNode(id, updates);
+    }
+  }
+
+  public addNode(node: any) {
+    if (this.worker) {
+      this.worker.postMessage({ type: 'ADD_NODE', payload: { node } });
+    } else if (this.fallbackPlayer) {
+      this.fallbackPlayer.addNode(node);
+    }
+  }
+
+  public addTrack(track: any) {
+    this.tracks.push(track);
+    if (this.worker) {
+      this.worker.postMessage({ type: 'ADD_TRACK', payload: { track } });
+    } else if (this.fallbackPlayer) {
+      this.fallbackPlayer.addTrack(track);
+    }
+  }
+  
+  public terminate() {
+    this.pause();
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+    }
   }
 }

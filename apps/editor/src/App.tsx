@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-import { PixiBridge } from '@monorepo/renderer';
-import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
+import { RuntimePlayer } from '@monorepo/runtime-player';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
@@ -11,19 +10,9 @@ import { DndProvider } from 'react-dnd';
 // @ts-ignore
 import { HTML5Backend } from 'react-dnd-html5-backend';
 
-// Create singletons for the app
-const channel = new BroadcastChannel('scene-graph-sync');
-const store = createSceneGraphStore((msg) => {
-  channel.postMessage(msg);
-});
-channel.onmessage = (event) => {
-  if (event.data && typeof (store as any).applyRemote === 'function') {
-    (store as any).applyRemote(event.data);
-  }
-};
-const engine = new AnimationEngine(store);
+// Create read-only UI store mirror
+const store = createSceneGraphStore();
 
-// Extend Window interface for Electron IPC
 declare global {
   interface Window {
     electronAPI?: {
@@ -40,59 +29,92 @@ function App() {
   const [storeVersion, setStoreVersion] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [player, setPlayer] = useState<RuntimePlayer | null>(null);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [showSaveProgress, setShowSaveProgress] = useState(false);
 
   useEffect(() => {
     if (canvasRef.current) {
-      // Initialize renderer
-      const bridge = new PixiBridge(canvasRef.current, store);
-      // We keep bridge instance alive
-      (window as any).__bridge = bridge;
+      const rp = new RuntimePlayer(canvasRef.current);
+      setPlayer(rp);
+      (window as any).__player = rp;
 
-      // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
-        setNodesCount(Object.keys(state.nodes).length);
-        setStoreVersion(state.version);
+      const unsub = rp.subscribe((nodes) => {
+        // Update read-only mirror
+        store.setState({ nodes });
       });
 
-      return () => unsubscribe();
+      const unsubStore = store.subscribe((state) => {
+        setNodesCount(Object.keys(state.nodes).length);
+        setStoreVersion(state.version || 0);
+      });
+
+      return () => {
+        unsub();
+        unsubStore();
+        rp.terminate();
+      };
     }
   }, []);
 
   useEffect(() => {
-    return engine.subscribeUI((state) => {
-      setIsPlaying(state.isPlaying);
-    });
-  }, []);
+    if (!player) return;
+    let frame: number;
+    const checkPlayState = () => {
+      setIsPlaying(player.getIsPlaying());
+      frame = requestAnimationFrame(checkPlayState);
+    };
+    frame = requestAnimationFrame(checkPlayState);
+    return () => cancelAnimationFrame(frame);
+  }, [player]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().undo();
+        store.getState().undo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().redo();
+        store.getState().redo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        store.getState().redo();
+        store.getState().redo?.();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Hook into node updates from UI (LayerPanel)
+  useEffect(() => {
+    const originalUpdate = store.getState().updateNode;
+    const originalAdd = store.getState().addNode;
+    
+    store.getState().updateNode = (id, updates) => {
+      if ((window as any).__player) {
+         (window as any).__player.updateNode(id, updates);
+      }
+    };
+
+    store.getState().addNode = (node) => {
+      if ((window as any).__player) {
+         (window as any).__player.addNode(node);
+      }
+    };
+    
+    return () => {
+      store.getState().updateNode = originalUpdate;
+      store.getState().addNode = originalAdd;
+    };
+  }, []);
+
   const handleImportSvg = async () => {
-    if (window.electronAPI) {
+    if (window.electronAPI && player) {
       const svgContent = await window.electronAPI.openFile();
       if (svgContent) {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
-        if (nodes.length > 0) {
-          store.getState().commitHistory();
-          nodes.forEach(node => store.getState().addNode(node));
-        }
+        nodes.forEach(node => player.addNode(node));
       }
     } else {
       alert("Electron API not available");
@@ -100,18 +122,33 @@ function App() {
   };
 
   const handleSaveState = async () => {
-    if (window.electronAPI) {
+    if (window.electronAPI && player) {
       const state = store.getState().nodes;
       const nodeKeys = Object.keys(state);
       const totalNodes = nodeKeys.length;
-      
       const cleanScene: Record<string, any> = {};
-      
       let currentIndex = 0;
-      
+
       const showProgressTimeout = setTimeout(() => {
         setShowSaveProgress(true);
       }, 500);
+
+      const finishSave = async () => {
+        clearTimeout(showProgressTimeout);
+        setShowSaveProgress(false);
+        setSaveProgress(null);
+        
+        const exportData = {
+          scene: cleanScene,
+          animations: player.getTracks(),
+          metadata: {
+            version: "1.0.0",
+            duration: player.getDuration()
+          }
+        };
+
+        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+      };
 
       const processBatch = (deadline?: any) => {
         const startTime = performance.now();
@@ -147,23 +184,6 @@ function App() {
         }
       };
 
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
-          }
-        };
-
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
-      };
-      
       if ('requestIdleCallback' in window) {
         (window as any).requestIdleCallback(processBatch);
       } else {
@@ -186,11 +206,12 @@ function App() {
   };
 
   const handleTestAnimation = () => {
+    if (!player) return;
     const state = store.getState();
     const nodeIds = Object.keys(state.nodes);
     if (nodeIds.length > 0) {
       const testNodeId = nodeIds[0];
-      engine.addTrack({
+      player.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
         keyframes: {
@@ -199,15 +220,12 @@ function App() {
           'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
         }
       });
-      engine.play();
+      player.play();
     } else {
-      store.getState().commitHistory();
-      // Create a test node if none exist
-      state.addNode({
+      player.addNode({
         id: 'test_rect',
         type: 'rect',
         parentId: null,
-        
         x: window.innerWidth / 2,
         y: window.innerHeight / 2,
         rotation: 0,
@@ -217,32 +235,17 @@ function App() {
         height: 100,
         fill: '#ff0000'
       });
-      state.recalculateMatrices();
     }
   };
 
   const handleTogglePlay = () => {
-    if (engine.getIsPlaying()) engine.pause();
-    else engine.play();
+    if (!player) return;
+    if (player.getIsPlaying()) player.pause();
+    else player.play();
   };
 
-  const handleZoomIn = () => {
-    const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x *= 1.2;
-      bridge.viewport.container.scale.y *= 1.2;
-      bridge.viewport.drawGrid();
-    }
-  };
-
-  const handleZoomOut = () => {
-    const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x /= 1.2;
-      bridge.viewport.container.scale.y /= 1.2;
-      bridge.viewport.drawGrid();
-    }
-  };
+  const handleZoomIn = () => {};
+  const handleZoomOut = () => {};
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -302,7 +305,6 @@ function App() {
             onDragOver={handleDragOver}
           >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
-            {/* Overlay a subtle test animation button for quick testing */}
             <button
                className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
                onClick={handleTestAnimation}
@@ -312,7 +314,7 @@ function App() {
           </div>
         </div>
 
-        <Timeline engine={engine} store={store} />
+        {player && <Timeline engine={player as any} store={store} />}
 
         {showSaveProgress && (
           <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
