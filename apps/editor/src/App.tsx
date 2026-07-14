@@ -19,6 +19,9 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
+      saveBundle: (manifest: any, assets: Array<{ name: string; data: Uint8Array, mimeType: string }>) => Promise<boolean>;
+      openBundle: () => Promise<{ manifest: any, assets: Array<{ name: string; data: Uint8Array, mimeType: string }> } | null>;
+      importAsset: () => Promise<{ name: string; data: Uint8Array, mimeType: string } | null>;
     }
   }
 }
@@ -28,6 +31,7 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [assets, setAssets] = useState<Array<{ name: string; data: Uint8Array, mimeType: string }>>([]);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -61,7 +65,7 @@ function App() {
       if (svgContent) {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+        nodes.forEach((node: any) => store.getState().addNode(node));
       }
     } else {
       alert("Electron API not available");
@@ -75,7 +79,7 @@ function App() {
       // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
       const cleanScene: Record<string, any> = {};
       for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
+        const cleanNode = { ...(node as object) };
         delete (cleanNode as any).localMatrix;
         delete (cleanNode as any).worldMatrix;
         delete (cleanNode as any).isDirty;
@@ -94,6 +98,78 @@ function App() {
       await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
     } else {
       alert("Electron API not available");
+    }
+  };
+
+  const handleSaveBundle = async () => {
+    if (window.electronAPI) {
+      const state = store.getState().nodes;
+      const cleanScene: Record<string, any> = {};
+      for (const [id, node] of Object.entries(state)) {
+        const cleanNode = { ...(node as object) };
+        delete (cleanNode as any).localMatrix;
+        delete (cleanNode as any).worldMatrix;
+        delete (cleanNode as any).isDirty;
+        cleanScene[id] = cleanNode;
+      }
+      const exportData = {
+        scene: cleanScene,
+        animations: engine.getTracks(),
+        metadata: {
+          version: "1.0.0",
+          duration: engine.getDuration()
+        }
+      };
+      await window.electronAPI.saveBundle(exportData, assets);
+    }
+  };
+
+  const handleOpenBundle = async () => {
+    if (window.electronAPI) {
+      const bundle = await window.electronAPI.openBundle();
+      if (bundle) {
+        setAssets(bundle.assets);
+        const { scene, animations } = bundle.manifest;
+        // clear old scene
+        store.setState({ nodes: {}, rootId: null });
+        engine.clearTracks();
+        
+        if (scene) {
+          Object.values(scene).forEach((node: any) => {
+            store.getState().addNode(node);
+          });
+        }
+        if (animations) {
+          animations.forEach((anim: any) => engine.addTrack(anim));
+        }
+      }
+    }
+  };
+
+  const handleImportAsset = async () => {
+    if (window.electronAPI) {
+      const asset = await window.electronAPI.importAsset();
+      if (asset) {
+        setAssets(prev => [...prev, asset]);
+        
+        // Add a node to test rendering if it's an image
+        if (asset.mimeType.startsWith('image/')) {
+          store.getState().addNode({
+            id: `img_${Date.now()}`,
+            type: 'image', // Custom type handled by our renderer, or just generic
+            parentId: null,
+            children: [],
+            x: window.innerWidth / 2 - 50,
+            y: window.innerHeight / 2 - 50,
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+            width: 100,
+            height: 100,
+            src: `studio://${asset.name}`,
+          } as any);
+        }
+      }
     }
   };
 
@@ -179,6 +255,9 @@ function App() {
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
+          onSaveBundle={handleSaveBundle}
+          onOpenBundle={handleOpenBundle}
+          onImportAsset={handleImportAsset}
         />
 
         <div className="flex flex-1 overflow-hidden">
