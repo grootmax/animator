@@ -13,6 +13,7 @@
     "package": "turbo run package"
   },
   "devDependencies": {
+    "tsx": "^4.23.1",
     "turbo": "^1.10.0",
     "typescript": "^5.0.0"
   }
