@@ -1,32 +1,30 @@
 import React from 'react';
-import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download, Loader2 } from 'lucide-react';
+import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download } from 'lucide-react';
 
 interface ToolbarProps {
   tool: string;
   setTool: (tool: string) => void;
   isPlaying: boolean;
+  isSaving: boolean;
   togglePlay: () => void;
   onImport: () => void;
   onExport: () => void;
   onExportSvg: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
-  isSaving?: boolean;
-  saveProgress?: number;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
   tool,
   setTool,
   isPlaying,
+  isSaving,
   togglePlay,
   onImport,
   onExport,
   onExportSvg,
   onZoomIn,
-  onZoomOut,
-  isSaving = false,
-  saveProgress = 0
+  onZoomOut
 }) => {
   const ToolButton = ({ name, icon: Icon }: { name: string, icon: any }) => (
     <button
@@ -62,17 +60,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </button>
       </div>
       <div className="flex gap-1 ml-auto items-center">
-        {isSaving && (
-          <div className="flex items-center gap-2 mr-2 text-blue-400 text-sm">
-            <Loader2 size={16} className="animate-spin" />
-            <span>Saving... {Math.round(saveProgress * 100)}%</span>
-          </div>
-        )}
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG" disabled={isSaving}>
           <Upload size={20} /> <span className="text-sm">Import</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON" disabled={isSaving}>
-          <Download size={20} /> <span className="text-sm">JSON</span>
+        <button
+          className={`p-2 rounded-md flex items-center gap-2 ${isSaving ? 'opacity-50 cursor-not-allowed bg-gray-700' : 'hover:bg-gray-700'}`}
+          onClick={onExport}
+          disabled={isSaving}
+          title="Export JSON"
+        >
+          <Download size={20} /> <span className="text-sm">{isSaving ? 'Saving...' : 'JSON'}</span>
         </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG" disabled={isSaving}>
           <Download size={20} /> <span className="text-sm">SVG</span>
