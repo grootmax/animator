@@ -1,19 +1,22 @@
 import { createStore } from 'zustand/vanilla';
 
-export type AssetType = 'image' | 'video';
+export type AssetType = 'image' | 'video' | string;
 
 export interface Asset {
   id: string;
   type: AssetType;
-  name: string;
-  data: ArrayBuffer | Blob;
-  url: string; // Object URL for runtime display
-  status: 'loading' | 'ready' | 'error';
+  name?: string;
+  src?: string;
+  data?: ArrayBuffer | Blob;
+  url?: string; // Object URL for runtime display
+  status?: 'loading' | 'ready' | 'error';
+  loaded?: boolean;
+  element?: HTMLImageElement | HTMLVideoElement;
 }
 
 export interface AssetRegistryState {
   assets: Record<string, Asset>;
-  addAsset: (asset: Omit<Asset, 'url' | 'status'>) => void;
+  addAsset: (asset: Omit<Asset, 'url' | 'status'> & Partial<Asset>) => void;
   removeAsset: (id: string) => void;
   getAsset: (id: string) => Asset | undefined;
   loadAsset: (id: string, type: AssetType, name: string, file: File | Blob) => Promise<void>;
@@ -23,9 +26,12 @@ export const createAssetRegistryStore = () => createStore<AssetRegistryState>((s
   assets: {},
 
   addAsset: (asset) => {
-    // Generate object URL for binary data to be used in renderer
-    const blob = asset.data instanceof Blob ? asset.data : new Blob([asset.data]);
-    const url = URL.createObjectURL(blob);
+    // Generate object URL for binary data if provided
+    let url = asset.url || '';
+    if (!url && asset.data) {
+      const blob = asset.data instanceof Blob ? asset.data : new Blob([asset.data]);
+      url = URL.createObjectURL(blob);
+    }
     
     set((state) => ({
       assets: {
@@ -33,7 +39,7 @@ export const createAssetRegistryStore = () => createStore<AssetRegistryState>((s
         [asset.id]: {
           ...asset,
           url,
-          status: 'ready'
+          status: asset.status || 'ready'
         }
       }
     }));

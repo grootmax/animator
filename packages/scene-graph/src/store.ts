@@ -1,8 +1,9 @@
 import { generateKeyBetween } from '@monorepo/math';
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
+import { Asset } from './assets';
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image';
+export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image' | string;
 
 export interface SceneNode {
   id: string;
@@ -35,6 +36,7 @@ export interface SceneNode {
   y2?: number;
   points?: string;
   src?: string;
+  assetId?: string;
 
   // Internal state
   localMatrix: Matrix3;
@@ -44,6 +46,7 @@ export interface SceneNode {
 
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
+  assets: Record<string, Asset>;
   rootId: string | null;
   viewport: { x: number; y: number; zoom: number };
   selectedNodeId: string | null;
@@ -56,6 +59,8 @@ export interface SceneGraphState {
   setViewport: (viewport: { x: number; y: number; zoom: number }) => void;
   setSelectedNodeId: (id: string | null) => void;
   setRemoteSelection: (userId: string, nodeId: string | null, color?: string, userName?: string) => void;
+  addAsset: (asset: Asset) => void;
+  updateAsset: (id: string, updates: Partial<Asset>) => void;
 }
 
 const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }): SceneNode => ({
@@ -82,16 +87,17 @@ import { syncMiddleware, SyncMessage } from './sync';
 export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) => {
   const config = (set: any, get: any) => ({
   nodes: {},
+  assets: {},
   rootId: null,
   viewport: { x: 0, y: 0, zoom: 1 },
   selectedNodeId: null,
   remoteSelections: {},
 
-  setViewport: (viewport) => set({ viewport }),
+  setViewport: (viewport: { x: number; y: number; zoom: number }) => set({ viewport }),
   
-  setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+  setSelectedNodeId: (selectedNodeId: string | null) => set({ selectedNodeId }),
   
-  setRemoteSelection: (userId, nodeId, color, userName) => set((state) => {
+  setRemoteSelection: (userId: string, nodeId: string | null, color?: string, userName?: string) => set((state: SceneGraphState) => {
     const newRemoteSelections = { ...state.remoteSelections };
     if (nodeId === null) {
       delete newRemoteSelections[userId];
@@ -100,6 +106,20 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
     }
     return { remoteSelections: newRemoteSelections };
   }),
+
+  addAsset: (asset: Asset) => {
+    set((state: SceneGraphState) => ({
+      assets: { ...state.assets, [asset.id]: asset }
+    }));
+  },
+
+  updateAsset: (id: string, updates: Partial<Asset>) => {
+    set((state: SceneGraphState) => {
+      const asset = state.assets[id];
+      if (!asset) return state;
+      return { assets: { ...state.assets, [id]: { ...asset, ...updates } } };
+    });
+  },
 
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => {
     set((state: SceneGraphState) => {

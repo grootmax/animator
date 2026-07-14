@@ -1,5 +1,6 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { SyncEngine } from './sync';
 
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
 
@@ -104,6 +105,7 @@ export class AnimationEngine {
   private rafId: number | null = null;
   public loop = true;
   private duration = 5000; // ms
+  public syncEngine: SyncEngine;
 
   public role: NetworkRole = 'standalone';
   public onHeartbeat?: (heartbeat: Heartbeat) => void;
@@ -120,6 +122,7 @@ export class AnimationEngine {
 
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
+    this.syncEngine = new SyncEngine(store, this);
   }
 
   public addTrack(track: Track) {
@@ -145,17 +148,20 @@ export class AnimationEngine {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+<<<<<<< HEAD
 
     if (this.role === 'leader') {
       this.stopHeartbeat();
       this.broadcastHeartbeat();
     }
+    this.syncEngine.update();
   }
 
   public seek(time: number) {
     this.drift = 0;
     this.playhead = Math.round(time / 16.67) * 16.67;
     this.updateNodes();
+    this.syncEngine.update();
 
     if (this.role === 'leader') {
       this.broadcastHeartbeat();
@@ -239,6 +245,7 @@ export class AnimationEngine {
     }
 
     this.updateNodes();
+    this.syncEngine.update();
 
     if (this.isPlaying) {
       this.rafId = requestAnimationFrame(this.tick);

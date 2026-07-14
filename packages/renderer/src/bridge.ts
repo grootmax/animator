@@ -4,13 +4,14 @@ import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
 import { tokenizePath, PathToken } from '@monorepo/serialization';
+import { NodeRegistry } from './registry';
 
 export class PixiBridge {
   private app: PIXI.Application;
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | any> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
@@ -130,7 +131,9 @@ export class PixiBridge {
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
-        if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
+        if (NodeRegistry.hasHandler(node.type)) {
+          pixiNode = NodeRegistry.getHandler(node.type)!.create(node, this.store);
+        } else if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
         } else if (node.type === 'image') {
           pixiNode = new PIXI.Container();
@@ -170,7 +173,9 @@ export class PixiBridge {
       pixiNode.visible = node.visible !== false;
       pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
 
-      if (pixiNode instanceof PIXI.Graphics) {
+      if (NodeRegistry.hasHandler(node.type)) {
+        NodeRegistry.getHandler(node.type)!.update(pixiNode, node, this.store);
+      } else if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();
 
         if (node.fill) {
