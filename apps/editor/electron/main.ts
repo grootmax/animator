@@ -1,6 +1,9 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { setupSecurity } from './security';
+
+setupSecurity();
 
 let mainWindow: BrowserWindow | null = null;
 
