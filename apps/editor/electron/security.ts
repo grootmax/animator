@@ -1,66 +1,127 @@
-import { app, session } from 'electron';
-import { URL } from 'url';
-
-const ALLOWED_EXTERNAL_ORIGINS: string[] = [];
+import { app, session, shell, WebContents } from 'electron';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export function setupSecurity() {
   const isDev = !!process.env.VITE_DEV_SERVER_URL;
+  const userDataPath = app.getPath('userData');
+  const logPath = path.join(userDataPath, 'security_audit.log');
 
-  // 1. Inject dynamic CSP headers into all window sessions at the main process level
-  app.on('session-created', (sess) => {
+  function logSecurityEvent(type: string, url: string, details: any = {}) {
+    try {
+      const timestamp = new Date().toISOString();
+      const logEntry = JSON.stringify({
+        timestamp,
+        type,
+        url,
+        details
+      }) + '\n';
+      fs.appendFileSync(logPath, logEntry, 'utf-8');
+    } catch (e) {
+      console.error('Failed to write security log:', e);
+    }
+  }
+
+  const registerSessionCsp = (sess: Electron.Session) => {
     sess.webRequest.onHeadersReceived((details, callback) => {
-      // In Dev, allow localhost connections, eval, and inline scripts/styles for Vite HMR
-      // In Prod, restrict script execution to local files only (i.e. 'self')
-      const csp = isDev
-        ? `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: http:; img-src 'self' data: blob:; font-src 'self' data:;`
-        : `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; font-src 'self' data:;`;
+      let csp = '';
+      
+      if (isDev && process.env.VITE_DEV_SERVER_URL) {
+        const devUrl = new URL(process.env.VITE_DEV_SERVER_URL);
+        csp = `default-src 'self'; ` +
+              `script-src 'self' 'unsafe-inline' 'unsafe-eval'; ` +
+              `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; ` +
+              `connect-src 'self' http://${devUrl.host} ws://${devUrl.host} http://localhost:* ws://localhost:*; ` +
+              `img-src 'self' data: blob:; ` +
+              `font-src 'self' data: https://fonts.gstatic.com;`;
+      } else {
+        csp = `default-src 'self'; ` +
+              `script-src 'self'; ` +
+              `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; ` +
+              `connect-src 'self'; ` +
+              `img-src 'self' data: blob:; ` +
+              `font-src 'self' data: https://fonts.gstatic.com; ` +
+              `object-src 'none'; ` +
+              `base-uri 'none'; ` +
+              `form-action 'none';`;
+      }
 
       callback({
         responseHeaders: {
           ...details.responseHeaders,
-          'Content-Security-Policy': [csp],
-        },
+          'Content-Security-Policy': [csp]
+        }
       });
     });
+  };
+
+  app.on('session-created', (sess) => {
+    registerSessionCsp(sess);
   });
 
-  // 2. Navigation Guards & Window Creation Guards
-  app.on('web-contents-created', (event, contents) => {
-    // Navigation guard
-    contents.on('will-navigate', (event, navigationUrl) => {
+  if (app.isReady()) {
+    registerSessionCsp(session.defaultSession);
+  } else {
+    app.on('ready', () => {
+      registerSessionCsp(session.defaultSession);
+    });
+  }
+
+  // 2. Navigation & Window Open Guards
+  app.on('web-contents-created', (event, webContents: WebContents) => {
+    webContents.on('will-attach-webview', (e) => {
+      e.preventDefault();
+      logSecurityEvent('BLOCKED_WEBVIEW', 'webview', { reason: 'Webviews are disabled' });
+    });
+
+    const isAllowedOrigin = (targetUrl: string) => {
       try {
-        const parsedUrl = new URL(navigationUrl);
-
-        const isDevUrl = isDev && process.env.VITE_DEV_SERVER_URL && navigationUrl.startsWith(process.env.VITE_DEV_SERVER_URL);
-        const isLocalFile = parsedUrl.protocol === 'file:';
-
-        if (!isDevUrl && !isLocalFile && !ALLOWED_EXTERNAL_ORIGINS.includes(parsedUrl.origin)) {
-          console.warn(`[Security] Blocked unauthorized navigation to: ${navigationUrl}`);
-          event.preventDefault();
+        const parsedUrl = new URL(targetUrl);
+        if (parsedUrl.protocol === 'file:') return true;
+        if (parsedUrl.protocol === 'devtools:') return true;
+        if (isDev && process.env.VITE_DEV_SERVER_URL) {
+          const devUrl = new URL(process.env.VITE_DEV_SERVER_URL);
+          if (parsedUrl.origin === devUrl.origin) return true;
         }
-      } catch (err) {
-        console.warn(`[Security] Blocked navigation to invalid URL: ${navigationUrl}`);
+        return false;
+      } catch {
+        return false;
+      }
+    };
+
+    webContents.on('will-navigate', (event, navigationUrl) => {
+      if (!isAllowedOrigin(navigationUrl)) {
         event.preventDefault();
+        logSecurityEvent('BLOCKED_NAVIGATION', navigationUrl, { reason: 'Domain not whitelisted' });
+        
+        if (navigationUrl.startsWith('http://') || navigationUrl.startsWith('https://')) {
+          shell.openExternal(navigationUrl);
+        }
       }
     });
 
-    // Window creation guard
-    contents.setWindowOpenHandler(({ url }) => {
-      try {
-        const parsedUrl = new URL(url);
-
-        const isDevUrl = isDev && process.env.VITE_DEV_SERVER_URL && url.startsWith(process.env.VITE_DEV_SERVER_URL);
-        const isLocalFile = parsedUrl.protocol === 'file:';
-
-        if (!isDevUrl && !isLocalFile && !ALLOWED_EXTERNAL_ORIGINS.includes(parsedUrl.origin)) {
-          console.warn(`[Security] Blocked unauthorized window creation for: ${url}`);
-          return { action: 'deny' };
+    webContents.setWindowOpenHandler(({ url }) => {
+      if (!isAllowedOrigin(url)) {
+        logSecurityEvent('BLOCKED_WINDOW_OPEN', url, { reason: 'Domain not whitelisted' });
+        
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+          shell.openExternal(url);
         }
-
-        return { action: 'allow' };
-      } catch (err) {
-        console.warn(`[Security] Blocked window creation for invalid URL: ${url}`);
         return { action: 'deny' };
+      }
+      return { action: 'allow' };
+    });
+
+    // 3. Catch CSP violations and log them
+    webContents.on('console-message', (event, level, message, line, sourceId) => {
+      const lowerMessage = message.toLowerCase();
+      if (lowerMessage.includes('content security policy') || lowerMessage.includes('csp')) {
+        let blockedUrl = 'unknown';
+        const urlMatch = message.match(/to '([^']+)'/);
+        if (urlMatch && urlMatch[1]) {
+          blockedUrl = urlMatch[1];
+        }
+        logSecurityEvent('CSP_VIOLATION', blockedUrl, { message, line, sourceId });
       }
     });
   });
