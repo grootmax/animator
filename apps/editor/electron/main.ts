@@ -49,10 +49,26 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
-  const { canceled, filePath } = await dialog.showSaveDialog({
-    filters: [{ name: 'JSON files', extensions: ['json'] }]
-  });
-  if (canceled || !filePath) return false;
-  await fs.promises.writeFile(filePath, content, 'utf-8');
-  return true;
+  try {
+    JSON.parse(content);
+  } catch (error) {
+    return false;
+  }
+
+  try {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      filters: [{ name: 'JSON files', extensions: ['json'] }]
+    });
+
+    if (canceled || !filePath) return false;
+
+    if (path.extname(filePath).toLowerCase() !== '.json') {
+      return false;
+    }
+
+    await fs.promises.writeFile(filePath, content, 'utf-8');
+    return true;
+  } catch (error) {
+    return false;
+  }
 });
