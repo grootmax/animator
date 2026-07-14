@@ -1,5 +1,5 @@
 import React from 'react';
-import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download, Loader2 } from 'lucide-react';
+import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download, Loader2, PackageOpen, PackageCheck, ImagePlus } from 'lucide-react';
 
 interface ToolbarProps {
   tool: string;
@@ -13,6 +13,9 @@ interface ToolbarProps {
   onZoomOut: () => void;
   isSaving?: boolean;
   saveProgress?: number;
+  onSaveBundle: () => void;
+  onOpenBundle: () => void;
+  onImportAsset: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -26,7 +29,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onZoomIn,
   onZoomOut,
   isSaving = false,
-  saveProgress = 0
+  saveProgress = 0,
+  onSaveBundle,
+  onOpenBundle,
+  onImportAsset
 }) => {
   const ToolButton = ({ name, icon: Icon }: { name: string, icon: any }) => (
     <button
@@ -61,21 +67,32 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <ZoomIn size={20} />
         </button>
       </div>
-      <div className="flex gap-1 ml-auto items-center">
+      <div className="flex gap-1 border-r border-gray-600 pr-2 ml-auto items-center">
         {isSaving && (
           <div className="flex items-center gap-2 mr-2 text-blue-400 text-sm">
             <Loader2 size={16} className="animate-spin" />
             <span>Saving... {Math.round(saveProgress * 100)}%</span>
           </div>
         )}
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2 text-indigo-400" onClick={onOpenBundle} title="Open Bundle" disabled={isSaving}>
+          <PackageOpen size={20} /> <span className="text-sm">Open Bundle</span>
+        </button>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2 text-indigo-400" onClick={onSaveBundle} title="Save Bundle" disabled={isSaving}>
+          <PackageCheck size={20} /> <span className="text-sm">Save Bundle</span>
+        </button>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2 text-indigo-400" onClick={onImportAsset} title="Import Asset" disabled={isSaving}>
+          <ImagePlus size={20} /> <span className="text-sm">Import Asset</span>
+        </button>
+      </div>
+      <div className="flex gap-1">
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG" disabled={isSaving}>
-          <Upload size={20} /> <span className="text-sm">Import</span>
+          <Upload size={20} /> <span className="text-sm">SVG In</span>
         </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON" disabled={isSaving}>
-          <Download size={20} /> <span className="text-sm">JSON</span>
+          <Download size={20} /> <span className="text-sm">JSON Out</span>
         </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG" disabled={isSaving}>
-          <Download size={20} /> <span className="text-sm">SVG</span>
+          <Download size={20} /> <span className="text-sm">SVG Out</span>
         </button>
       </div>
     </div>
