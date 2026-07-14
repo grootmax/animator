@@ -10,6 +10,8 @@ import { Timeline } from './components/Timeline';
 import { DndProvider } from 'react-dnd';
 // @ts-ignore
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import SaveWorker from './workers/save.worker?worker';
+import LoadWorker from './workers/load.worker?worker';
 
 // Create singletons for the app
 const channel = new BroadcastChannel('scene-graph-sync');
@@ -23,6 +25,10 @@ channel.onmessage = (event) => {
 };
 const engine = new AnimationEngine(store);
 
+// Instantiate workers
+const saveWorker = new SaveWorker();
+const loadWorker = new LoadWorker();
+
 // Extend Window interface for Electron IPC
 declare global {
   interface Window {
@@ -30,6 +36,8 @@ declare global {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
       exportSvg: (content: string) => Promise<boolean>;
+      openProject: () => Promise<Uint8Array | null>;
+      saveProject: (content: Uint8Array) => Promise<boolean>;
     }
   }
 }
@@ -42,6 +50,10 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [showSaveProgress, setShowSaveProgress] = useState(false);
+
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [statusMessage, setStatusMessage] = useState('');
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -99,76 +111,75 @@ function App() {
     }
   };
 
-  const handleSaveState = async () => {
+  const handleOpenProject = async () => {
     if (window.electronAPI) {
-      const state = store.getState().nodes;
-      const nodeKeys = Object.keys(state);
-      const totalNodes = nodeKeys.length;
-      
-      const cleanScene: Record<string, any> = {};
-      
-      let currentIndex = 0;
-      
-      const showProgressTimeout = setTimeout(() => {
-        setShowSaveProgress(true);
-      }, 500);
+      const buffer = await window.electronAPI.openProject();
+      if (buffer) {
+        setIsProcessing(true);
+        setStatusMessage('Loading project...');
+        setProgress(0);
 
-      const processBatch = (deadline?: any) => {
-        const startTime = performance.now();
-        
-        while (currentIndex < totalNodes) {
-          if (deadline && deadline.timeRemaining) {
-            if (deadline.timeRemaining() < 2) break;
-          } else {
-            if (performance.now() - startTime > 10) break;
-          }
-          
-          const id = nodeKeys[currentIndex];
-          const node = state[id];
-          const cleanNode = { ...node };
-          delete (cleanNode as any).localMatrix;
-          delete (cleanNode as any).worldMatrix;
-          delete (cleanNode as any).isDirty;
-          cleanScene[id] = cleanNode;
-          
-          currentIndex++;
-        }
-        
-        setSaveProgress(Math.floor((currentIndex / totalNodes) * 100));
+        loadWorker.onmessage = (e: any) => {
+          if (e.data.type === 'PROGRESS') {
+            setProgress(e.data.payload);
+          } else if (e.data.type === 'LOAD_COMPLETE') {
+            const data = e.data.payload;
+            
+            // clear the old state and add the new one
+            store.setState({ nodes: {}, rootId: null });
+            const currentState = store.getState();
 
-        if (currentIndex < totalNodes) {
-          if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(processBatch);
-          } else {
-            setTimeout(processBatch, 0);
-          }
-        } else {
-          finishSave();
-        }
-      };
-
-      const finishSave = async () => {
-        clearTimeout(showProgressTimeout);
-        setShowSaveProgress(false);
-        setSaveProgress(null);
-        
-        const exportData = {
-          scene: cleanScene,
-          animations: engine.getTracks(),
-          metadata: {
-            version: "1.0.0",
-            duration: engine.getDuration()
+            if (data.scene) {
+              Object.values(data.scene).forEach((node: any) => {
+                currentState.addNode(node);
+              });
+            }
+            currentState.recalculateMatrices();
+            setIsProcessing(false);
+          } else if (e.data.type === 'ERROR') {
+            console.error(e.data.payload);
+            alert('Load failed: ' + e.data.payload);
+            setIsProcessing(false);
           }
         };
 
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
-      };
-      
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(processBatch);
-      } else {
-        setTimeout(processBatch, 0);
+        loadWorker.postMessage({ type: 'LOAD_PROJECT', payload: buffer });
       }
+    } else {
+      alert("Electron API not available");
+    }
+  };
+
+  const handleSaveProject = async () => {
+    if (window.electronAPI) {
+      setIsProcessing(true);
+      setStatusMessage('Saving project...');
+      setProgress(0);
+
+      const state = store.getState().nodes;
+      const exportData = {
+        scene: state,
+        animations: engine.getTracks(),
+        metadata: {
+          version: "1.0.0",
+          duration: engine.getDuration()
+        }
+      };
+
+      saveWorker.onmessage = async (e: any) => {
+        if (e.data.type === 'PROGRESS') {
+          setProgress(e.data.payload);
+        } else if (e.data.type === 'SAVE_COMPLETE') {
+          await window.electronAPI!.saveProject(e.data.payload);
+          setIsProcessing(false);
+        } else if (e.data.type === 'ERROR') {
+          console.error(e.data.payload);
+          alert('Save failed: ' + e.data.payload);
+          setIsProcessing(false);
+        }
+      };
+
+      saveWorker.postMessage({ type: 'SAVE_PROJECT', payload: exportData });
     } else {
       alert("Electron API not available");
     }
@@ -281,13 +292,28 @@ function App() {
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden relative">
+        {isProcessing && (
+          <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center backdrop-blur-sm">
+            <div className="bg-gray-800 p-6 rounded-lg shadow-xl w-80 text-center border border-gray-700">
+              <h3 className="text-xl font-semibold mb-4 text-gray-100">{statusMessage}</h3>
+              <div className="w-full bg-gray-700 rounded-full h-3 mb-2 overflow-hidden">
+                <div 
+                  className="bg-blue-500 h-3 rounded-full transition-all duration-200 ease-out" 
+                  style={{ width: `${progress}%` }}
+                ></div>
+              </div>
+              <p className="text-sm text-gray-400">{progress}% Complete</p>
+            </div>
+          </div>
+        )}
         <Toolbar
           tool={tool}
           setTool={setTool}
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
+          onOpenProject={handleOpenProject}
+          onSaveProject={handleSaveProject}
           onImport={handleImportSvg}
-          onExport={handleSaveState}
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}

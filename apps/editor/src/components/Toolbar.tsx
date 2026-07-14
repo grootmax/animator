@@ -6,8 +6,9 @@ interface ToolbarProps {
   setTool: (tool: string) => void;
   isPlaying: boolean;
   togglePlay: () => void;
+  onOpenProject: () => void;
+  onSaveProject: () => void;
   onImport: () => void;
-  onExport: () => void;
   onExportSvg: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -20,8 +21,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   setTool,
   isPlaying,
   togglePlay,
+  onOpenProject,
+  onSaveProject,
   onImport,
-  onExport,
   onExportSvg,
   onZoomIn,
   onZoomOut,
@@ -61,21 +63,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <ZoomIn size={20} />
         </button>
       </div>
-      <div className="flex gap-1 ml-auto items-center">
-        {isSaving && (
-          <div className="flex items-center gap-2 mr-2 text-blue-400 text-sm">
-            <Loader2 size={16} className="animate-spin" />
-            <span>Saving... {Math.round(saveProgress * 100)}%</span>
-          </div>
-        )}
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG" disabled={isSaving}>
-          <Upload size={20} /> <span className="text-sm">Import</span>
+      <div className="flex gap-1 ml-auto">
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onOpenProject} title="Open Project">
+          <Upload size={20} /> <span className="text-sm">Open</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON" disabled={isSaving}>
-          <Download size={20} /> <span className="text-sm">JSON</span>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onSaveProject} title="Save Project">
+          <Download size={20} /> <span className="text-sm">Save</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG" disabled={isSaving}>
-          <Download size={20} /> <span className="text-sm">SVG</span>
+        <div className="border-l border-gray-600 mx-1"></div>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG">
+          <Upload size={20} /> <span className="text-sm">SVG In</span>
+        </button>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG">
+          <Download size={20} /> <span className="text-sm">SVG Out</span>
         </button>
       </div>
     </div>
