@@ -48,6 +48,15 @@ ipcMain.handle('dialog:openFile', async () => {
   return fs.promises.readFile(filePaths[0], 'utf-8');
 });
 
+ipcMain.handle('dialog:openImageFile', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }]
+  });
+  if (canceled || filePaths.length === 0) return null;
+  return filePaths[0]; // Returning the path, not the content
+});
+
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
   const { canceled, filePath } = await dialog.showSaveDialog({
     filters: [{ name: 'JSON files', extensions: ['json'] }]
