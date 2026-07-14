@@ -7,7 +7,8 @@ test.describe('Electron App E2E', () => {
   let window;
 
   test.beforeAll(async () => {
-    electronApp = await electron.launch({ args: ['.'] });
+    const executablePath = require('electron');
+    electronApp = await electron.launch({ args: ['.'], executablePath });
     window = await electronApp.firstWindow();
   });
 
