@@ -3,7 +3,7 @@ import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
-import { tokenizePath } from '@monorepo/serialization';
+import { tokenizePath, PathToken } from '@monorepo/serialization';
 
 export class PixiBridge {
   private app: PIXI.Application;
@@ -11,6 +11,7 @@ export class PixiBridge {
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pathCache: Map<string, PathToken[]> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -38,9 +39,17 @@ export class PixiBridge {
       }
     });
 
-    this.store.subscribe((state) => {
-      this.syncNodes(state.nodes);
-      this.handles.update();
+    let updateQueued = false;
+    this.store.subscribe(() => {
+      if (!updateQueued) {
+        updateQueued = true;
+        queueMicrotask(() => {
+          updateQueued = false;
+          const state = this.store.getState();
+          this.syncNodes(state.nodes);
+          this.handles.update();
+        });
+      }
     });
 
     this.app.ticker.add(() => {
@@ -72,7 +81,11 @@ export class PixiBridge {
   }
 
   private drawPath(graphics: PIXI.Graphics, pathData: string) {
-    const tokens = tokenizePath(pathData);
+    let tokens = this.pathCache.get(pathData);
+    if (!tokens) {
+      tokens = tokenizePath(pathData);
+      this.pathCache.set(pathData, tokens);
+    }
     let x = 0, y = 0;
 
     for (const t of tokens) {
@@ -102,6 +115,8 @@ export class PixiBridge {
   }
 
   private syncNodes(nodes: Record<string, SceneNode>) {
+    const usedPaths = new Set<string>();
+
     for (const [id, node] of Object.entries(nodes)) {
       let pixiNode = this.pixiNodes.get(id);
 
@@ -170,6 +185,7 @@ export class PixiBridge {
             }
           }
         } else if (node.type === 'path' && node.pathData) {
+          usedPaths.add(node.pathData);
           this.drawPath(pixiNode, node.pathData);
         }
 
@@ -212,11 +228,9 @@ export class PixiBridge {
       this.applyMatrix(pixiNode, node.localMatrix);
     }
 
-    // Cleanup removed nodes
-    for (const [id, pixiNode] of this.pixiNodes.entries()) {
-      if (!nodes[id]) {
-        pixiNode.destroy({ children: true });
-        this.pixiNodes.delete(id);
+    for (const path of this.pathCache.keys()) {
+      if (!usedPaths.has(path)) {
+        this.pathCache.delete(path);
       }
     }
   }
