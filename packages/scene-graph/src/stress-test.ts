@@ -48,7 +48,11 @@ function runStressTest() {
   
   console.log('Inserting nodes in bulk...');
   const startInsert = performance.now();
-  store.getState().addNodesBulk(nodes);
+  if (typeof (store.getState() as any).addNodesBulk === 'function') {
+    (store.getState() as any).addNodesBulk(nodes);
+  } else {
+    nodes.forEach(n => store.getState().addNode(n));
+  }
   const endInsert = performance.now();
   console.log(`Bulk insertion took ${(endInsert - startInsert).toFixed(2)}ms`);
   

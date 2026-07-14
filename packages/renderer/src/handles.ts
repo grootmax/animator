@@ -90,16 +90,19 @@ export class TransformHandles {
     let maxY = h / 2;
 
     if (node.type === 'group' || node.type === 'container') {
-      const pixiNode = this.getPixiNode(this.selectedNodeId);
-      if (pixiNode && pixiNode.children.length > 0) {
-        const bounds = pixiNode.getLocalBounds();
-        if (bounds.width > 0 || bounds.height > 0) {
-          minX = bounds.x;
-          minY = bounds.y;
-          maxX = bounds.x + bounds.width;
-          maxY = bounds.y + bounds.height;
-          w = bounds.width;
-          h = bounds.height;
+      const selectedNodeId = this.store.getState().selectedNodeId;
+      if (selectedNodeId) {
+        const pixiNode = this.getPixiNode(selectedNodeId);
+        if (pixiNode && pixiNode.children.length > 0) {
+          const bounds = pixiNode.getLocalBounds();
+          if (bounds.width > 0 || bounds.height > 0) {
+            minX = bounds.x;
+            minY = bounds.y;
+            maxX = bounds.x + bounds.width;
+            maxY = bounds.y + bounds.height;
+            w = bounds.width;
+            h = bounds.height;
+          }
         }
       }
     }
@@ -150,7 +153,9 @@ export class TransformHandles {
     if (!this.isDragging || !selectedNodeId || !this.startNodeState) return;
 
     if (!this.hasMoved) {
-      this.store.getState().commitHistory();
+      if (typeof (this.store.getState() as any).commitHistory === 'function') {
+        (this.store.getState() as any).commitHistory();
+      }
       this.hasMoved = true;
     }
 

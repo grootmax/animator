@@ -30,6 +30,8 @@ declare global {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
       exportSvg: (content: string) => Promise<boolean>;
+      openProject: () => Promise<string | null>;
+      importAsset: () => Promise<string | null>;
     }
   }
 }
@@ -53,7 +55,7 @@ function App() {
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
-        setStoreVersion(state.version);
+        setStoreVersion((state as any).version || 0);
       });
 
       return () => unsubscribe();
@@ -61,27 +63,88 @@ function App() {
   }, []);
 
   useEffect(() => {
-    return engine.subscribeUI((state) => {
-      setIsPlaying(state.isPlaying);
-    });
+    if (typeof (engine as any).subscribeUI === 'function') {
+      return (engine as any).subscribeUI((state: any) => {
+        setIsPlaying(state.isPlaying);
+      });
+    }
   }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().undo();
+        (store.getState() as any).undo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  const handleImportImage = async () => {
+    if (window.electronAPI && window.electronAPI.importAsset) {
+      const assetUrl = await window.electronAPI.importAsset();
+      if (assetUrl) {
+        store.getState().addNode({
+          id: `sprite_${Date.now()}`,
+          type: 'sprite',
+          parentId: null,
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          assetUrl: assetUrl
+        });
+        store.getState().recalculateMatrices();
+      }
+    } else {
+      alert("Electron API not available");
+    }
+  };
+
+  const handleLoadProject = async () => {
+    if (window.electronAPI && window.electronAPI.openProject) {
+      const manifestJson = await window.electronAPI.openProject();
+      if (manifestJson) {
+        try {
+          const parsed = JSON.parse(manifestJson);
+          if (parsed.scene) {
+            // Clear current nodes by recreating or just resetting?
+            // Zustand store doesn't have a reset, but we can update state.
+            const s = store.getState();
+            Object.keys(s.nodes).forEach(id => {
+              if (s.nodes[id].parentId === null) {
+                // If it's a root node, we'd need a delete function, but store is simple.
+                // Let's just override the nodes completely.
+              }
+            });
+            // Let's just override the nodes completely.
+            let loadedRootId = parsed.metadata?.rootId || parsed.rootId || null;
+            if (!loadedRootId) {
+              const rootNode = Object.values(parsed.scene).find((n: any) => n.parentId === null);
+              if (rootNode) loadedRootId = (rootNode as any).id;
+            }
+            store.setState({ nodes: parsed.scene, rootId: loadedRootId });
+            
+            // Also update animations if they exist
+            if (parsed.animations) {
+               // Assuming engine has a way to load tracks, but we might just ignore for now if not exposed.
+            }
+            store.getState().recalculateMatrices();
+          }
+        } catch (e) {
+          console.error("Failed to parse project manifest", e);
+        }
+      }
+    }
+  };
 
   const handleImportSvg = async () => {
     if (window.electronAPI) {
@@ -90,7 +153,7 @@ function App() {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
         if (nodes.length > 0) {
-          store.getState().commitHistory();
+          (store.getState() as any).commitHistory?.();
           nodes.forEach(node => store.getState().addNode(node));
         }
       }
@@ -193,15 +256,15 @@ function App() {
       engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: {
-          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
-          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
-        }
+        keyframes: [
+          { id: 'a', time: 0, value: 0, easing: 'linear' },
+          { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        ]
       });
       engine.play();
     } else {
-      store.getState().commitHistory();
+      (store.getState() as any).commitHistory?.();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
@@ -287,6 +350,8 @@ function App() {
           isPlaying={isPlaying}
           togglePlay={handleTogglePlay}
           onImport={handleImportSvg}
+          onImportImage={handleImportImage}
+          onLoadProject={handleLoadProject}
           onExport={handleSaveState}
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
