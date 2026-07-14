@@ -12,7 +12,7 @@
     },
     "package": {
       "dependsOn": ["build"],
-      "outputs": ["release/**"]
+      "outputs": ["out/**"]
     },
     "test": {},
     "test:e2e": {

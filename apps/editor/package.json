@@ -5,26 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "package": "electron-builder build --mac --linux"
-  },
-  "build": {
-    "appId": "com.monorepo.editor", "productName": "MonorepoEditor",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*"
-    ],
-    "mac": {
-      "target": "zip"
-    },
-    "win": {
-      "target": "nsis"
-    },
-    "linux": {
-      "target": "AppImage"
-    }
+    "package": "npm run build && electron-forge make"
   },
   "dependencies": {
     "@monorepo/runtime-player": "*",
@@ -41,13 +22,16 @@
     "zustand": "^4.4.1"
   },
   "devDependencies": {
+    "@electron-forge/cli": "^7.4.0",
+    "@electron-forge/maker-dmg": "^7.4.0",
+    "@electron-forge/maker-squirrel": "^7.4.0",
+    "@electron-forge/maker-zip": "^7.4.0",
     "@types/node": "^18.19.130",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
     "@vitejs/plugin-react": "^4.0.3",
     "autoprefixer": "^10.4.15",
     "electron": "^25.3.0",
-    "electron-builder": "^24.6.4",
     "postcss": "^8.4.29",
     "tailwindcss": "^3.3.3",
     "vite": "^4.4.5",
