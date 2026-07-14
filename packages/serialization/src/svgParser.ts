@@ -193,8 +193,6 @@ export class SvgParser {
       case 'line': type = 'line'; break;
       case 'polyline': type = 'polyline'; break;
       case 'path': type = 'path'; break;
-      case 'ellipse': type = 'path'; break;
-      case 'line': type = 'path'; break;
       default: return; // Ignore unsupported
     }
 
@@ -294,7 +292,7 @@ export class SvgParser {
     nodesList.push(sceneNode);
 
     Array.from(element.children).forEach(child => {
-      this.processElement(child, id, nodesList, finalMatrix);
+      this.processElement(child, id, nodesList, combinedMatrix);
     });
   }
 }

@@ -15,12 +15,12 @@ export class TransformHandles {
   private dragType: string | null = null;
   private dragStartPos = { x: 0, y: 0 };
   private startNodeState: SceneNode | null = null;
-  private getPixiNode: (id: string) => PIXI.Container | PIXI.Graphics | undefined;
+  private getPixiNode?: (id: string) => PIXI.Container | PIXI.Graphics | undefined;
 
   constructor(
       store: ReturnType<typeof createSceneGraphStore>, 
       viewport: Viewport,
-      getPixiNode: (id: string) => PIXI.Container | PIXI.Graphics | undefined
+      getPixiNode?: (id: string) => PIXI.Container | PIXI.Graphics | undefined
   ) {
     this.store = store;
     this.viewport = viewport;
@@ -47,8 +47,10 @@ export class TransformHandles {
     }
 
     // Add global pointer move/up
-    window.addEventListener('pointermove', this.onDragMove.bind(this));
-    window.addEventListener('pointerup', this.onDragEnd.bind(this));
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pointermove', this.onDragMove.bind(this));
+      window.addEventListener('pointerup', this.onDragEnd.bind(this));
+    }
   }
 
   public setSelectedNode(id: string | null) {
@@ -90,7 +92,8 @@ export class TransformHandles {
     let maxY = h / 2;
 
     if (node.type === 'group' || node.type === 'container') {
-      const pixiNode = this.getPixiNode(this.selectedNodeId);
+      const selectedNodeId = this.store.getState().selectedNodeId;
+      const pixiNode = selectedNodeId && this.getPixiNode ? this.getPixiNode(selectedNodeId) : undefined;
       if (pixiNode && pixiNode.children.length > 0) {
         const bounds = pixiNode.getLocalBounds();
         if (bounds.width > 0 || bounds.height > 0) {
@@ -150,7 +153,9 @@ export class TransformHandles {
     if (!this.isDragging || !selectedNodeId || !this.startNodeState) return;
 
     if (!this.hasMoved) {
-      this.store.getState().commitHistory();
+      if (typeof (this.store.getState() as any).commitHistory === 'function') {
+        (this.store.getState() as any).commitHistory();
+      }
       this.hasMoved = true;
     }
 

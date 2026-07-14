@@ -1,5 +1,6 @@
 import { Track, Keyframe, EasingType } from './types';
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
+import { getInterpolator } from './interpolators';
 
 let tracks: Track[] = [];
 let playhead = 0;
@@ -50,7 +51,8 @@ const calculateUpdates = () => {
       const progress = (playhead - start.time) / (end.time - start.time);
       const easingFn = getEasingFunction(start.easing);
       const easedProgress = easingFn(progress);
-      value = start.value + (end.value - start.value) * easedProgress;
+      const interpolator = getInterpolator(track.property, start.value);
+      value = interpolator(start.value, end.value, easedProgress);
     }
 
     if (!updates.has(track.nodeId)) {

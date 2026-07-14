@@ -7,13 +7,19 @@ async function run() {
   const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
     cwd: __dirname,
     stdio: 'pipe',
+    detached: true,
   });
 
+  let serverUrl = 'http://localhost:4173';
   await new Promise((resolve) => {
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/http:\/\/localhost:(\d+)/);
+      if (match) {
+        serverUrl = match[0];
+      }
+      if (output.includes('ready in') || output.includes('Local:')) {
         resolve();
       }
     });
@@ -23,10 +29,6 @@ async function run() {
   });
 
   console.log('Server started. Launching Puppeteer...');
-  
-  // Create an explicit build before starting if we use `preview`, but let's actually just spawn `vite` (dev server) for simplicity.
-  // Wait, I spawned `vite preview`. Let me kill it and spawn `vite` (dev server) instead to avoid needing a build step.
-  // Let me just fix the command in the spawned process later if needed. For now, it's just 'vite'.
 
   let browser;
   try {
@@ -36,10 +38,26 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('console', async (msg) => {
+      const args = await Promise.all(
+        msg.args().map((a) =>
+          a
+            .evaluate((arg) => {
+              if (arg instanceof Error) return `${arg.name}: ${arg.message}\n${arg.stack}`;
+              if (arg && typeof arg === 'object' && arg.message)
+                return `Event/Error: ${arg.message} (file: ${arg.filename}, line: ${arg.lineno})`;
+              return arg;
+            })
+            .catch(() => a.toString())
+        )
+      );
+      console.log('BROWSER:', msg.text(), args.length > 0 ? JSON.stringify(args) : '');
+    });
+    page.on('pageerror', (err) => console.log('PAGEERROR:', err.message, err.stack));
+    page.on('requestfailed', (req) => console.log('REQ FAILED:', req.url(), req.failure()));
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    console.log(`Navigating to ${serverUrl} ...`);
+    await page.goto(serverUrl, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
     
@@ -99,7 +117,13 @@ async function run() {
     process.exitCode = 1;
   } finally {
     if (browser) await browser.close();
-    viteProcess.kill();
+    if (viteProcess && viteProcess.pid) {
+      try {
+        process.kill(-viteProcess.pid);
+      } catch (e) {
+        viteProcess.kill();
+      }
+    }
     process.exit();
   }
 }
