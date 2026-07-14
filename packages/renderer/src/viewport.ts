@@ -3,14 +3,16 @@ import * as PIXI from 'pixi.js';
 export class Viewport {
   public container: PIXI.Container;
   private app: PIXI.Application;
+  private eventBus: EventTarget;
 
   private isDragging = false;
   private lastPos = { x: 0, y: 0 };
 
   private grid: PIXI.Graphics;
 
-  constructor(app: PIXI.Application) {
+  constructor(app: PIXI.Application, eventBus: EventTarget) {
     this.app = app;
+    this.eventBus = eventBus;
 
     // Grid setup
     this.grid = new PIXI.Graphics();
@@ -25,8 +27,8 @@ export class Viewport {
 
   private drawGrid() {
     this.grid.clear();
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const width = this.app.screen.width;
+    const height = this.app.screen.height;
 
     const gridSize = 50 * this.container.scale.x;
     const offsetX = this.container.x % gridSize;
@@ -46,22 +48,20 @@ export class Viewport {
   }
 
   private setupEvents() {
-    const canvas = this.app.view as HTMLCanvasElement;
-
-    canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
-    canvas.addEventListener('pointermove', this.onPointerMove.bind(this));
-    window.addEventListener('pointerup', this.onPointerUp.bind(this));
-    canvas.addEventListener('wheel', this.onWheel.bind(this), { passive: false });
+    this.eventBus.addEventListener('pointerdown', (e: Event) => this.onPointerDown(e as any));
+    this.eventBus.addEventListener('pointermove', (e: Event) => this.onPointerMove(e as any));
+    this.eventBus.addEventListener('pointerup', (e: Event) => this.onPointerUp());
+    this.eventBus.addEventListener('wheel', (e: Event) => this.onWheel(e as any));
   }
 
-  private onPointerDown(e: PointerEvent) {
+  private onPointerDown(e: any) {
     if (e.button === 1 || e.shiftKey) { // Middle click or shift+click for pan
       this.isDragging = true;
       this.lastPos = { x: e.clientX, y: e.clientY };
     }
   }
 
-  private onPointerMove(e: PointerEvent) {
+  private onPointerMove(e: any) {
     if (!this.isDragging) return;
 
     const dx = e.clientX - this.lastPos.x;
@@ -78,8 +78,8 @@ export class Viewport {
     this.isDragging = false;
   }
 
-  private onWheel(e: WheelEvent) {
-    e.preventDefault();
+  private onWheel(e: any) {
+    if (e.preventDefault) e.preventDefault();
 
     const zoomFactor = 1 - e.deltaY * 0.001;
     const localPos = this.container.toLocal(new PIXI.Point(e.clientX, e.clientY));

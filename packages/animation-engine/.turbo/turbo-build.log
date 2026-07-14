@@ -2,3 +2,13 @@
 > @monorepo/animation-engine@1.0.0 build
 > tsc -b
 
+src/engine.ts(1,64): error TS7016: Could not find a declaration file for module '@monorepo/math'. '/app/packages/math/dist/index.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/monorepo__math` if it exists or add a new declaration (.d.ts) file containing `declare module '@monorepo/math';`
+src/engine.ts(2,39): error TS2307: Cannot find module '@monorepo/scene-graph' or its corresponding type declarations.
+npm error Lifecycle script `build` failed with error:
+npm error code 1
+npm error path /app/packages/animation-engine
+npm error workspace @monorepo/animation-engine@1.0.0
+npm error location /app/packages/animation-engine
+npm error command failed
+npm error command sh -c tsc -b

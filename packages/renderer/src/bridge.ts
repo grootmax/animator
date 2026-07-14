@@ -5,31 +5,41 @@ import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
 import { tokenizePath } from '@monorepo/serialization';
 
+export interface PixiBridgeOptions {
+  canvas: HTMLCanvasElement | OffscreenCanvas;
+  store: ReturnType<typeof createSceneGraphStore>;
+  width: number;
+  height: number;
+  resolution: number;
+}
+
 export class PixiBridge {
-  private app: PIXI.Application;
-  private viewport: Viewport;
-  private handles: TransformHandles;
+  public app: PIXI.Application;
+  public viewport: Viewport;
+  public handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  public eventBus: EventTarget = new EventTarget();
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(options: PixiBridgeOptions) {
     this.app = new PIXI.Application({
-      view: canvas,
-      resizeTo: window,
+      view: options.canvas as any,
+      width: options.width,
+      height: options.height,
       backgroundColor: 0x1a1a1a,
-      resolution: window.devicePixelRatio || 1,
+      resolution: options.resolution,
       autoDensity: true,
     });
 
     this.app.stage.sortableChildren = true;
 
-    this.viewport = new Viewport(this.app);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.viewport = new Viewport(this.app, this.eventBus);
+    this.handles = new TransformHandles(options.store, this.viewport, this.eventBus);
 
     // Add handles directly to the viewport so they pan and zoom with the nodes!
     this.viewport.container.addChild(this.handles.container);
 
-    this.store = store;
+    this.store = options.store;
 
     this.viewport.container.interactive = true;
     this.viewport.container.on('pointerdown', (e) => {

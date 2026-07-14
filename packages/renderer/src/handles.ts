@@ -6,6 +6,7 @@ export class TransformHandles {
   public container: PIXI.Container;
   private store: ReturnType<typeof createSceneGraphStore>;
   private viewport: Viewport;
+  private eventBus: EventTarget;
   private selectedNodeId: string | null = null;
 
   private box: PIXI.Graphics;
@@ -16,9 +17,10 @@ export class TransformHandles {
   private dragStartPos = { x: 0, y: 0 };
   private startNodeState: SceneNode | null = null;
 
-  constructor(store: ReturnType<typeof createSceneGraphStore>, viewport: Viewport) {
+  constructor(store: ReturnType<typeof createSceneGraphStore>, viewport: Viewport, eventBus: EventTarget) {
     this.store = store;
     this.viewport = viewport;
+    this.eventBus = eventBus;
     this.container = new PIXI.Container();
     this.container.zIndex = 1000;
 
@@ -37,9 +39,9 @@ export class TransformHandles {
       this.container.addChild(handle);
     }
 
-    // Add global pointer move/up
-    window.addEventListener('pointermove', this.onDragMove.bind(this));
-    window.addEventListener('pointerup', this.onDragEnd.bind(this));
+    // Add global pointer move/up via eventBus
+    this.eventBus.addEventListener('pointermove', (e: Event) => this.onDragMove(e as any));
+    this.eventBus.addEventListener('pointerup', () => this.onDragEnd());
   }
 
   public setSelectedNode(id: string | null) {
@@ -114,7 +116,7 @@ export class TransformHandles {
     this.startNodeState = { ...this.store.getState().nodes[this.selectedNodeId] } as SceneNode;
   }
 
-  private onDragMove(e: PointerEvent) {
+  private onDragMove(e: any) {
     if (!this.isDragging || !this.selectedNodeId || !this.startNodeState) return;
 
     const dx = e.clientX - this.dragStartPos.x;
