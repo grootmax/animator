@@ -30,6 +30,9 @@ declare global {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
       exportSvg: (content: string) => Promise<boolean>;
+      saveProject: (content: string) => Promise<string | null>;
+      openProject: () => Promise<string | null>;
+      getProjectPath: () => Promise<string | null>;
     }
   }
 }
@@ -99,6 +102,31 @@ function App() {
     }
   };
 
+  const handleOpenProject = async () => {
+    if (window.electronAPI) {
+      const projectDataString = await window.electronAPI.openProject();
+      if (projectDataString) {
+        try {
+          const projectData = JSON.parse(projectDataString);
+          
+          // Clear current store logic if needed
+          // Simple hack: window.location.reload() doesn't work if state is not persisted.
+          // Better: just add all nodes.
+          store.setState({ nodes: {}, rootId: null });
+          
+          for (const node of Object.values(projectData.scene)) {
+            store.getState().addNode(node as any);
+          }
+          store.getState().recalculateMatrices();
+        } catch (e) {
+          console.error("Failed to load project", e);
+        }
+      }
+    } else {
+      alert("Electron API not available");
+    }
+  };
+
   const handleSaveState = async () => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
@@ -161,13 +189,24 @@ function App() {
           }
         };
 
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+        if (window.electronAPI?.saveProject) {
+          const result = await window.electronAPI.saveProject(JSON.stringify(exportData, null, 2));
+          if (result) {
+            const savedData = JSON.parse(result);
+            for (const [nodeId, node] of Object.entries(savedData.scene)) {
+              store.getState().updateNode(nodeId, { source: (node as any).source });
+            }
+          }
+        } else if (window.electronAPI?.saveFile) {
+          await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+        }
       };
       
       if ('requestIdleCallback' in window) {
         (window as any).requestIdleCallback(processBatch);
       } else {
         setTimeout(processBatch, 0);
+      }
       }
     } else {
       alert("Electron API not available");
@@ -248,7 +287,25 @@ function App() {
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
-      if (file.type === 'image/png' || file.type === 'image/jpeg') {
+      const isImage = file.type.startsWith('image/');
+      const isVideo = file.type.startsWith('video/');
+      const filePath = (file as any).path;
+
+      if (filePath && (isImage || isVideo)) {
+        const id = `media_${Date.now()}`;
+        store.getState().addNode({
+          id,
+          type: isImage ? 'image' : 'video',
+          parentId: null,
+          x: e.clientX || window.innerWidth / 2,
+          y: e.clientY || window.innerHeight / 2,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          source: filePath,
+        });
+        store.getState().recalculateMatrices();
+      } else if (isImage) {
         const reader = new FileReader();
         reader.onload = (ev) => {
           const base64Src = ev.target?.result as string;
@@ -291,6 +348,7 @@ function App() {
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
+          onOpenProject={handleOpenProject}
         />
 
         <div className="flex flex-1 overflow-hidden">

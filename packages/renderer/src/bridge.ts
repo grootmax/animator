@@ -132,11 +132,9 @@ export class PixiBridge {
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
-        } else if (node.type === 'image') {
-          pixiNode = new PIXI.Container();
-          const sprite = new PIXI.Sprite();
-          sprite.anchor.set(0.5);
-          pixiNode.addChild(sprite);
+        } else if (node.type === 'image' || node.type === 'video') {
+          pixiNode = new PIXI.Sprite();
+          (pixiNode as PIXI.Sprite).anchor.set(0.5); // Center origin like graphics
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -216,37 +214,54 @@ export class PixiBridge {
         if (node.fill) {
             pixiNode.endFill();
         }
-      } else if (node.type === 'image') {
-        const sprite = (pixiNode as PIXI.Container).children[0] as PIXI.Sprite;
-        
-        if (node.src) {
-           const currentSrc = (sprite as any)._currentSrc;
-           if (currentSrc !== node.src) {
-               (sprite as any)._currentSrc = node.src;
-               const tex = PIXI.Texture.from(node.src);
-               sprite.texture = tex;
-               
-               if (!tex.valid) {
-                   (tex.baseTexture as any).once('loaded', () => {
-                       const n = this.store.getState().nodes[id];
-                       if (n && n.width !== undefined && n.height !== undefined && sprite.texture === tex) {
-                           sprite.width = n.width;
-                           sprite.height = n.height;
+      } else if (pixiNode instanceof PIXI.Sprite) {
+        const rawSource = node.source || node.src;
+        if (rawSource && rawSource !== (pixiNode as any).__source) {
+          (pixiNode as any).__source = rawSource;
+          
+          const resolveSource = async () => {
+             let src = rawSource;
+             const isDataUrl = src.startsWith('data:');
+             const isRelative = !isDataUrl && !src.startsWith('/') && !src.startsWith('file://') && !src.startsWith('http') && !src.match(/^[a-zA-Z]:[\\/]/);
+             
+             if (isRelative) {
+                const globalWindow = window as any;
+                const projectPath = globalWindow.electronAPI ? await globalWindow.electronAPI.getProjectPath() : null;
+                if (projectPath) {
+                   src = `file://${projectPath}/${src}`;
+                }
+             } else if (!isDataUrl && !src.startsWith('file://') && !src.startsWith('http')) {
+                src = `file://${src}`;
+             }
+             
+             if (src) {
+                const texture = PIXI.Texture.from(src);
+                pixiNode.texture = texture;
+                
+                if (node.type === 'video') {
+                   const resource = texture.baseTexture.resource as any;
+                   if (resource && resource.source) {
+                      resource.source.loop = true;
+                      resource.source.play().catch(() => {});
+                   } else {
+                     // Poll until source is available
+                     const check = setInterval(() => {
+                       const res = texture.baseTexture.resource as any;
+                       if (res && res.source) {
+                         clearInterval(check);
+                         res.source.loop = true;
+                         res.source.play().catch(() => {});
                        }
-                   });
-               }
-           }
-        } else {
-           sprite.texture = PIXI.Texture.EMPTY;
-           (sprite as any)._currentSrc = undefined;
+                     }, 100);
+                   }
+                }
+             }
+          };
+          resolveSource();
         }
-
-        if (node.width !== undefined && node.height !== undefined && sprite.texture.valid) {
-           sprite.width = node.width;
-           sprite.height = node.height;
-        } else if (node.width === undefined || node.height === undefined) {
-           sprite.scale.set(1);
-        }
+        
+        if (node.width !== undefined) pixiNode.width = node.width;
+        if (node.height !== undefined) pixiNode.height = node.height;
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);
