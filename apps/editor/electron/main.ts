@@ -77,45 +77,16 @@ function createWindow() {
     width: 1200,
     height: 800,
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist-electron/preload.js'),
+      preload: path.join(__dirname, '../preload/preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
     },
   });
 
-  // Security Hardening: Navigation guards
-  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
-    const parsedUrl = new URL(navigationUrl);
-    const isDev = !!process.env.VITE_DEV_SERVER_URL;
-    let isAllowed = false;
-
-    if (isDev && process.env.VITE_DEV_SERVER_URL) {
-      const devServerUrl = new URL(process.env.VITE_DEV_SERVER_URL);
-      if (parsedUrl.origin === devServerUrl.origin) {
-        isAllowed = true;
-      }
-    }
-    
-    if (parsedUrl.protocol === 'file:') {
-      isAllowed = true;
-    }
-
-    if (!isAllowed) {
-      console.warn(`Blocked unauthorized navigation to: ${navigationUrl}`);
-      event.preventDefault();
-    }
-  });
-
-  // Security Hardening: Window open handlers
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    console.warn(`Blocked unauthorized window open request for: ${url}`);
-    return { action: 'deny' };
-  });
-
-  if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+  if (process.env['ELECTRON_RENDERER_URL']) {
+    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
   } else {
-    mainWindow.loadFile(path.join(app.getAppPath(), 'dist/index.html'));
+    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
