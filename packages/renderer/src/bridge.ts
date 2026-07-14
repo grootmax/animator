@@ -138,13 +138,21 @@ export class PixiBridge {
         pixiNode.clear();
 
         if (node.fill) {
-            const fill = parseInt(node.fill.replace('#', '0x'));
-            pixiNode.beginFill(fill);
+            const fill = typeof PIXI.utils?.string2hex === 'function' 
+              ? PIXI.utils.string2hex(node.fill) 
+              : parseInt(node.fill.replace('#', '0x')) || 0;
+            if (!isNaN(fill)) {
+              pixiNode.beginFill(fill);
+            }
         }
         if (node.stroke) {
-            const stroke = parseInt(node.stroke.replace('#', '0x'));
+            const stroke = typeof PIXI.utils?.string2hex === 'function'
+              ? PIXI.utils.string2hex(node.stroke)
+              : parseInt(node.stroke.replace('#', '0x')) || 0;
             const strokeWidth = node.strokeWidth !== undefined ? node.strokeWidth : 2;
-            pixiNode.lineStyle(strokeWidth, stroke);
+            if (!isNaN(stroke)) {
+              pixiNode.lineStyle(strokeWidth, stroke);
+            }
         }
 
         if (node.type === 'rect' && node.width && node.height) {

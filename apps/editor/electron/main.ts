@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -33,13 +34,18 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'darwin' || process.env.TEST_MODE === 'true') {
     app.quit();
   }
 });
 
 // IPC Handlers
 ipcMain.handle('dialog:openFile', async () => {
+  if (process.env.TEST_MODE === 'true') {
+    const testFilePath = path.join(__dirname, '../test-resources/test.svg');
+    return fs.promises.readFile(testFilePath, 'utf-8');
+  }
+
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
     filters: [{ name: 'SVG files', extensions: ['svg'] }]
@@ -49,6 +55,12 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
+  if (process.env.TEST_MODE === 'true') {
+    const testFilePath = process.env.TEST_SAVE_PATH || path.join(os.tmpdir(), 'test-save.json');
+    await fs.promises.writeFile(testFilePath, content, 'utf-8');
+    return true;
+  }
+
   const { canceled, filePath } = await dialog.showSaveDialog({
     filters: [{ name: 'JSON files', extensions: ['json'] }]
   });
