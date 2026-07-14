@@ -1,11 +1,13 @@
 import * as PIXI from 'pixi.js';
-import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
+import { SceneNode } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 
 export class TransformHandles {
   public container: PIXI.Container;
-  private store: ReturnType<typeof createSceneGraphStore>;
   private viewport: Viewport;
+  private dispatch: (msg: any) => void;
+  private selectedNodeId: string | null = null;
+  private getPixiNode?: (id: string) => PIXI.Container | PIXI.Graphics | undefined;
 
   private box: PIXI.Graphics;
   private handles: Record<string, PIXI.Graphics> = {};
@@ -14,17 +16,17 @@ export class TransformHandles {
   private hasMoved = false;
   private dragType: string | null = null;
   private dragStartPos = { x: 0, y: 0 };
-  private startNodeState: SceneNode | null = null;
-  private getPixiNode: (id: string) => PIXI.Container | PIXI.Graphics | undefined;
+  private startNodeState: any | null = null;
 
   constructor(
-      store: ReturnType<typeof createSceneGraphStore>, 
-      viewport: Viewport,
-      getPixiNode: (id: string) => PIXI.Container | PIXI.Graphics | undefined
+    viewport: Viewport,
+    dispatch: (msg: any) => void,
+    getPixiNode?: (id: string) => PIXI.Container | PIXI.Graphics | undefined
   ) {
-    this.store = store;
     this.viewport = viewport;
+    this.dispatch = dispatch;
     this.getPixiNode = getPixiNode;
+
     this.container = new PIXI.Container();
     this.container.zIndex = 1000;
 
@@ -45,25 +47,27 @@ export class TransformHandles {
       this.handles[id] = handle;
       this.container.addChild(handle);
     }
+  }
 
-    // Add global pointer move/up
-    window.addEventListener('pointermove', this.onDragMove.bind(this));
-    window.addEventListener('pointerup', this.onDragEnd.bind(this));
+  public handleEvent(e: any) {
+    if (e.type === 'pointermove') {
+      this.onDragMove(e);
+    } else if (e.type === 'pointerup') {
+      this.onDragEnd();
+    }
   }
 
   public setSelectedNode(id: string | null) {
-    this.store.getState().setSelectedNodeId(id);
+    this.selectedNodeId = id;
   }
 
-  public update() {
-    const selectedNodeId = this.store.getState().selectedNodeId;
-    if (!selectedNodeId) {
+  public update(nodeConfigs: Map<string, any>, sharedMatrices: Float32Array) {
+    if (!this.selectedNodeId) {
       this.container.visible = false;
       return;
     }
 
-    const state = this.store.getState();
-    const node = state.nodes[selectedNodeId];
+    const node = nodeConfigs.get(this.selectedNodeId);
 
     if (!node || node.locked || !node.visible) {
       this.container.visible = false;
@@ -72,14 +76,23 @@ export class TransformHandles {
 
     this.container.visible = true;
 
-    // Use worldMatrix to position the handles relative to the viewport
-    const wm = node.worldMatrix;
+    // Read world matrix from shared memory
+    const bufferIndex = node.bufferIndex;
+    if (bufferIndex === undefined) return;
+    const offset = bufferIndex * 18 + 9; // world matrix starts at 9
+    
+    const wm0 = sharedMatrices[offset];
+    const wm1 = sharedMatrices[offset + 1];
+    const wm3 = sharedMatrices[offset + 3];
+    const wm4 = sharedMatrices[offset + 4];
+    const wm6 = sharedMatrices[offset + 6];
+    const wm7 = sharedMatrices[offset + 7];
 
     // Apply world matrix to the handles container
     this.container.setTransform(
-      wm[6], wm[7],
-      Math.hypot(wm[0], wm[1]), Math.hypot(wm[3], wm[4]),
-      Math.atan2(wm[1], wm[0])
+      wm6, wm7,
+      Math.hypot(wm0, wm1), Math.hypot(wm3, wm4),
+      Math.atan2(wm1, wm0)
     );
 
     let w = node.width || (node.radius ? node.radius * 2 : 100);
@@ -89,7 +102,7 @@ export class TransformHandles {
     let maxX = w / 2;
     let maxY = h / 2;
 
-    if (node.type === 'group' || node.type === 'container') {
+    if ((node.type === 'group' || node.type === 'container') && this.getPixiNode) {
       const pixiNode = this.getPixiNode(this.selectedNodeId);
       if (pixiNode && pixiNode.children.length > 0) {
         const bounds = pixiNode.getLocalBounds();
@@ -109,18 +122,16 @@ export class TransformHandles {
     this.box.lineStyle(2, 0x00aaff, 1);
     this.box.drawRect(minX, minY, w, h);
 
-    // The handle visual size needs to counter-scale BOTH the local node's world scale AND the viewport zoom
-    // We apply viewport scaling in bridge.ts by making handles a child of viewport.
-    const globalScaleX = Math.hypot(wm[0], wm[1]);
-    const globalScaleY = Math.hypot(wm[3], wm[4]);
+    const globalScaleX = Math.hypot(wm0, wm1);
+    const globalScaleY = Math.hypot(wm3, wm4);
 
-    const sizeX = 10 / globalScaleX;
-    const sizeY = 10 / globalScaleY;
+    const sizeX = 10 / (globalScaleX || 1);
+    const sizeY = 10 / (globalScaleY || 1);
 
     const drawHandle = (g: PIXI.Graphics, x: number, y: number) => {
       g.clear();
       g.beginFill(0xffffff);
-      g.lineStyle(1 / Math.min(globalScaleX, globalScaleY), 0x00aaff); // line width invariant
+      g.lineStyle(1 / Math.min(globalScaleX || 1, globalScaleY || 1), 0x00aaff);
       g.drawRect(x - sizeX/2, y - sizeY/2, sizeX, sizeY);
       g.endFill();
     };
@@ -130,29 +141,28 @@ export class TransformHandles {
     drawHandle(this.handles['bl'], minX, maxY);
     drawHandle(this.handles['br'], maxX, maxY);
 
-    drawHandle(this.handles['rot'], minX + w/2, minY - 20/globalScaleY);
+    drawHandle(this.handles['rot'], minX + w/2, minY - 20 / (globalScaleY || 1));
   }
 
   private onDragStart(e: PIXI.FederatedPointerEvent, type: string) {
     e.stopPropagation();
-    const selectedNodeId = this.store.getState().selectedNodeId;
-    if (!selectedNodeId) return;
+    if (!this.selectedNodeId) return;
 
     this.isDragging = true;
     this.hasMoved = false;
     this.dragType = type;
     this.dragStartPos = { x: e.globalX, y: e.globalY };
-    this.startNodeState = { ...this.store.getState().nodes[selectedNodeId] } as SceneNode;
+    
+    // Send a message to get the exact node state when dragging starts
+    this.dispatch({ type: 'REQUEST_NODE_STATE', id: this.selectedNodeId });
   }
 
-  private onDragMove(e: PointerEvent) {
-    const selectedNodeId = this.store.getState().selectedNodeId;
-    if (!this.isDragging || !selectedNodeId || !this.startNodeState) return;
+  public setStartNodeState(state: any) {
+    this.startNodeState = state;
+  }
 
-    if (!this.hasMoved) {
-      this.store.getState().commitHistory();
-      this.hasMoved = true;
-    }
+  private onDragMove(e: any) {
+    if (!this.isDragging || !this.selectedNodeId || !this.startNodeState) return;
 
     const dx = e.clientX - this.dragStartPos.x;
     const dy = e.clientY - this.dragStartPos.y;
@@ -160,10 +170,8 @@ export class TransformHandles {
     const updates: any = {};
 
     if (this.dragType === 'rot') {
-       // get container absolute pos on screen to calculate angle
-       const rect = (this.viewport.container as any).parent.parent?.getBounds?.() || {x:0, y:0};
-       const cx = this.container.x * this.viewport.container.scale.x + this.viewport.container.x;
-       const cy = this.container.y * this.viewport.container.scale.y + this.viewport.container.y;
+       const cx = this.container.x * this.viewport.container.scale.x + this.container.x;
+       const cy = this.container.y * this.viewport.container.scale.y + this.container.y;
 
        const startAngle = Math.atan2(this.dragStartPos.y - cy, this.dragStartPos.x - cx);
        const currentAngle = Math.atan2(e.clientY - cy, e.clientX - cx);
@@ -177,8 +185,7 @@ export class TransformHandles {
        updates.scaleY = this.startNodeState.scaleY + scaleDelta;
     }
 
-    this.store.getState().updateNode(selectedNodeId, updates);
-    this.store.getState().recalculateMatrices();
+    this.dispatch({ type: 'UPDATE_NODE', id: this.selectedNodeId, updates });
   }
 
   private onDragEnd() {
