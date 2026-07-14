@@ -1,17 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-import { PixiBridge } from '@monorepo/renderer';
-import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
+import { RuntimePlayer } from '@monorepo/runtime-player';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 
-// Create singletons for the app
+// Create read-only UI store mirror
 const store = createSceneGraphStore();
-const engine = new AnimationEngine(store);
 
 // Extend Window interface for Electron IPC
 declare global {
@@ -28,40 +26,77 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [player, setPlayer] = useState<RuntimePlayer | null>(null);
 
   useEffect(() => {
     if (canvasRef.current) {
-      // Initialize renderer
-      const bridge = new PixiBridge(canvasRef.current, store);
-      // We keep bridge instance alive
-      (window as any).__bridge = bridge;
+      const rp = new RuntimePlayer(canvasRef.current);
+      setPlayer(rp);
+      (window as any).__player = rp;
 
-      // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
+      const unsub = rp.subscribe((nodes) => {
+        // Update read-only mirror
+        store.setState({ nodes });
+      });
+
+      const unsubStore = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
       });
 
-      return () => unsubscribe();
+      return () => {
+        unsub();
+        unsubStore();
+        rp.terminate();
+      };
     }
   }, []);
 
   useEffect(() => {
+    if (!player) return;
     let frame: number;
     const checkPlayState = () => {
-      setIsPlaying(engine.getIsPlaying());
+      setIsPlaying(player.getIsPlaying());
       frame = requestAnimationFrame(checkPlayState);
     };
     frame = requestAnimationFrame(checkPlayState);
     return () => cancelAnimationFrame(frame);
+  }, [player]);
+
+  // Hook into node updates from UI (LayerPanel)
+  // Wait, LayerPanel mutates `store` directly using store.getState().updateNode?
+  // If we only have read-only mirror, how does LayerPanel update it?
+  // We should proxy store updates to player.
+  useEffect(() => {
+    // Intercept store updateNode and addNode
+    const originalUpdate = store.getState().updateNode;
+    const originalAdd = store.getState().addNode;
+    
+    store.getState().updateNode = (id, updates) => {
+      // Send to worker
+      if ((window as any).__player) {
+         (window as any).__player.updateNode(id, updates);
+      }
+    };
+
+    store.getState().addNode = (node) => {
+      if ((window as any).__player) {
+         (window as any).__player.addNode(node);
+      }
+    };
+    
+    return () => {
+      store.getState().updateNode = originalUpdate;
+      store.getState().addNode = originalAdd;
+    };
   }, []);
 
   const handleImportSvg = async () => {
-    if (window.electronAPI) {
+    if (window.electronAPI && player) {
       const svgContent = await window.electronAPI.openFile();
       if (svgContent) {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+        nodes.forEach(node => player.addNode(node));
       }
     } else {
       alert("Electron API not available");
@@ -69,10 +104,9 @@ function App() {
   };
 
   const handleSaveState = async () => {
-    if (window.electronAPI) {
+    if (window.electronAPI && player) {
       const state = store.getState().nodes;
 
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
       const cleanScene: Record<string, any> = {};
       for (const [id, node] of Object.entries(state)) {
         const cleanNode = { ...node };
@@ -84,10 +118,10 @@ function App() {
 
       const exportData = {
         scene: cleanScene,
-        animations: engine.getTracks(),
+        animations: player.getTracks(),
         metadata: {
           version: "1.0.0",
-          duration: engine.getDuration()
+          duration: player.getDuration()
         }
       };
 
@@ -109,11 +143,12 @@ function App() {
   };
 
   const handleTestAnimation = () => {
+    if (!player) return;
     const state = store.getState();
     const nodeIds = Object.keys(state.nodes);
     if (nodeIds.length > 0) {
       const testNodeId = nodeIds[0];
-      engine.addTrack({
+      player.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
         keyframes: [
@@ -122,10 +157,9 @@ function App() {
           { time: 4000, value: 0, easing: 'easeInOutQuad' }
         ]
       });
-      engine.play();
+      player.play();
     } else {
-      // Create a test node if none exist
-      state.addNode({
+      player.addNode({
         id: 'test_rect',
         type: 'rect',
         parentId: null,
@@ -139,31 +173,21 @@ function App() {
         height: 100,
         fill: '#ff0000'
       });
-      state.recalculateMatrices();
     }
   };
 
   const handleTogglePlay = () => {
-    if (engine.getIsPlaying()) engine.pause();
-    else engine.play();
+    if (!player) return;
+    if (player.getIsPlaying()) player.pause();
+    else player.play();
   };
 
   const handleZoomIn = () => {
-    const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x *= 1.2;
-      bridge.viewport.container.scale.y *= 1.2;
-      bridge.viewport.drawGrid();
-    }
+    // Zoom disabled in isolated runtime for now
   };
 
   const handleZoomOut = () => {
-    const bridge = (window as any).__bridge;
-    if (bridge && bridge.viewport) {
-      bridge.viewport.container.scale.x /= 1.2;
-      bridge.viewport.container.scale.y /= 1.2;
-      bridge.viewport.drawGrid();
-    }
+    // Zoom disabled in isolated runtime for now
   };
 
   return (
@@ -186,7 +210,6 @@ function App() {
 
           <div className="flex-1 relative bg-[#1a1a1a]">
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
-            {/* Overlay a subtle test animation button for quick testing */}
             <button
                className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
                onClick={handleTestAnimation}
@@ -196,7 +219,7 @@ function App() {
           </div>
         </div>
 
-        <Timeline engine={engine} store={store} />
+        {player && <Timeline engine={player as any} store={store} />}
       </div>
     </DndProvider>
   );

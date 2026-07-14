@@ -26,20 +26,25 @@ export class TransformHandles {
     this.container.addChild(this.box);
 
     const corners = ['tl', 'tr', 'bl', 'br', 'rot'];
+    const isOffscreen = typeof window === 'undefined';
+    
     for (const id of corners) {
       const handle = new PIXI.Graphics();
-      handle.interactive = true;
-      handle.cursor = id === 'rot' ? 'crosshair' : 'pointer';
-
-      handle.on('pointerdown', (e: PIXI.FederatedPointerEvent) => this.onDragStart(e, id));
+      if (!isOffscreen) {
+        handle.interactive = true;
+        handle.cursor = id === 'rot' ? 'crosshair' : 'pointer';
+        handle.on('pointerdown', (e: PIXI.FederatedPointerEvent) => this.onDragStart(e, id));
+      }
 
       this.handles[id] = handle;
       this.container.addChild(handle);
     }
 
     // Add global pointer move/up
-    window.addEventListener('pointermove', this.onDragMove.bind(this));
-    window.addEventListener('pointerup', this.onDragEnd.bind(this));
+    if (!isOffscreen) {
+      window.addEventListener('pointermove', this.onDragMove.bind(this));
+      window.addEventListener('pointerup', this.onDragEnd.bind(this));
+    }
   }
 
   public setSelectedNode(id: string | null) {

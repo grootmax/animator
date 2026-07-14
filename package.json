@@ -15,5 +15,8 @@
   "devDependencies": {
     "turbo": "^1.10.0",
     "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "lucide-react": "^0.279.0"
   }
 }

@@ -6,19 +6,24 @@ import { Matrix3 } from '@monorepo/math';
 import { tokenizePath } from '@monorepo/serialization';
 
 export class PixiBridge {
-  private app: PIXI.Application;
+  public app: PIXI.Application;
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private isOffscreen: boolean;
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, store: ReturnType<typeof createSceneGraphStore>, devicePixelRatio?: number) {
+    this.isOffscreen = typeof window === 'undefined' || typeof OffscreenCanvas !== 'undefined' && canvas instanceof OffscreenCanvas;
+
     this.app = new PIXI.Application({
-      view: canvas,
-      resizeTo: window,
+      view: canvas as any,
+      resizeTo: this.isOffscreen ? undefined : window,
       backgroundColor: 0x1a1a1a,
-      resolution: window.devicePixelRatio || 1,
+      resolution: devicePixelRatio || (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1),
       autoDensity: true,
+      width: canvas.width,
+      height: canvas.height
     });
 
     this.app.stage.sortableChildren = true;
@@ -31,12 +36,14 @@ export class PixiBridge {
 
     this.store = store;
 
-    this.viewport.container.interactive = true;
-    this.viewport.container.on('pointerdown', (e) => {
-      if (e.target === this.viewport.container) {
-         this.handles.setSelectedNode(null);
-      }
-    });
+    if (!this.isOffscreen) {
+      this.viewport.container.interactive = true;
+      this.viewport.container.on('pointerdown', (e) => {
+        if (e.target === this.viewport.container) {
+           this.handles.setSelectedNode(null);
+        }
+      });
+    }
 
     this.store.subscribe((state) => {
       this.syncNodes(state.nodes);
@@ -112,14 +119,16 @@ export class PixiBridge {
           pixiNode = new PIXI.Container();
         }
 
-        pixiNode.interactive = true;
-        pixiNode.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
-            e.stopPropagation();
-            const n = this.store.getState().nodes[id];
-            if (n && !n.locked && n.visible) {
-              this.handles.setSelectedNode(id);
-            }
-        });
+        if (!this.isOffscreen) {
+          pixiNode.interactive = true;
+          pixiNode.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
+              e.stopPropagation();
+              const n = this.store.getState().nodes[id];
+              if (n && !n.locked && n.visible) {
+                this.handles.setSelectedNode(id);
+              }
+          });
+        }
 
         this.pixiNodes.set(id, pixiNode);
 
