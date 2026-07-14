@@ -19,6 +19,9 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
+      openProject: () => Promise<any | null>;
+      getLastOpenedProject: () => Promise<any | null>;
+      saveSceneData: (buffer: SharedArrayBuffer | Uint8Array) => Promise<boolean>;
     }
   }
 }
@@ -55,13 +58,53 @@ function App() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  useEffect(() => {
+    if (window.electronAPI && window.electronAPI.getLastOpenedProject) {
+      window.electronAPI.getLastOpenedProject().then((project) => {
+        if (project) {
+          loadProjectAssets(project);
+        }
+      });
+    }
+  }, []);
+
+  const loadProjectAssets = async (project: any) => {
+    if (!project || !project.manifest || !project.manifest.assets) return;
+    
+    const parser = new SvgParser();
+    for (const assetInfo of Object.values(project.manifest.assets)) {
+      const url = `asset://${(assetInfo as any).path}`;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        const svgContent = await res.text();
+        const nodes = parser.parse(svgContent);
+        nodes.forEach((node: any) => store.getState().addNode(node));
+      } catch(e) {
+        console.error('Failed to load asset', url, e);
+      }
+    }
+  };
+
+  const handleOpenProject = async () => {
+    if (window.electronAPI && window.electronAPI.openProject) {
+      const project = await window.electronAPI.openProject();
+      if (project) {
+        store.getState().nodes = {}; // Clear current store
+        store.getState().selectedNodeIds = [];
+        store.getState().recalculateMatrices();
+        loadProjectAssets(project);
+      }
+    }
+  };
+
   const handleImportSvg = async () => {
     if (window.electronAPI) {
       const svgContent = await window.electronAPI.openFile();
       if (svgContent) {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+        nodes.forEach((node: any) => store.getState().addNode(node));
       }
     } else {
       alert("Electron API not available");
@@ -91,7 +134,21 @@ function App() {
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      if (window.electronAPI.saveSceneData) {
+        // Zero-copy SharedArrayBuffer transfer
+        const jsonString = JSON.stringify(exportData);
+        const encoder = new TextEncoder();
+        const uint8Array = encoder.encode(jsonString);
+        
+        const sharedBuffer = new SharedArrayBuffer(uint8Array.length);
+        const sharedArray = new Uint8Array(sharedBuffer);
+        sharedArray.set(uint8Array);
+        
+        // Pass the SharedArrayBuffer over IPC
+        await window.electronAPI.saveSceneData(sharedBuffer);
+      } else {
+        await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      }
     } else {
       alert("Electron API not available");
     }
@@ -179,6 +236,7 @@ function App() {
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
+          onOpenProject={handleOpenProject}
         />
 
         <div className="flex flex-1 overflow-hidden">
