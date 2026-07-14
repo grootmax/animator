@@ -1,14 +1,17 @@
 {
   "name": "@monorepo/editor",
   "version": "1.0.0",
+  "description": "Vite Electron Integrated Pipeline Editor",
+  "author": "Jules",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "package": "electron-builder build --mac --win --linux"
+    "build": "vite build",
+    "package": "electron-builder build --linux"
   },
   "build": {
     "appId": "com.monorepo.editor",
+    "electronVersion": "25.3.0",
     "directories": {
       "output": "release"
     },
