@@ -10,6 +10,7 @@ interface TimelineProps {
 
 export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
   const [isPlaying, setIsPlaying] = useState(() => engine.getIsPlaying());
+  const [fps, setFps] = useState(() => engine.getFps());
   const duration = engine.getDuration();
   const tracks = engine.getTracks();
   const state = store.getState();
@@ -28,6 +29,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
     const update = () => {
       const currentPlayhead = engine.getPlayhead();
       const currentlyPlaying = engine.getIsPlaying();
+      const currentFps = engine.getFps();
 
       if (playheadRef.current) {
         playheadRef.current.style.left = `${(currentPlayhead / duration) * 100}%`;
@@ -40,7 +42,10 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
         if (prev !== currentlyPlaying) return currentlyPlaying;
         return prev;
       });
-
+      setFps((prev) => {
+        if (prev !== currentFps) return currentFps;
+        return prev;
+      });
       frame = requestAnimationFrame(update);
     };
     frame = requestAnimationFrame(update);
@@ -165,6 +170,19 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
            <button className="p-1 hover:text-white" onClick={togglePlay}>
               {isPlaying ? <Pause size={16} /> : <Play size={16} />}
            </button>
+           <select 
+             className="bg-gray-800 text-xs border border-gray-600 rounded px-1 py-0.5 ml-2"
+             value={fps}
+             onChange={(e) => {
+               const newFps = Number(e.target.value);
+               engine.setFps(newFps);
+               setFps(newFps);
+             }}
+           >
+             <option value={24}>24 FPS</option>
+             <option value={30}>30 FPS</option>
+             <option value={60}>60 FPS</option>
+           </select>
            <span className="font-mono text-xs ml-auto" ref={timeDisplayRef}>{(engine.getPlayhead()/1000).toFixed(2)}s</span>
         </div>
         <div className="flex-1 relative cursor-pointer" ref={rulerRef} onPointerDown={handlePointerDown}>

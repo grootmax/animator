@@ -13,6 +13,7 @@ interface ToolbarProps {
   onZoomOut: () => void;
   isSaving?: boolean;
   saveProgress?: number;
+  onExportSequence?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -26,7 +27,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onZoomIn,
   onZoomOut,
   isSaving = false,
-  saveProgress = 0
+  saveProgress = 0,
+  onExportSequence
 }) => {
   const ToolButton = ({ name, icon: Icon }: { name: string, icon: any }) => (
     <button
@@ -77,6 +79,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG" disabled={isSaving}>
           <Download size={20} /> <span className="text-sm">SVG</span>
         </button>
+        {onExportSequence && (
+          <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSequence} title="Export Image Sequence">
+            <Download size={20} /> <span className="text-sm">Sequence</span>
+          </button>
+        )}
       </div>
     </div>
   );

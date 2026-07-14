@@ -1,20 +1,6 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
-
-export interface Keyframe {
-  id: string;
-  time: number; // in milliseconds
-  value: number | string;
-  easing?: EasingType;
-}
-
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
-}
+import { EasingType, Keyframe, Track, Heartbeat, NetworkRole } from './types';
 
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
@@ -111,6 +97,14 @@ export class AnimationEngine {
   private heartbeatRate = 100;
   public driftThreshold = 150;
 
+  private currentFrame = 0;
+  private accumulator = 0;
+  private fps = 30;
+
+  public getFps() { return this.fps; }
+  public setFps(fps: number) { this.fps = fps; }
+  public getCurrentFrame() { return this.currentFrame; }
+
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
   public getIsPlaying() { return this.isPlaying; }
@@ -153,8 +147,10 @@ export class AnimationEngine {
   }
 
   public seek(time: number) {
-    this.drift = 0;
-    this.playhead = Math.round(time / 16.67) * 16.67;
+    const frameDuration = 1000 / this.fps;
+    this.currentFrame = Math.round(time / frameDuration);
+    this.playhead = this.currentFrame * frameDuration;
+    this.accumulator = 0;
     this.updateNodes();
 
     if (this.role === 'leader') {
@@ -223,22 +219,33 @@ export class AnimationEngine {
     const dt = now - this.lastTime;
     this.lastTime = now;
 
-    const exactDt = dt + this.drift;
-    const quantizedDt = Math.round(exactDt / 16.67) * 16.67;
-    this.drift = exactDt - quantizedDt;
+    const frameDuration = 1000 / this.fps;
+    this.accumulator += dt;
+    let frameChanged = false;
 
-    this.playhead += quantizedDt;
+    while (this.accumulator >= frameDuration) {
+      this.accumulator -= frameDuration;
+      this.currentFrame++;
+      frameChanged = true;
+    }
 
-    if (this.playhead > this.duration) {
+    const totalFrames = Math.ceil(this.duration / frameDuration);
+
+    if (this.currentFrame >= totalFrames) {
       if (this.loop) {
-        this.playhead = this.playhead % this.duration;
+        this.currentFrame = this.currentFrame % totalFrames;
+        frameChanged = true;
       } else {
-        this.playhead = this.duration;
+        this.currentFrame = totalFrames - 1;
         this.pause();
+        frameChanged = true;
       }
     }
 
-    this.updateNodes();
+    if (frameChanged) {
+      this.playhead = this.currentFrame * frameDuration;
+      this.updateNodes();
+    }
 
     if (this.isPlaying) {
       this.rafId = requestAnimationFrame(this.tick);

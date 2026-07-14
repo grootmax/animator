@@ -66,6 +66,19 @@ export class PixiBridge {
     return `${node.fill || 'none'}_${node.stroke || 'none'}_${node.strokeWidth || 0}`;
   }
 
+  public getApp() {
+    return this.app;
+  }
+
+  public async getFrameBlob(): Promise<Blob | null> {
+    this.app.render();
+    return new Promise((resolve) => {
+      // app.view is HTMLCanvasElement in PixiJS v7
+      const canvas = this.app.view as HTMLCanvasElement;
+      canvas.toBlob((blob) => resolve(blob), 'image/png');
+    });
+  }
+
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
     const a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4], tx = matrix[6], ty = matrix[7];
     
