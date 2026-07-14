@@ -25,9 +25,18 @@ declare global {
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const workerRef = useRef<Worker | null>(null);
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    workerRef.current = new Worker(new URL('./workers/serializationWorker.ts', import.meta.url), { type: 'module' });
+    return () => {
+      workerRef.current?.terminate();
+    };
+  }, []);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -68,22 +77,15 @@ function App() {
     }
   };
 
-  const handleSaveState = async () => {
-    if (window.electronAPI) {
+  const handleSaveState = () => {
+    if (window.electronAPI && workerRef.current) {
+      if (isSaving) return;
+      setIsSaving(true);
+      
       const state = store.getState().nodes;
-
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
-      }
-
-      const exportData = {
-        scene: cleanScene,
+      
+      const payload = {
+        scene: state,
         animations: engine.getTracks(),
         metadata: {
           version: "1.0.0",
@@ -91,9 +93,41 @@ function App() {
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      const onMessage = async (e: MessageEvent) => {
+        workerRef.current?.removeEventListener('message', onMessage);
+        workerRef.current?.removeEventListener('error', onError);
+        if (e.data.success) {
+           try {
+             await window.electronAPI!.saveFile(e.data.result);
+           } catch (err) {
+             alert(`Failed to save file: ${err}`);
+           }
+        } else {
+           alert(`Save failed: ${e.data.error}`);
+        }
+        setIsSaving(false);
+      };
+
+      const onError = (e: ErrorEvent) => {
+        workerRef.current?.removeEventListener('message', onMessage);
+        workerRef.current?.removeEventListener('error', onError);
+        alert(`Worker error: ${e.message}`);
+        setIsSaving(false);
+      };
+
+      workerRef.current.addEventListener('message', onMessage);
+      workerRef.current.addEventListener('error', onError);
+      
+      try {
+        workerRef.current.postMessage(payload);
+      } catch (err) {
+        workerRef.current.removeEventListener('message', onMessage);
+        workerRef.current.removeEventListener('error', onError);
+        alert(`Failed to post message to worker: ${err}`);
+        setIsSaving(false);
+      }
     } else {
-      alert("Electron API not available");
+      alert("Electron API or Worker not available");
     }
   };
 
@@ -179,6 +213,7 @@ function App() {
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
+          isSaving={isSaving}
         />
 
         <div className="flex flex-1 overflow-hidden">
