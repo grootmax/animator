@@ -7,8 +7,8 @@ export function setupSecurity() {
   const isDev = !!process.env.VITE_DEV_SERVER_URL;
 
   // 1. Inject dynamic CSP headers into all window sessions at the main process level
-  app.on('ready', () => {
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+  app.on('session-created', (sess) => {
+    sess.webRequest.onHeadersReceived((details, callback) => {
       // In Dev, allow localhost connections, eval, and inline scripts/styles for Vite HMR
       // In Prod, restrict script execution to local files only (i.e. 'self')
       const csp = isDev
