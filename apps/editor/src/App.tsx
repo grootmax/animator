@@ -3,9 +3,11 @@ import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
+import { telemetry } from '@monorepo/telemetry';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
+import { DiagnosticHUD } from './components/DiagnosticHUD';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 
@@ -54,6 +56,87 @@ function App() {
       frame = requestAnimationFrame(checkPlayState);
     };
     frame = requestAnimationFrame(checkPlayState);
+    
+    // Expose telemetry and stress test utility for Playwright CI tests
+    (window as any).telemetry = telemetry;
+    (window as any).runStressTest = (nodeCount: number = 100000) => {
+      console.log(`Starting stress test with ${nodeCount} nodes...`);
+      const state = store.getState();
+      
+      // We do it directly to nodes state to be faster? Or via addNode?
+      // For 100k nodes, addNode via Zustand is slow (100k set calls).
+      // We can create a batched add method or just modify the state directly in a set call.
+      store.setState((prev) => {
+        const newNodes = { ...prev.nodes };
+        const rootId = prev.rootId || 'root';
+        const rootNode = newNodes[rootId] || { 
+          id: rootId, 
+          type: 'container', 
+          children: [],
+          x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1, opacity: 1, visible: true, locked: false,
+          localMatrix: [1,0,0,0,1,0,0,0,1],
+          worldMatrix: [1,0,0,0,1,0,0,0,1],
+          isDirty: true
+        };
+        
+        const newChildren = [...rootNode.children];
+        
+        for (let i = 0; i < nodeCount; i++) {
+          const id = `stress_node_${i}`;
+          newNodes[id] = {
+            id,
+            name: id,
+            type: 'container',
+            parentId: rootId,
+            children: [],
+            x: Math.random() * window.innerWidth,
+            y: Math.random() * window.innerHeight,
+            rotation: Math.random() * Math.PI,
+            scaleX: 1,
+            scaleY: 1,
+            opacity: 1,
+            visible: true,
+            locked: false,
+            localMatrix: [1,0,0,0,1,0,0,0,1] as any,
+            worldMatrix: [1,0,0,0,1,0,0,0,1] as any,
+            isDirty: true
+          };
+          newChildren.push(id);
+        }
+        
+        newNodes[rootId] = { ...rootNode, children: newChildren };
+        
+        return { nodes: newNodes, rootId };
+      });
+      
+      state.recalculateMatrices();
+      
+      // Pause PIXI rendering for engine stress test to avoid WebGL bottleneck
+      const bridge = (window as any).__bridge;
+      if (bridge && bridge.app) {
+        bridge.app.ticker.stop();
+        // Hide viewport to skip render passes entirely if ticker is manually ticked
+        bridge.viewport.container.visible = false;
+        
+        // Unsubscribe bridge to avoid syncNodes during math engine benchmark
+        if (bridge.unsubscribeStore) {
+            bridge.unsubscribeStore();
+        } else {
+            // we didn't save unsubscribe function in bridge...
+            // we can just mock syncNodes
+            (bridge as any).syncNodes = () => {};
+        }
+      }
+      
+      // Expose a tick function for the test to continuously stress the math engine
+      (window as any).tickStress = () => {
+         store.getState().markDirty(store.getState().rootId || 'root');
+         store.getState().recalculateMatrices();
+      };
+      
+      return "Stress test initialized";
+    };
+
     return () => cancelAnimationFrame(frame);
   }, []);
 
@@ -234,9 +317,10 @@ function App() {
 
           <div className="flex-1 relative bg-[#1a1a1a]">
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+            <DiagnosticHUD />
             {/* Overlay a subtle test animation button for quick testing */}
             <button
-               className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
+               className="absolute top-4 right-72 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
                onClick={handleTestAnimation}
             >
               Add Test Anim

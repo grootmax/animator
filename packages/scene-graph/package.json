@@ -7,6 +7,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
+    "@monorepo/telemetry": "*",
     "zustand": "^4.4.1",
     "@monorepo/math": "*"
   }

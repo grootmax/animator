@@ -1,5 +1,6 @@
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
+import { telemetry } from '@monorepo/telemetry';
 
 export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline';
 
@@ -157,11 +158,15 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
   },
 
   recalculateMatrices: () => {
+    telemetry.begin('math');
     set((state) => {
       const newNodes = { ...state.nodes };
       const { rootId } = state;
 
-      if (!rootId || !newNodes[rootId]) return state;
+      if (!rootId || !newNodes[rootId]) {
+        telemetry.end('math');
+        return state;
+      }
 
       const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
         const node = newNodes[nodeId];
@@ -198,5 +203,6 @@ export const createSceneGraphStore = () => createStore<SceneGraphState>((set, ge
 
       return { nodes: newNodes };
     });
+    telemetry.end('math');
   }
 }));
