@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { workerManager } from './worker/WorkerManager';
 import { PixiBridge } from '@monorepo/renderer';
-import { AnimationEngine } from '@monorepo/animation-engine';
+
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
@@ -11,17 +11,9 @@ import { DndProvider } from 'react-dnd';
 // @ts-ignore
 import { HTML5Backend } from 'react-dnd-html5-backend';
 
-// Create singletons for the app
-const channel = new BroadcastChannel('scene-graph-sync');
-const store = createSceneGraphStore((msg) => {
-  channel.postMessage(msg);
-});
-channel.onmessage = (event) => {
-  if (event.data && typeof (store as any).applyRemote === 'function') {
-    (store as any).applyRemote(event.data);
-  }
-};
-const engine = new AnimationEngine(store);
+// Create singletons for the app from WorkerManager
+const store = workerManager.store;
+const engine = workerManager.engine as any; // Cast as any because Timeline expects real AnimationEngine but uses proxy methods
 
 // Extend Window interface for Electron IPC
 declare global {
