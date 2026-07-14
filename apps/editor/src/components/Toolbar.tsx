@@ -8,6 +8,8 @@ interface ToolbarProps {
   togglePlay: () => void;
   onImport: () => void;
   onExport: () => void;
+  onSaveProject: () => void;
+  onOpenProject: () => void;
   onExportSvg: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -22,6 +24,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   togglePlay,
   onImport,
   onExport,
+  onSaveProject,
+  onOpenProject,
   onExportSvg,
   onZoomIn,
   onZoomOut,
@@ -68,6 +72,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <span>Saving... {Math.round(saveProgress * 100)}%</span>
           </div>
         )}
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2 bg-blue-700" onClick={onOpenProject} title="Open Project (Binary)" disabled={isSaving}>
+          <Upload size={20} /> <span className="text-sm">Open Binary</span>
+        </button>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2 bg-blue-700" onClick={onSaveProject} title="Save Project (Binary)" disabled={isSaving}>
+          <Download size={20} /> <span className="text-sm">Save Binary</span>
+        </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG" disabled={isSaving}>
           <Upload size={20} /> <span className="text-sm">Import</span>
         </button>
