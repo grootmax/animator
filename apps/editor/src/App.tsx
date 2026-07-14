@@ -70,28 +70,66 @@ function App() {
 
   const handleSaveState = async () => {
     if (window.electronAPI) {
-      const state = store.getState().nodes;
+      // Snapshot the state to prevent mutation issues during async save
+      const stateSnapshot = { ...store.getState().nodes };
+      const animationsSnapshot = engine.getTracks();
+      const durationSnapshot = engine.getDuration();
+      const entries = Object.entries(stateSnapshot);
 
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
-      const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
+      const chunks: string[] = ['{\n  "scene": {\n'];
+
+      const yieldToMain = () => new Promise<void>((resolve) => {
+        if (typeof window.requestIdleCallback === 'function') {
+          window.requestIdleCallback(() => resolve());
+        } else {
+          window.setTimeout(resolve, 0);
+        }
+      });
+
+      let startTime = performance.now();
+
+      for (let i = 0; i < entries.length; i++) {
+        const [id, node] = entries[i];
+
+        // Clean node - filter out internal state
         const cleanNode = { ...node };
         delete (cleanNode as any).localMatrix;
         delete (cleanNode as any).worldMatrix;
         delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
+
+        const nodeJson = JSON.stringify(cleanNode, null, 2);
+        const formattedNode = `    "${id}": ${nodeJson.replace(/\n/g, '\n    ')}`;
+        chunks.push(formattedNode);
+
+        if (i < entries.length - 1) {
+          chunks.push(',\n');
+        } else {
+          chunks.push('\n');
+        }
+
+        // Yield to the main thread if processing this chunk took more than 10ms
+        // to maintain >30 FPS and keep UI responsive
+        if (performance.now() - startTime > 10) {
+          await yieldToMain();
+          startTime = performance.now();
+        }
       }
 
-      const exportData = {
-        scene: cleanScene,
-        animations: engine.getTracks(),
-        metadata: {
-          version: "1.0.0",
-          duration: engine.getDuration()
-        }
-      };
+      chunks.push('  },\n');
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      const animationsJson = JSON.stringify(animationsSnapshot, null, 2);
+      chunks.push(`  "animations": ${animationsJson.replace(/\n/g, '\n  ')},\n`);
+
+      const metadataJson = JSON.stringify({
+        version: "1.0.0",
+        duration: durationSnapshot
+      }, null, 2);
+      chunks.push(`  "metadata": ${metadataJson.replace(/\n/g, '\n  ')}\n`);
+
+      chunks.push('}');
+
+      const finalJson = chunks.join('');
+      await window.electronAPI.saveFile(finalJson);
     } else {
       alert("Electron API not available");
     }
