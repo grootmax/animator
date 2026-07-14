@@ -40,7 +40,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
     const time = (x / rect.width) * duration;
     engine.seek(time);
-    setPlayhead(time);
+    setPlayhead(engine.getPlayhead());
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -56,6 +56,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
          const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
          const time = (x / rect.width) * duration;
          engine.seek(time);
+         setPlayhead(engine.getPlayhead());
       }
     };
     const handlePointerUp = () => setIsScrubbing(false);
@@ -67,6 +68,20 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
       window.removeEventListener('pointerup', handlePointerUp);
     };
   }, [isScrubbing, duration, engine]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        engine.seekFrame(engine.getPlayheadFrame() - 1);
+        setPlayhead(engine.getPlayhead());
+      } else if (e.key === 'ArrowRight') {
+        engine.seekFrame(engine.getPlayheadFrame() + 1);
+        setPlayhead(engine.getPlayhead());
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [engine]);
 
   // Group tracks by node
   const tracksByNode: Record<string, Track[]> = {};
