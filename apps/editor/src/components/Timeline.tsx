@@ -10,6 +10,7 @@ interface TimelineProps {
 
 export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
   const [isPlaying, setIsPlaying] = useState(() => engine.getIsPlaying());
+  const [fps, setFps] = useState(engine.getFps());
   const duration = engine.getDuration();
   const tracks = engine.getTracks();
   const state = store.getState();
@@ -28,6 +29,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
     const update = () => {
       const currentPlayhead = engine.getPlayhead();
       const currentlyPlaying = engine.getIsPlaying();
+      const currentFps = engine.getFps();
 
       if (playheadRef.current) {
         playheadRef.current.style.left = `${(currentPlayhead / duration) * 100}%`;
@@ -38,6 +40,11 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
 
       setIsPlaying((prev) => {
         if (prev !== currentlyPlaying) return currentlyPlaying;
+        return prev;
+      });
+
+      setFps((prev) => {
+        if (prev !== currentFps) return currentFps;
         return prev;
       });
 
@@ -86,10 +93,10 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
 
     // Immediate DOM update for responsiveness during scrub
     if (playheadRef.current) {
-      playheadRef.current.style.left = `${(time / duration) * 100}%`;
+      playheadRef.current.style.left = `${(engine.getPlayhead() / duration) * 100}%`;
     }
     if (timeDisplayRef.current) {
-      timeDisplayRef.current.textContent = `${(time / 1000).toFixed(2)}s`;
+      timeDisplayRef.current.textContent = `${(engine.getPlayhead() / 1000).toFixed(2)}s`;
     }
   };
 
@@ -108,10 +115,10 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
          engine.seek(time);
          
          if (playheadRef.current) {
-           playheadRef.current.style.left = `${(time / duration) * 100}%`;
+           playheadRef.current.style.left = `${(engine.getPlayhead() / duration) * 100}%`;
          }
          if (timeDisplayRef.current) {
-           timeDisplayRef.current.textContent = `${(time / 1000).toFixed(2)}s`;
+           timeDisplayRef.current.textContent = `${(engine.getPlayhead() / 1000).toFixed(2)}s`;
          }
       }
     };
@@ -166,6 +173,24 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
               {isPlaying ? <Pause size={16} /> : <Play size={16} />}
            </button>
            <span className="font-mono text-xs ml-auto" ref={timeDisplayRef}>{(engine.getPlayhead()/1000).toFixed(2)}s</span>
+           <select 
+              className="bg-gray-800 text-xs text-gray-300 border border-gray-600 rounded px-1 ml-2 outline-none"
+              value={fps}
+              onChange={(e) => {
+                engine.setFps(Number(e.target.value));
+                setFps(Number(e.target.value));
+                if (timeDisplayRef.current) {
+                  timeDisplayRef.current.textContent = `${(engine.getPlayhead() / 1000).toFixed(2)}s`;
+                }
+                if (playheadRef.current) {
+                  playheadRef.current.style.left = `${(engine.getPlayhead() / duration) * 100}%`;
+                }
+              }}
+           >
+              <option value={24}>24 FPS</option>
+              <option value={30}>30 FPS</option>
+              <option value={60}>60 FPS</option>
+           </select>
         </div>
         <div className="flex-1 relative cursor-pointer" ref={rulerRef} onPointerDown={handlePointerDown}>
            {/* Timeline Ruler */}
