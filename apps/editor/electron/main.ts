@@ -49,10 +49,58 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
-  const { canceled, filePath } = await dialog.showSaveDialog({
-    filters: [{ name: 'JSON files', extensions: ['json'] }]
-  });
+  let isJson = false;
+  let isSvg = false;
+  let parsedJson: any = null;
+
+  const trimmed = content.trim();
+
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try {
+      parsedJson = JSON.parse(content);
+      isJson = true;
+    } catch {
+      // not valid JSON
+    }
+  } else if (trimmed.toLowerCase().startsWith('<svg') && trimmed.toLowerCase().endsWith('</svg>')) {
+    isSvg = true;
+  }
+
+  if (isJson) {
+    if (!parsedJson || typeof parsedJson !== 'object' || Array.isArray(parsedJson)) {
+      dialog.showErrorBox('Save Failed', 'The project data is invalid or corrupted.');
+      return false;
+    }
+    if (!parsedJson.scene || !parsedJson.animations) {
+      dialog.showErrorBox('Save Failed', 'The project data is invalid or corrupted.');
+      return false;
+    }
+  } else if (isSvg) {
+    // Basic structural validation for SVG to ensure it's not arbitrary data
+    if (!trimmed.includes('<') || !trimmed.includes('>')) {
+      dialog.showErrorBox('Save Failed', 'The project data is invalid or corrupted.');
+      return false;
+    }
+  } else {
+    dialog.showErrorBox('Save Failed', 'The project data is invalid or corrupted.');
+    return false;
+  }
+
+  const filters = isJson 
+    ? [{ name: 'JSON files', extensions: ['json'] }]
+    : [{ name: 'SVG files', extensions: ['svg'] }];
+
+  const { canceled, filePath } = await dialog.showSaveDialog({ filters });
+  
   if (canceled || !filePath) return false;
+
+  const ext = path.extname(filePath).toLowerCase();
+  
+  if ((isJson && ext !== '.json') || (isSvg && ext !== '.svg')) {
+    dialog.showErrorBox('Save Failed', 'The file extension is not permitted.');
+    return false;
+  }
+
   await fs.promises.writeFile(filePath, content, 'utf-8');
   return true;
 });
