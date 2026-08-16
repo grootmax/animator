@@ -58,13 +58,9 @@ function App() {
   }, []);
 
   useEffect(() => {
-    let frame: number;
-    const checkPlayState = () => {
-      setIsPlaying(engine.getIsPlaying());
-      frame = requestAnimationFrame(checkPlayState);
-    };
-    frame = requestAnimationFrame(checkPlayState);
-    return () => cancelAnimationFrame(frame);
+    return engine.subscribeUI((state) => {
+      setIsPlaying(state.isPlaying);
+    });
   }, []);
 
   useEffect(() => {
