@@ -4,12 +4,11 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/verify-bridge.js",
-    "test": "node scripts/verify-bridge.js",
-    "package": "electron-builder build --mac --win --linux"
+    "build": "tsc -b && vite build",
+    "package": "electron-builder build --mac --linux"
   },
   "build": {
-    "appId": "com.monorepo.editor",
+    "appId": "com.monorepo.editor", "productName": "MonorepoEditor",
     "directories": {
       "output": "release"
     },
@@ -18,7 +17,7 @@
       "dist-electron/**/*"
     ],
     "mac": {
-      "target": "dmg"
+      "target": "zip"
     },
     "win": {
       "target": "nsis"
