@@ -34,6 +34,7 @@ declare global {
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [nodesCount, setNodesCount] = useState(0);
+  const [storeVersion, setStoreVersion] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
@@ -49,6 +50,7 @@ function App() {
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
+        setStoreVersion(state.version);
       });
 
       return () => unsubscribe();
@@ -259,7 +261,7 @@ function App() {
         />
 
         <div className="flex flex-1 overflow-hidden">
-          <LayerPanel store={store} nodesCount={nodesCount} />
+          <LayerPanel store={store} nodesCount={nodesCount} version={storeVersion} />
 
           <div className="flex-1 relative bg-[#1a1a1a]">
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />

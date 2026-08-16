@@ -6,6 +6,7 @@ import { useDrag, useDrop } from 'react-dnd';
 interface LayerPanelProps {
   store: ReturnType<typeof createSceneGraphStore>;
   nodesCount: number;
+  version?: number;
 }
 
 interface DragItem {
@@ -13,7 +14,7 @@ interface DragItem {
   type: string;
 }
 
-export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _nodesCount }) => {
+export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _nodesCount, version: _version }) => {
   const state = store.getState();
   const nodes = state.nodes;
 

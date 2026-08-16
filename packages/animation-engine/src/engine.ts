@@ -100,6 +100,7 @@ export class AnimationEngine {
   private playhead = 0;
   private isPlaying = false;
   private lastTime = 0;
+  private drift = 0;
   private rafId: number | null = null;
   public loop = true;
   private duration = 5000; // ms
@@ -129,6 +130,7 @@ export class AnimationEngine {
     if (this.isPlaying) return;
     this.isPlaying = true;
     this.lastTime = performance.now();
+    this.drift = 0;
     this.tick();
 
     if (this.role === 'leader') {
@@ -151,7 +153,8 @@ export class AnimationEngine {
   }
 
   public seek(time: number) {
-    this.playhead = time;
+    this.drift = 0;
+    this.playhead = Math.round(time / 16.67) * 16.67;
     this.updateNodes();
 
     if (this.role === 'leader') {
@@ -220,7 +223,11 @@ export class AnimationEngine {
     const dt = now - this.lastTime;
     this.lastTime = now;
 
-    this.playhead += dt;
+    const exactDt = dt + this.drift;
+    const quantizedDt = Math.round(exactDt / 16.67) * 16.67;
+    this.drift = exactDt - quantizedDt;
+
+    this.playhead += quantizedDt;
 
     if (this.playhead > this.duration) {
       if (this.loop) {
@@ -297,8 +304,12 @@ export class AnimationEngine {
     const storeState = this.store.getState();
     let requiresMatrixUpdate = false;
 
-    for (const [nodeId, nodeUpdates] of updates.entries()) {
-      storeState.updateNode(nodeId, nodeUpdates);
+    if (updates.size > 0) {
+      const batchUpdates: Record<string, any> = {};
+      for (const [nodeId, nodeUpdates] of updates.entries()) {
+        batchUpdates[nodeId] = nodeUpdates;
+      }
+      storeState.updateNodesBatch(batchUpdates);
       requiresMatrixUpdate = true;
     }
 
