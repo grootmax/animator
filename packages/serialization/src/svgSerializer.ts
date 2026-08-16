@@ -1,4 +1,4 @@
-import { SceneNode, globalAssetRegistry } from '@monorepo/scene-graph';
+import { SceneNode } from '@monorepo/scene-graph';
 
 export class SvgSerializer {
   public serialize(nodes: Record<string, SceneNode>): string {
@@ -39,7 +39,8 @@ export class SvgSerializer {
       case 'group':
       case 'container':
         elementStr += `${indent}<g ${commonAttrs}>\n`;
-        for (const childId of node.children) {
+        const childrenIds = Object.values(nodes).filter((n: any) => n.parentId === node.id).sort((a: any, b: any) => (a.order || '').localeCompare(b.order || '')).map((n: any) => n.id);
+        for (const childId of childrenIds) {
           elementStr += this.serializeNode(childId, nodes, indentLevel + 1);
         }
         elementStr += `${indent}</g>\n`;
@@ -59,12 +60,12 @@ export class SvgSerializer {
       case 'polyline':
         elementStr += `${indent}<polyline ${commonAttrs} points="${node.points || ''}" />\n`;
         break;
-      case 'path': {
-        const asset = node.assetId ? globalAssetRegistry.getAsset(node.assetId) : null;
-        const dStr = asset ? asset.data : '';
-        elementStr += `${indent}<path ${commonAttrs} d="${dStr}" />\n`;
+      case 'path':
+        elementStr += `${indent}<path ${commonAttrs} d="${node.pathData || ''}" />\n`;
         break;
-      }
+      case 'image':
+        elementStr += `${indent}<image ${commonAttrs} href="${node.src || ''}" width="${node.width || 0}" height="${node.height || 0}" />\n`;
+        break;
     }
 
     return elementStr;
