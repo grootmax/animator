@@ -56,3 +56,37 @@ ipcMain.handle('dialog:saveFile', async (_, content: string) => {
   await fs.promises.writeFile(filePath, content, 'utf-8');
   return true;
 });
+
+ipcMain.handle('dialog:saveProject', async (_, data: any) => {
+  try {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      filters: [{ name: 'JSON files', extensions: ['json'] }]
+    });
+    
+    if (canceled || !filePath) {
+      return { success: true };
+    }
+
+    if (data && data.scene && typeof data.scene === 'object') {
+      const cleanScene: Record<string, any> = {};
+      for (const [id, node] of Object.entries(data.scene)) {
+        if (node && typeof node === 'object') {
+          const cleanNode = { ...node } as any;
+          delete cleanNode.localMatrix;
+          delete cleanNode.worldMatrix;
+          delete cleanNode.isDirty;
+          cleanScene[id] = cleanNode;
+        } else {
+          cleanScene[id] = node;
+        }
+      }
+      data.scene = cleanScene;
+    }
+
+    const jsonString = JSON.stringify(data, null, 2);
+    await fs.promises.writeFile(filePath, jsonString, 'utf-8');
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message || 'Unknown error occurred' };
+  }
+});
