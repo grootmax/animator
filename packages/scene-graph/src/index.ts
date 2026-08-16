@@ -1,2 +1,2 @@
 export * from './store';
-export * from './registry';
+export * from './sync';
