@@ -7,5 +7,7 @@
     "build": "tsc -b",
     "dev": "tsc -b -w"
   },
-  "dependencies": {}
+  "dependencies": {
+    "fractional-indexing": "^4.0.0"
+  }
 }
