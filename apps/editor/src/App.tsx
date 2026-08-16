@@ -10,7 +10,15 @@ import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 
 // Create singletons for the app
-const store = createSceneGraphStore();
+const channel = new BroadcastChannel('scene-graph-sync');
+const store = createSceneGraphStore((msg) => {
+  channel.postMessage(msg);
+});
+channel.onmessage = (event) => {
+  if (event.data && typeof (store as any).applyRemote === 'function') {
+    (store as any).applyRemote(event.data);
+  }
+};
 const engine = new AnimationEngine(store);
 
 // Extend Window interface for Electron IPC
@@ -26,6 +34,7 @@ declare global {
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [nodesCount, setNodesCount] = useState(0);
+  const [storeVersion, setStoreVersion] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
@@ -41,6 +50,7 @@ function App() {
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
+        setStoreVersion(state.version);
       });
 
       return () => unsubscribe();
@@ -57,13 +67,33 @@ function App() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        store.getState().undo();
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        store.getState().redo();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        store.getState().redo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const handleImportSvg = async () => {
     if (window.electronAPI) {
       const svgContent = await window.electronAPI.openFile();
       if (svgContent) {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+        if (nodes.length > 0) {
+          store.getState().commitHistory();
+          nodes.forEach(node => store.getState().addNode(node));
+        }
       }
     } else {
       alert("Electron API not available");
@@ -164,20 +194,21 @@ function App() {
       engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: [
-          { time: 0, value: 0, easing: 'linear' },
-          { time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          { time: 4000, value: 0, easing: 'easeInOutQuad' }
-        ]
+        keyframes: {
+          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
+          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        }
       });
       engine.play();
     } else {
+      store.getState().commitHistory();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
         type: 'rect',
         parentId: null,
-        children: [],
+        
         x: window.innerWidth / 2,
         y: window.innerHeight / 2,
         rotation: 0,
@@ -230,7 +261,7 @@ function App() {
         />
 
         <div className="flex flex-1 overflow-hidden">
-          <LayerPanel store={store} nodesCount={nodesCount} />
+          <LayerPanel store={store} nodesCount={nodesCount} version={storeVersion} />
 
           <div className="flex-1 relative bg-[#1a1a1a]">
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
