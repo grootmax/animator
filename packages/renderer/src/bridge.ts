@@ -127,6 +127,10 @@ export class PixiBridge {
     const usedPaths = new Set<string>();
 
     for (const [id, node] of Object.entries(nodes)) {
+      if (!node.isDirty && this.pixiNodes.has(id)) {
+        continue;
+      }
+
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
@@ -242,6 +246,7 @@ export class PixiBridge {
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);
+      node.isDirty = false;
     }
 
     for (const path of this.pathCache.keys()) {
