@@ -1,5 +1,5 @@
 import React from 'react';
-import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download } from 'lucide-react';
+import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download, Film } from 'lucide-react';
 
 interface ToolbarProps {
   tool: string;
@@ -7,6 +7,7 @@ interface ToolbarProps {
   isPlaying: boolean;
   togglePlay: () => void;
   onImport: () => void;
+  onImportMedia: () => void;
   onExport: () => void;
   onExportSvg: () => void;
   onZoomIn: () => void;
@@ -19,6 +20,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isPlaying,
   togglePlay,
   onImport,
+  onImportMedia,
   onExport,
   onExportSvg,
   onZoomIn,
@@ -58,8 +60,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </button>
       </div>
       <div className="flex gap-1 ml-auto">
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImportMedia} title="Import Media">
+          <Film size={20} /> <span className="text-sm">Media</span>
+        </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG">
-          <Upload size={20} /> <span className="text-sm">Import</span>
+          <Upload size={20} /> <span className="text-sm">SVG</span>
         </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON">
           <Download size={20} /> <span className="text-sm">JSON</span>
