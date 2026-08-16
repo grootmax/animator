@@ -1,6 +1,7 @@
 import { createSceneGraphStore, SceneNode } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine, Track } from '@monorepo/animation-engine';
+import { ProjectValidator } from '@monorepo/serialization';
 
 export interface ExportedProject {
   scene: Record<string, Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>>;
@@ -23,12 +24,17 @@ export class RuntimePlayer {
     let data: ExportedProject;
     if (typeof json === 'string') {
       try {
-        data = JSON.parse(json);
-      } catch (e) {
-        throw new Error('Invalid JSON');
+        data = ProjectValidator.validateString(json) as ExportedProject;
+      } catch (e: any) {
+        throw new Error(e.message || 'Invalid JSON');
       }
     } else {
-      data = json;
+      try {
+        ProjectValidator.validateStructure(json);
+        data = json;
+      } catch (e: any) {
+        throw new Error(e.message || 'Invalid Project Structure');
+      }
     }
 
     // Load scene
