@@ -6,6 +6,7 @@
       "outputs": ["dist/**", "dist-electron/**", "*.tsbuildinfo"]
     },
     "dev": {
+      "dependsOn": ["^build"],
       "cache": false,
       "persistent": true
     },
