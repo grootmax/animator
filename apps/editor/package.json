@@ -5,11 +5,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "package": "electron-builder build --mac --win --linux"
+    "package": "electron-builder build --mac --linux"
   },
   "build": {
-    "appId": "com.monorepo.editor",
-    "electronVersion": "25.3.0",
+    "appId": "com.monorepo.editor", "productName": "MonorepoEditor",
     "directories": {
       "output": "release"
     },
@@ -18,7 +17,7 @@
       "dist-electron/**/*"
     ],
     "mac": {
-      "target": "dmg"
+      "target": "zip"
     },
     "win": {
       "target": "nsis"
