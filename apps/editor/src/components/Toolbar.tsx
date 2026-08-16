@@ -1,5 +1,5 @@
 import React from 'react';
-import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download } from 'lucide-react';
+import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download, Save } from 'lucide-react';
 
 interface ToolbarProps {
   tool: string;
@@ -8,6 +8,7 @@ interface ToolbarProps {
   togglePlay: () => void;
   onImport: () => void;
   onExport: () => void;
+  onSaveAs: () => void;
   onExportSvg: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -20,6 +21,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   togglePlay,
   onImport,
   onExport,
+  onSaveAs,
   onExportSvg,
   onZoomIn,
   onZoomOut
@@ -61,8 +63,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG">
           <Upload size={20} /> <span className="text-sm">Import</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON">
-          <Download size={20} /> <span className="text-sm">JSON</span>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Save Project">
+          <Save size={20} /> <span className="text-sm">Save</span>
+        </button>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onSaveAs} title="Save Project As">
+          <Save size={20} /> <span className="text-sm">Save As</span>
         </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG">
           <Download size={20} /> <span className="text-sm">SVG</span>
