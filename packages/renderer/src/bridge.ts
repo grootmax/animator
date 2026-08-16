@@ -3,109 +3,67 @@ import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
-import { tokenizePath } from '@monorepo/serialization';
-
-export interface BridgeConfig {
-  canvas: OffscreenCanvas | HTMLCanvasElement;
-  width: number;
-  height: number;
-  resolution: number;
-  sharedBuffer: SharedArrayBuffer | ArrayBuffer;
-  dispatch: (msg: any) => void;
-}
+import { tokenizePath, PathToken } from '@monorepo/serialization';
 
 export class PixiBridge {
   private app: PIXI.Application;
-  public viewport: Viewport;
-  public handles: TransformHandles;
+  private viewport: Viewport;
+  private handles: TransformHandles;
+  private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
-  private sharedMatrices: Float32Array;
-  private nodeConfigs: Map<string, any> = new Map();
-  private dispatch: (msg: any) => void;
-  private floati32Map: Map<string, number> = new Map(); // map id to bufferIndex
+  private pathCache: Map<string, PathToken[]> = new Map();
 
-  constructor(config: BridgeConfig) {
-    this.dispatch = config.dispatch;
-    this.sharedMatrices = new Float32Array(config.sharedBuffer);
-
+  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
-      view: config.canvas as any,
-      width: config.width,
-      height: config.height,
+      view: canvas,
+      resizeTo: window,
       backgroundColor: 0x1a1a1a,
-      resolution: config.resolution,
+      resolution: window.devicePixelRatio || 1,
       autoDensity: true,
     });
 
     this.app.stage.sortableChildren = true;
 
-    this.viewport = new Viewport(this.app, config.width, config.height);
-    this.handles = new TransformHandles(this.viewport, this.dispatch);
+    this.viewport = new Viewport(this.app, store);
+    this.handles = new TransformHandles(store, this.viewport);
 
+    this.remoteSelectionsContainer = new PIXI.Container();
+    this.remoteSelectionsContainer.zIndex = 999;
+    this.viewport.container.addChild(this.remoteSelectionsContainer);
+
+    // Add handles directly to the viewport so they pan and zoom with the nodes!
     this.viewport.container.addChild(this.handles.container);
+
+    this.store = store;
 
     this.viewport.container.interactive = true;
     this.viewport.container.on('pointerdown', (e) => {
       if (e.target === this.viewport.container) {
          this.handles.setSelectedNode(null);
-         this.dispatch({ type: 'SELECT_NODE', id: null });
+      }
+    });
+
+    let updateQueued = false;
+    this.store.subscribe(() => {
+      if (!updateQueued) {
+        updateQueued = true;
+        queueMicrotask(() => {
+          updateQueued = false;
+          const state = this.store.getState();
+          this.syncNodes(state.nodes);
+          this.handles.update();
+        });
       }
     });
 
     this.app.ticker.add(() => {
-        this.updateFromSharedMemory();
-        this.handles.update(this.nodeConfigs, this.sharedMatrices);
+        this.handles.update();
     });
   }
 
-  public resize(width: number, height: number, resolution: number) {
-    this.app.renderer.resize(width, height);
-    this.viewport.resize(width, height);
-  }
-
-  public setSharedBuffer(buffer: SharedArrayBuffer | ArrayBuffer) {
-    this.sharedMatrices = new Float32Array(buffer);
-  }
-
-  public dispatchEvent(event: any) {
-    this.viewport.handleEvent(event);
-    this.handles.handleEvent(event);
-  }
-
-  private updateFromSharedMemory() {
-    for (const [id, pixiNode] of this.pixiNodes.entries()) {
-      const bufferIndex = this.floati32Map.get(id);
-      if (bufferIndex !== undefined) {
-        const offset = bufferIndex * 18;
-        
-        // Read localMatrix from shared memory
-        const a = this.sharedMatrices[offset];
-        const b = this.sharedMatrices[offset + 1];
-        const c = this.sharedMatrices[offset + 3];
-        const d = this.sharedMatrices[offset + 4];
-        const tx = this.sharedMatrices[offset + 6];
-        const ty = this.sharedMatrices[offset + 7];
-        
-        const scaleX = Math.sqrt(a * a + b * b);
-        const rotation = Math.atan2(b, a);
-        
-        const cosR = Math.cos(rotation);
-        const sinR = Math.sin(rotation);
-        const cR = c * cosR + d * sinR;
-        const dR = -c * sinR + d * cosR;
-        
-        const scaleY = Math.sqrt(cR * cR + dR * dR) * Math.sign(dR || 1);
-        const skewX = Math.atan2(cR, dR);
-        
-        pixiNode.setTransform(
-          tx, ty, 
-          scaleX, scaleY, 
-          rotation, 
-          skewX, 0,
-          0, 0
-        );
-      }
-    }
+  private getMaterialHash(node: SceneNode): string {
+    if (node.type === 'container' || node.type === 'group') return 'container';
+    return `${node.fill || 'none'}_${node.stroke || 'none'}_${node.strokeWidth || 0}`;
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
@@ -132,7 +90,11 @@ export class PixiBridge {
   }
 
   private drawPath(graphics: PIXI.Graphics, pathData: string) {
-    const tokens = tokenizePath(pathData);
+    let tokens = this.pathCache.get(pathData);
+    if (!tokens) {
+      tokens = tokenizePath(pathData);
+      this.pathCache.set(pathData, tokens);
+    }
     let x = 0, y = 0;
 
     for (const t of tokens) {
@@ -161,18 +123,20 @@ export class PixiBridge {
     }
   }
 
-  public syncNodes(nodes: Record<string, any>) {
-    for (const [id, node] of Object.entries(nodes)) {
-      this.nodeConfigs.set(id, node);
-      if (node.bufferIndex !== undefined) {
-        this.floati32Map.set(id, node.bufferIndex);
-      }
+  private syncNodes(nodes: Record<string, SceneNode>) {
+    const usedPaths = new Set<string>();
 
+    for (const [id, node] of Object.entries(nodes)) {
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
+        } else if (node.type === 'image') {
+          pixiNode = new PIXI.Container();
+          const sprite = new PIXI.Sprite();
+          sprite.anchor.set(0.5);
+          pixiNode.addChild(sprite);
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -180,10 +144,9 @@ export class PixiBridge {
         pixiNode.interactive = true;
         pixiNode.on('pointerdown', (e: PIXI.FederatedPointerEvent) => {
             e.stopPropagation();
-            const n = this.nodeConfigs.get(id);
+            const n = this.store.getState().nodes[id];
             if (n && !n.locked && n.visible) {
               this.handles.setSelectedNode(id);
-              this.dispatch({ type: 'SELECT_NODE', id });
             }
         });
 
@@ -193,6 +156,13 @@ export class PixiBridge {
           this.pixiNodes.get(node.parentId)!.addChild(pixiNode);
         } else {
           this.viewport.container.addChild(pixiNode);
+        }
+      } else {
+        const expectedParent = node.parentId && this.pixiNodes.has(node.parentId) 
+          ? this.pixiNodes.get(node.parentId)! 
+          : this.viewport.container;
+        if (pixiNode.parent !== expectedParent) {
+          expectedParent.addChild(pixiNode);
         }
       }
 
@@ -231,14 +201,53 @@ export class PixiBridge {
             }
           }
         } else if (node.type === 'path' && node.pathData) {
+          usedPaths.add(node.pathData);
           this.drawPath(pixiNode, node.pathData);
         }
 
         if (node.fill) {
             pixiNode.endFill();
         }
+      } else if (node.type === 'image') {
+        const sprite = (pixiNode as PIXI.Container).children[0] as PIXI.Sprite;
+        
+        if (node.src) {
+           const currentSrc = (sprite as any)._currentSrc;
+           if (currentSrc !== node.src) {
+               (sprite as any)._currentSrc = node.src;
+               const tex = PIXI.Texture.from(node.src);
+               sprite.texture = tex;
+               
+               if (!tex.valid) {
+                   (tex.baseTexture as any).once('loaded', () => {
+                       const n = this.store.getState().nodes[id];
+                       if (n && n.width !== undefined && n.height !== undefined && sprite.texture === tex) {
+                           sprite.width = n.width;
+                           sprite.height = n.height;
+                       }
+                   });
+               }
+           }
+        } else {
+           sprite.texture = PIXI.Texture.EMPTY;
+           (sprite as any)._currentSrc = undefined;
+        }
+
+        if (node.width !== undefined && node.height !== undefined && sprite.texture.valid) {
+           sprite.width = node.width;
+           sprite.height = node.height;
+        } else if (node.width === undefined || node.height === undefined) {
+           sprite.scale.set(1);
+        }
       }
 
+      this.applyMatrix(pixiNode, node.localMatrix);
+    }
+
+    for (const path of this.pathCache.keys()) {
+      if (!usedPaths.has(path)) {
+        this.pathCache.delete(path);
       }
     }
   }
+}
