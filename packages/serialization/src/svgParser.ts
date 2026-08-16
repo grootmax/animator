@@ -5,6 +5,68 @@ let idCounter = 0;
 const generateId = () => `node_${idCounter++}`;
 
 export class SvgParser {
+  private calculateViewBoxTransform(svgElement: Element): Matrix3 {
+    const matrix: Matrix3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    
+    const viewBox = svgElement.getAttribute('viewBox');
+    const widthAttr = svgElement.getAttribute('width');
+    const heightAttr = svgElement.getAttribute('height');
+    
+    if (!viewBox) return matrix;
+    
+    const vbParts = viewBox.split(/[\s,]+/).filter(Boolean).map(parseFloat);
+    if (vbParts.length !== 4 || vbParts.some(isNaN)) return matrix;
+    
+    const [minX, minY, vbWidth, vbHeight] = vbParts;
+    if (vbWidth <= 0 || vbHeight <= 0) return matrix;
+    
+    let w = vbWidth;
+    let h = vbHeight;
+    
+    if (widthAttr && !widthAttr.endsWith('%')) {
+      w = parseFloat(widthAttr) || vbWidth;
+    }
+    if (heightAttr && !heightAttr.endsWith('%')) {
+      h = parseFloat(heightAttr) || vbHeight;
+    }
+    
+    const preserveAspectRatio = svgElement.getAttribute('preserveAspectRatio') || 'xMidYMid meet';
+    const parts = preserveAspectRatio.trim().split(/[\s]+/);
+    const align = parts[0] || 'xMidYMid';
+    const meetOrSlice = parts[1] || 'meet';
+    
+    let scaleX = w / vbWidth;
+    let scaleY = h / vbHeight;
+    
+    if (align !== 'none') {
+      const uniformScale = meetOrSlice === 'slice' ? Math.max(scaleX, scaleY) : Math.min(scaleX, scaleY);
+      scaleX = uniformScale;
+      scaleY = uniformScale;
+    }
+    
+    let translateX = 0;
+    let translateY = 0;
+    
+    if (align !== 'none') {
+      const xAlign = align.includes('xMin') ? 'Min' : align.includes('xMax') ? 'Max' : 'Mid';
+      const yAlign = align.includes('yMin') ? 'Min' : align.includes('yMax') ? 'Max' : 'Mid';
+      
+      const extraWidth = w - vbWidth * scaleX;
+      if (xAlign === 'Mid') translateX = extraWidth / 2;
+      else if (xAlign === 'Max') translateX = extraWidth;
+      
+      const extraHeight = h - vbHeight * scaleY;
+      if (yAlign === 'Mid') translateY = extraHeight / 2;
+      else if (yAlign === 'Max') translateY = extraHeight;
+    }
+    
+    return [
+      scaleX, 0, 0,
+      0, scaleY, 0,
+      translateX - minX * scaleX, translateY - minY * scaleY, 1
+    ];
+  }
+
   public parse(svgString: string): SceneNode[] {
     const parser = new DOMParser();
     const doc = parser.parseFromString(svgString, 'image/svg+xml');
@@ -15,9 +77,11 @@ export class SvgParser {
 
     const svgElement = doc.documentElement;
     const rootNodes: SceneNode[] = [];
+    const viewportMatrix = this.calculateViewBoxTransform(svgElement);
 
+    let lastOrder = null;
     Array.from(svgElement.children).forEach(child => {
-      this.processElement(child, null, rootNodes, createMatrix());
+      this.processElement(child, null, rootNodes, viewportMatrix);
     });
 
     return rootNodes;
@@ -39,47 +103,45 @@ export class SvgParser {
       if (type === 'matrix' && args.length === 6) {
         // [a, b, c, d, e, f] to Matrix3
         const [a, b, c, d, e, f] = args;
-        const localMatrix = new Float32Array([
+        const localMatrix: Matrix3 = [
           a, b, 0,
           c, d, 0,
           e, f, 1
-        ]);
-        multiplyMatrix(matrix, matrix, localMatrix);
+        ];
+        matrix = multiplyMatrix(matrix, localMatrix);
       } else if (type === 'translate' && args.length >= 1) {
         const tx = args[0];
         const ty = args.length > 1 ? args[1] : 0;
-        const translateMatrix = new Float32Array([
+        const translateMatrix: Matrix3 = [
           1, 0, 0,
           0, 1, 0,
           tx, ty, 1
-        ]);
-        multiplyMatrix(matrix, matrix, translateMatrix);
+        ];
+        matrix = multiplyMatrix(matrix, translateMatrix);
       } else if (type === 'scale' && args.length >= 1) {
         const sx = args[0];
         const sy = args.length > 1 ? args[1] : sx;
-        const scaleMatrix = new Float32Array([
+        const scaleMatrix: Matrix3 = [
           sx, 0, 0,
           0, sy, 0,
           0, 0, 1
-        ]);
-        multiplyMatrix(matrix, matrix, scaleMatrix);
+        ];
+        matrix = multiplyMatrix(matrix, scaleMatrix);
       } else if (type === 'rotate' && args.length >= 1) {
         const angle = args[0] * Math.PI / 180;
         const cx = args.length === 3 ? args[1] : 0;
         const cy = args.length === 3 ? args[2] : 0;
-        let rotateMatrix = new Float32Array([
+        let rotateMatrix: Matrix3 = [
           Math.cos(angle), Math.sin(angle), 0,
           -Math.sin(angle), Math.cos(angle), 0,
           0, 0, 1
-        ]);
+        ];
         if (cx !== 0 || cy !== 0) {
-          const tToCenter = new Float32Array([1, 0, 0, 0, 1, 0, cx, cy, 1]);
-          const tBack = new Float32Array([1, 0, 0, 0, 1, 0, -cx, -cy, 1]);
-          const temp = createMatrix();
-          multiplyMatrix(temp, tToCenter, rotateMatrix);
-          multiplyMatrix(rotateMatrix, temp, tBack);
+          const tToCenter: Matrix3 = [1, 0, 0, 0, 1, 0, cx, cy, 1];
+          const tBack: Matrix3 = [1, 0, 0, 0, 1, 0, -cx, -cy, 1];
+          rotateMatrix = multiplyMatrix(tToCenter, multiplyMatrix(rotateMatrix, tBack));
         }
-        multiplyMatrix(matrix, matrix, rotateMatrix);
+        matrix = multiplyMatrix(matrix, rotateMatrix);
       }
     }
 
@@ -110,7 +172,16 @@ export class SvgParser {
     const id = element.id || generateId();
     let type: NodeType = 'group';
 
-    switch (element.tagName.toLowerCase()) {
+    const tagName = element.tagName.toLowerCase();
+    if (!['g', 'svg', 'symbol', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'path'].includes(tagName)) {
+      // Recurse into unsupported tags like <defs> without creating a SceneNode for them
+      Array.from(element.children).forEach(child => {
+        this.processElement(child, parentId, nodesList, parentMatrix);
+      });
+      return;
+    }
+
+    switch (tagName) {
       case 'g': 
       case 'svg':
       case 'symbol':
@@ -122,6 +193,8 @@ export class SvgParser {
       case 'line': type = 'line'; break;
       case 'polyline': type = 'polyline'; break;
       case 'path': type = 'path'; break;
+      case 'ellipse': type = 'path'; break;
+      case 'line': type = 'path'; break;
       default: return; // Ignore unsupported
     }
 
@@ -130,20 +203,36 @@ export class SvgParser {
 
     let xAttr = parseFloat(element.getAttribute('x') || '0');
     let yAttr = parseFloat(element.getAttribute('y') || '0');
+    let width = 0;
+    let height = 0;
 
-    if (type === 'circle' || type === 'ellipse') {
+    if (type === 'rect') {
+      width = parseFloat(element.getAttribute('width') || '0');
+      height = parseFloat(element.getAttribute('height') || '0');
+      xAttr += width / 2;
+      yAttr += height / 2;
+    } else if (type === 'circle' || type === 'ellipse') {
       xAttr = parseFloat(element.getAttribute('cx') || '0');
       yAttr = parseFloat(element.getAttribute('cy') || '0');
+    } else if (tagName === 'ellipse') {
+      xAttr = parseFloat(element.getAttribute('cx') || '0');
+      yAttr = parseFloat(element.getAttribute('cy') || '0');
+    } else if (tagName === 'line') {
+      xAttr = 0;
+      yAttr = 0;
     }
 
-    const baseMatrix = new Float32Array([
+    const baseMatrix: Matrix3 = [
       1, 0, 0,
       0, 1, 0,
       xAttr, yAttr, 1
-    ]);
+    ];
 
-    const combinedMatrix = createMatrix();
-    multiplyMatrix(combinedMatrix, localTransformMatrix, baseMatrix);
+    const localMatrix = multiplyMatrix(localTransformMatrix, baseMatrix);
+    const combinedMatrix = parentId === null 
+      ? multiplyMatrix(parentMatrix, localMatrix) 
+      : localMatrix;
+
     const { x, y, scaleX, scaleY, rotation, skewX, skewY } = this.extractTransformProperties(combinedMatrix);
 
     const opacityStr = element.getAttribute('opacity');
@@ -154,7 +243,7 @@ export class SvgParser {
       id,
       type,
       parentId,
-      children: [],
+      order: '',
       x,
       y,
       scaleX,
@@ -185,14 +274,26 @@ export class SvgParser {
     } else if (type === 'polyline') {
       node.points = element.getAttribute('points') || '';
     } else if (type === 'path') {
-      node.pathData = element.getAttribute('d') || '';
+      if (tagName === 'path') {
+        node.pathData = element.getAttribute('d') || '';
+      } else if (tagName === 'ellipse') {
+        const rx = parseFloat(element.getAttribute('rx') || '0');
+        const ry = parseFloat(element.getAttribute('ry') || '0');
+        node.pathData = `M ${-rx},0 a ${rx},${ry} 0 1,0 ${2 * rx},0 a ${rx},${ry} 0 1,0 ${-2 * rx},0`;
+      } else if (tagName === 'line') {
+        const x1 = parseFloat(element.getAttribute('x1') || '0');
+        const y1 = parseFloat(element.getAttribute('y1') || '0');
+        const x2 = parseFloat(element.getAttribute('x2') || '0');
+        const y2 = parseFloat(element.getAttribute('y2') || '0');
+        node.pathData = `M ${x1},${y1} L ${x2},${y2}`;
+      }
     }
 
     const sceneNode = node as SceneNode;
     nodesList.push(sceneNode);
 
     Array.from(element.children).forEach(child => {
-      this.processElement(child, id, nodesList, combinedMatrix);
+      this.processElement(child, id, nodesList, finalMatrix);
     });
   }
 }
