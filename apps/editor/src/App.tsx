@@ -2,17 +2,23 @@ import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
-import { SvgParser, SvgSerializer, generateSerializedProject } from '@monorepo/serialization';
+import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
-// @ts-ignore
 import { DndProvider } from 'react-dnd';
-// @ts-ignore
 import { HTML5Backend } from 'react-dnd-html5-backend';
 
 // Create singletons for the app
-const store = createSceneGraphStore();
+const channel = new BroadcastChannel('scene-graph-sync');
+const store = createSceneGraphStore((msg) => {
+  channel.postMessage(msg);
+});
+channel.onmessage = (event) => {
+  if (event.data && typeof (store as any).applyRemote === 'function') {
+    (store as any).applyRemote(event.data);
+  }
+};
 const engine = new AnimationEngine(store);
 
 // Extend Window interface for Electron IPC
@@ -30,8 +36,8 @@ function App() {
   const [nodesCount, setNodesCount] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveProgress, setSaveProgress] = useState(0);
+  const [saveProgress, setSaveProgress] = useState<number | null>(null);
+  const [showSaveProgress, setShowSaveProgress] = useState(false);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -59,13 +65,33 @@ function App() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        store.getState().undo();
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        store.getState().redo();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        store.getState().redo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const handleImportSvg = async () => {
     if (window.electronAPI) {
       const svgContent = await window.electronAPI.openFile();
       if (svgContent) {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
-        nodes.forEach(node => store.getState().addNode(node));
+        if (nodes.length > 0) {
+          store.getState().commitHistory();
+          nodes.forEach(node => store.getState().addNode(node));
+        }
       }
     } else {
       alert("Electron API not available");
@@ -74,35 +100,73 @@ function App() {
 
   const handleSaveState = async () => {
     if (window.electronAPI) {
-      if (isSaving) return;
+      const state = store.getState().nodes;
+      const nodeKeys = Object.keys(state);
+      const totalNodes = nodeKeys.length;
       
-      const previousTool = tool;
-      setTool('pan'); // Force pan tool so users can't edit
-      setIsSaving(true);
-      setSaveProgress(0);
+      const cleanScene: Record<string, any> = {};
       
-      try {
-        const state = store.getState().nodes;
-        const animations = engine.getTracks();
-        const metadata = {
-          version: "1.0.0",
-          duration: engine.getDuration()
+      let currentIndex = 0;
+      
+      const showProgressTimeout = setTimeout(() => {
+        setShowSaveProgress(true);
+      }, 500);
+
+      const processBatch = (deadline?: any) => {
+        const startTime = performance.now();
+        
+        while (currentIndex < totalNodes) {
+          if (deadline && deadline.timeRemaining) {
+            if (deadline.timeRemaining() < 2) break;
+          } else {
+            if (performance.now() - startTime > 10) break;
+          }
+          
+          const id = nodeKeys[currentIndex];
+          const node = state[id];
+          const cleanNode = { ...node };
+          delete (cleanNode as any).localMatrix;
+          delete (cleanNode as any).worldMatrix;
+          delete (cleanNode as any).isDirty;
+          cleanScene[id] = cleanNode;
+          
+          currentIndex++;
+        }
+        
+        setSaveProgress(Math.floor((currentIndex / totalNodes) * 100));
+
+        if (currentIndex < totalNodes) {
+          if ('requestIdleCallback' in window) {
+            (window as any).requestIdleCallback(processBatch);
+          } else {
+            setTimeout(processBatch, 0);
+          }
+        } else {
+          finishSave();
+        }
+      };
+
+      const finishSave = async () => {
+        clearTimeout(showProgressTimeout);
+        setShowSaveProgress(false);
+        setSaveProgress(null);
+        
+        const exportData = {
+          scene: cleanScene,
+          animations: engine.getTracks(),
+          metadata: {
+            version: "1.0.0",
+            duration: engine.getDuration()
+          }
         };
 
-        const chunks: string[] = [];
-        for await (const { chunk, progress } of generateSerializedProject(state, animations, metadata)) {
-          chunks.push(chunk);
-          setSaveProgress(progress);
-        }
-
-        const finalString = chunks.join('');
-        await window.electronAPI.saveFile(finalString);
-      } catch (error) {
-        console.error("Save failed:", error);
-        alert("Failed to save project");
-      } finally {
-        setIsSaving(false);
-        setTool(previousTool);
+        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+      };
+      
+      if ('requestIdleCallback' in window) {
+        (window as any).requestIdleCallback(processBatch);
+      } else {
+        setTimeout(processBatch, 0);
       }
     } else {
       alert("Electron API not available");
@@ -128,20 +192,21 @@ function App() {
       engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: [
-          { time: 0, value: 0, easing: 'linear' },
-          { time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          { time: 4000, value: 0, easing: 'easeInOutQuad' }
-        ]
+        keyframes: {
+          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
+          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        }
       });
       engine.play();
     } else {
+      store.getState().commitHistory();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
         type: 'rect',
         parentId: null,
-        children: [],
+        
         x: window.innerWidth / 2,
         y: window.innerHeight / 2,
         rotation: 0,
@@ -181,35 +246,20 @@ function App() {
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden relative">
-        {isSaving && (
-          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 pointer-events-none">
-            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <span>Saving {Math.round(saveProgress * 100)}%</span>
-          </div>
-        )}
-        <div className="relative">
-          <Toolbar
-            tool={tool}
-            setTool={setTool}
-            isPlaying={isPlaying}
-            togglePlay={handleTogglePlay}
-            onImport={handleImportSvg}
-            onExport={handleSaveState}
-            onExportSvg={handleExportSvg}
-            onZoomIn={handleZoomIn}
-            onZoomOut={handleZoomOut}
-          />
-          {isSaving && <div className="absolute inset-0 z-50 cursor-not-allowed bg-black/20" title="Cannot edit while saving" />}
-        </div>
+        <Toolbar
+          tool={tool}
+          setTool={setTool}
+          isPlaying={isPlaying}
+          togglePlay={handleTogglePlay}
+          onImport={handleImportSvg}
+          onExport={handleSaveState}
+          onExportSvg={handleExportSvg}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+        />
 
         <div className="flex flex-1 overflow-hidden">
-          <div className="relative flex flex-col h-full">
-            <LayerPanel store={store} nodesCount={nodesCount} />
-            {isSaving && <div className="absolute inset-0 z-50 cursor-not-allowed bg-black/20" title="Cannot edit while saving" />}
-          </div>
+          <LayerPanel store={store} nodesCount={nodesCount} />
 
           <div className="flex-1 relative bg-[#1a1a1a]">
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
@@ -224,6 +274,16 @@ function App() {
         </div>
 
         <Timeline engine={engine} store={store} />
+
+        {showSaveProgress && (
+          <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 p-6 rounded-lg border border-gray-700 flex flex-col items-center gap-3">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+              <div className="text-sm font-medium">Saving Project...</div>
+              <div className="text-xs text-gray-400">{saveProgress}%</div>
+            </div>
+          </div>
+        )}
       </div>
     </DndProvider>
   );
