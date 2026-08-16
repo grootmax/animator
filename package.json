@@ -16,5 +16,8 @@
     "electron": "^25.3.0",
     "turbo": "^1.10.0",
     "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "7zip-bin": "^5.2.0"
   }
 }
