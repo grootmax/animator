@@ -8,6 +8,7 @@
   "references": [
     { "path": "../../packages/scene-graph" },
     { "path": "../../packages/renderer" },
-    { "path": "../../packages/animation-engine" }
+    { "path": "../../packages/animation-engine" },
+    { "path": "../../packages/serialization" }
   ]
 }
