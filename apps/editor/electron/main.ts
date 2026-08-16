@@ -1,8 +1,76 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { setupSecurity } from './security';
+
+setupSecurity();
 
 let mainWindow: BrowserWindow | null = null;
+
+const DOMAIN_WHITELIST = [
+  'https://fonts.googleapis.com',
+  'https://fonts.gstatic.com'
+];
+
+function setupSecurity() {
+  const isDev = !!process.env.VITE_DEV_SERVER_URL;
+  const devUrl = isDev ? new URL(process.env.VITE_DEV_SERVER_URL!).origin : '';
+
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const cspRules = [
+      `default-src 'self' ${isDev ? devUrl : ''}`,
+      `script-src 'self' ${isDev ? "'unsafe-inline' 'unsafe-eval' " + devUrl : ''}`,
+      `style-src 'self' 'unsafe-inline' ${DOMAIN_WHITELIST.join(' ')}`,
+      `font-src 'self' data: ${DOMAIN_WHITELIST.join(' ')}`,
+      `img-src 'self' data: blob: ${DOMAIN_WHITELIST.join(' ')} ${isDev ? devUrl : ''}`,
+      `connect-src 'self' ${isDev ? devUrl + " ws: wss:" : ''} ${DOMAIN_WHITELIST.join(' ')}`
+    ];
+
+    const csp = cspRules.map(rule => rule.trim()).filter(Boolean).join('; ');
+
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp]
+      }
+    });
+  });
+
+  app.on('web-contents-created', (event, contents) => {
+    contents.on('will-navigate', (event, navigationUrl) => {
+      try {
+        const parsedUrl = new URL(navigationUrl);
+        const isAppUrl = isDev 
+          ? parsedUrl.origin === devUrl 
+          : parsedUrl.protocol === 'file:';
+          
+        if (!isAppUrl) {
+          event.preventDefault();
+          shell.openExternal(navigationUrl);
+        }
+      } catch (err) {
+        event.preventDefault();
+      }
+    });
+
+    contents.setWindowOpenHandler(({ url }) => {
+      try {
+        const parsedUrl = new URL(url);
+        const isAppUrl = isDev 
+          ? parsedUrl.origin === devUrl 
+          : parsedUrl.protocol === 'file:';
+          
+        if (!isAppUrl) {
+          shell.openExternal(url);
+          return { action: 'deny' };
+        }
+        return { action: 'allow' };
+      } catch (err) {
+        return { action: 'deny' };
+      }
+    });
+  });
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -20,9 +88,32 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    try {
+      const parsedUrl = new URL(url);
+      if (process.env.VITE_DEV_SERVER_URL) {
+        const devUrl = new URL(process.env.VITE_DEV_SERVER_URL);
+        if (parsedUrl.origin !== devUrl.origin) {
+          event.preventDefault();
+        }
+      } else {
+        if (parsedUrl.protocol !== 'file:' || !parsedUrl.pathname.includes('/dist/index.html')) {
+          event.preventDefault();
+        }
+      }
+    } catch {
+      event.preventDefault();
+    }
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(() => {
+    return { action: 'deny' };
+  });
 }
 
 app.whenReady().then(() => {
+  setupSecurity();
   createWindow();
 
   app.on('activate', () => {
@@ -49,58 +140,26 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
-  let isJson = false;
-  let isSvg = false;
-  let parsedJson: any = null;
-
-  const trimmed = content.trim();
-
-  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-    try {
-      parsedJson = JSON.parse(content);
-      isJson = true;
-    } catch {
-      // not valid JSON
-    }
-  } else if (trimmed.toLowerCase().startsWith('<svg') && trimmed.toLowerCase().endsWith('</svg>')) {
-    isSvg = true;
-  }
-
-  if (isJson) {
-    if (!parsedJson || typeof parsedJson !== 'object' || Array.isArray(parsedJson)) {
-      dialog.showErrorBox('Save Failed', 'The project data is invalid or corrupted.');
-      return false;
-    }
-    if (!parsedJson.scene || !parsedJson.animations) {
-      dialog.showErrorBox('Save Failed', 'The project data is invalid or corrupted.');
-      return false;
-    }
-  } else if (isSvg) {
-    // Basic structural validation for SVG to ensure it's not arbitrary data
-    if (!trimmed.includes('<') || !trimmed.includes('>')) {
-      dialog.showErrorBox('Save Failed', 'The project data is invalid or corrupted.');
-      return false;
-    }
-  } else {
-    dialog.showErrorBox('Save Failed', 'The project data is invalid or corrupted.');
+  try {
+    JSON.parse(content);
+  } catch (error) {
     return false;
   }
 
-  const filters = isJson 
-    ? [{ name: 'JSON files', extensions: ['json'] }]
-    : [{ name: 'SVG files', extensions: ['svg'] }];
+  try {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      filters: [{ name: 'JSON files', extensions: ['json'] }]
+    });
 
-  const { canceled, filePath } = await dialog.showSaveDialog({ filters });
-  
-  if (canceled || !filePath) return false;
+    if (canceled || !filePath) return false;
 
-  const ext = path.extname(filePath).toLowerCase();
-  
-  if ((isJson && ext !== '.json') || (isSvg && ext !== '.svg')) {
-    dialog.showErrorBox('Save Failed', 'The file extension is not permitted.');
+    if (path.extname(filePath).toLowerCase() !== '.json') {
+      return false;
+    }
+
+    await fs.promises.writeFile(filePath, content, 'utf-8');
+    return true;
+  } catch (error) {
     return false;
   }
-
-  await fs.promises.writeFile(filePath, content, 'utf-8');
-  return true;
 });
