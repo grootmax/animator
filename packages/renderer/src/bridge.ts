@@ -3,7 +3,7 @@ import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
-import { tokenizePath } from '@monorepo/serialization';
+import { tokenizePath, PathToken } from '@monorepo/serialization';
 
 export class PixiBridge {
   private app: PIXI.Application;
@@ -11,6 +11,7 @@ export class PixiBridge {
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pathCache: Map<string, PathToken[]> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -23,8 +24,12 @@ export class PixiBridge {
 
     this.app.stage.sortableChildren = true;
 
-    this.viewport = new Viewport(this.app);
+    this.viewport = new Viewport(this.app, store);
     this.handles = new TransformHandles(store, this.viewport);
+
+    this.remoteSelectionsContainer = new PIXI.Container();
+    this.remoteSelectionsContainer.zIndex = 999;
+    this.viewport.container.addChild(this.remoteSelectionsContainer);
 
     // Add handles directly to the viewport so they pan and zoom with the nodes!
     this.viewport.container.addChild(this.handles.container);
@@ -38,14 +43,27 @@ export class PixiBridge {
       }
     });
 
-    this.store.subscribe((state) => {
-      this.syncNodes(state.nodes);
-      this.handles.update();
+    let updateQueued = false;
+    this.store.subscribe(() => {
+      if (!updateQueued) {
+        updateQueued = true;
+        queueMicrotask(() => {
+          updateQueued = false;
+          const state = this.store.getState();
+          this.syncNodes(state.nodes);
+          this.handles.update();
+        });
+      }
     });
 
     this.app.ticker.add(() => {
         this.handles.update();
     });
+  }
+
+  private getMaterialHash(node: SceneNode): string {
+    if (node.type === 'container' || node.type === 'group') return 'container';
+    return `${node.fill || 'none'}_${node.stroke || 'none'}_${node.strokeWidth || 0}`;
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
@@ -72,7 +90,11 @@ export class PixiBridge {
   }
 
   private drawPath(graphics: PIXI.Graphics, pathData: string) {
-    const tokens = tokenizePath(pathData);
+    let tokens = this.pathCache.get(pathData);
+    if (!tokens) {
+      tokens = tokenizePath(pathData);
+      this.pathCache.set(pathData, tokens);
+    }
     let x = 0, y = 0;
 
     for (const t of tokens) {
@@ -102,6 +124,8 @@ export class PixiBridge {
   }
 
   private syncNodes(nodes: Record<string, SceneNode>) {
+    const usedPaths = new Set<string>();
+
     for (const [id, node] of Object.entries(nodes)) {
       let pixiNode = this.pixiNodes.get(id);
 
@@ -110,23 +134,7 @@ export class PixiBridge {
           pixiNode = new PIXI.Graphics();
         } else if (node.type === 'image') {
           pixiNode = new PIXI.Container();
-          
-          // Background placeholder (will show if missing)
-          const placeholder = new PIXI.Graphics();
-          placeholder.name = 'placeholder';
-          // Draw a clear visual placeholder: gray box with an 'X' or just a distinct colored box.
-          placeholder.beginFill(0x888888, 0.5);
-          placeholder.lineStyle(2, 0xff0000);
-          placeholder.drawRect(-50, -50, 100, 100);
-          placeholder.moveTo(-50, -50);
-          placeholder.lineTo(50, 50);
-          placeholder.moveTo(50, -50);
-          placeholder.lineTo(-50, 50);
-          placeholder.endFill();
-          pixiNode.addChild(placeholder);
-
           const sprite = new PIXI.Sprite();
-          sprite.name = 'imageSprite';
           sprite.anchor.set(0.5);
           pixiNode.addChild(sprite);
         } else {
@@ -149,58 +157,18 @@ export class PixiBridge {
         } else {
           this.viewport.container.addChild(pixiNode);
         }
+      } else {
+        const expectedParent = node.parentId && this.pixiNodes.has(node.parentId) 
+          ? this.pixiNodes.get(node.parentId)! 
+          : this.viewport.container;
+        if (pixiNode.parent !== expectedParent) {
+          expectedParent.addChild(pixiNode);
+        }
       }
 
       // Update visibility and opacity
       pixiNode.visible = node.visible !== false;
       pixiNode.alpha = node.opacity !== undefined ? node.opacity : 1;
-
-      if (node.type === 'image' && pixiNode instanceof PIXI.Container) {
-        const sprite = pixiNode.getChildByName('imageSprite') as PIXI.Sprite;
-        const placeholder = pixiNode.getChildByName('placeholder') as PIXI.Graphics;
-        
-        if (sprite && node.src && (pixiNode as any)._currentSrc !== node.src) {
-          (pixiNode as any)._currentSrc = node.src;
-          // Prepend file:// if it's an absolute unix/windows path and not already a url
-          let url = node.src;
-          if (url.startsWith('/') || url.match(/^[a-zA-Z]:\\/)) {
-            url = 'file://' + url;
-          }
-          
-          PIXI.Assets.load(url).then((texture) => {
-            if (sprite.destroyed) return;
-            sprite.texture = texture;
-            
-            // If the node doesn't have dimensions, use the intrinsic texture size
-            if (node.width === undefined || node.height === undefined) {
-               this.store.getState().updateNode(id, { width: texture.width, height: texture.height });
-            } else {
-               sprite.width = node.width;
-               sprite.height = node.height;
-            }
-            placeholder.visible = false;
-          }).catch((err) => {
-            console.error('Failed to load image:', err);
-            placeholder.visible = true;
-            if (node.width !== undefined && node.height !== undefined) {
-               placeholder.clear();
-               placeholder.beginFill(0x888888, 0.5);
-               placeholder.lineStyle(2, 0xff0000);
-               placeholder.drawRect(-node.width/2, -node.height/2, node.width, node.height);
-               placeholder.moveTo(-node.width/2, -node.height/2);
-               placeholder.lineTo(node.width/2, node.height/2);
-               placeholder.moveTo(node.width/2, -node.height/2);
-               placeholder.lineTo(-node.width/2, node.height/2);
-               placeholder.endFill();
-            }
-          });
-        }
-        
-        if (sprite && sprite.texture && sprite.texture !== PIXI.Texture.EMPTY) {
-            if (node.width !== undefined) sprite.width = node.width;
-            if (node.height !== undefined) sprite.height = node.height;
-        }
-      }
 
       if (pixiNode instanceof PIXI.Graphics) {
         pixiNode.clear();
@@ -233,15 +201,53 @@ export class PixiBridge {
             }
           }
         } else if (node.type === 'path' && node.pathData) {
+          usedPaths.add(node.pathData);
           this.drawPath(pixiNode, node.pathData);
         }
 
         if (node.fill) {
             pixiNode.endFill();
         }
+      } else if (node.type === 'image') {
+        const sprite = (pixiNode as PIXI.Container).children[0] as PIXI.Sprite;
+        
+        if (node.src) {
+           const currentSrc = (sprite as any)._currentSrc;
+           if (currentSrc !== node.src) {
+               (sprite as any)._currentSrc = node.src;
+               const tex = PIXI.Texture.from(node.src);
+               sprite.texture = tex;
+               
+               if (!tex.valid) {
+                   (tex.baseTexture as any).once('loaded', () => {
+                       const n = this.store.getState().nodes[id];
+                       if (n && n.width !== undefined && n.height !== undefined && sprite.texture === tex) {
+                           sprite.width = n.width;
+                           sprite.height = n.height;
+                       }
+                   });
+               }
+           }
+        } else {
+           sprite.texture = PIXI.Texture.EMPTY;
+           (sprite as any)._currentSrc = undefined;
+        }
+
+        if (node.width !== undefined && node.height !== undefined && sprite.texture.valid) {
+           sprite.width = node.width;
+           sprite.height = node.height;
+        } else if (node.width === undefined || node.height === undefined) {
+           sprite.scale.set(1);
+        }
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);
+    }
+
+    for (const path of this.pathCache.keys()) {
+      if (!usedPaths.has(path)) {
+        this.pathCache.delete(path);
+      }
     }
   }
 }
