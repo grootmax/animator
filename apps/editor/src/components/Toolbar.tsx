@@ -11,6 +11,7 @@ interface ToolbarProps {
   onExportSvg: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
+  isSaving?: boolean;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -22,7 +23,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onExport,
   onExportSvg,
   onZoomIn,
-  onZoomOut
+  onZoomOut,
+  isSaving = false
 }) => {
   const ToolButton = ({ name, icon: Icon }: { name: string, icon: any }) => (
     <button
@@ -61,8 +63,22 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG">
           <Upload size={20} /> <span className="text-sm">Import</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON">
-          <Download size={20} /> <span className="text-sm">JSON</span>
+        <button 
+          className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" 
+          onClick={onExport} 
+          title="Export JSON"
+          disabled={isSaving}
+        >
+          {isSaving ? (
+            <>
+              <div className="w-5 h-5 border-2 border-t-blue-500 border-gray-300 rounded-full animate-spin"></div>
+              <span className="text-sm text-blue-400">Saving...</span>
+            </>
+          ) : (
+            <>
+              <Download size={20} /> <span className="text-sm">JSON</span>
+            </>
+          )}
         </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG">
           <Download size={20} /> <span className="text-sm">SVG</span>
