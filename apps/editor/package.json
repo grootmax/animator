@@ -5,12 +5,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "postbuild": "node -e \"if(!require('fs').existsSync('./dist-electron/preload.js')) { console.error('IPC bridge (preload.js) not found'); process.exit(1); }\"",
-    "package": "electron-builder build --dir"
+    "package": "electron-builder build --mac --linux"
   },
   "build": {
-    "appId": "com.monorepo.editor",
-    "electronVersion": "25.3.0",
+    "appId": "com.monorepo.editor", "productName": "MonorepoEditor",
     "directories": {
       "output": "release"
     },
@@ -19,13 +17,13 @@
       "dist-electron/**/*"
     ],
     "mac": {
-      "target": "dir"
+      "target": "zip"
     },
     "win": {
-      "target": "dir"
+      "target": "nsis"
     },
     "linux": {
-      "target": "dir"
+      "target": "AppImage"
     }
   },
   "dependencies": {
