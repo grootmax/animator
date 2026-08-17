@@ -1,68 +1,66 @@
-import { app, session, shell, WebContents } from 'electron';
+import { app, session } from 'electron';
+import { URL } from 'url';
 
-// Allow-list for external navigation
-const ALLOWED_EXTERNAL_DOMAINS = new Set([
-  'github.com',
-  'www.github.com'
-]);
+const ALLOWED_EXTERNAL_ORIGINS: string[] = [];
 
 export function setupSecurity() {
-  app.on('web-contents-created', (_, contents: WebContents) => {
-    
-    contents.on('will-navigate', (event, navigationUrl) => {
-      const parsedUrl = new URL(navigationUrl);
-      
-      if (parsedUrl.protocol === 'devtools:') {
-        return;
-      }
+  const isDev = !!process.env.VITE_DEV_SERVER_URL;
 
-      const isDev = !!process.env.VITE_DEV_SERVER_URL;
-      if (isDev) {
-        const devUrl = new URL(process.env.VITE_DEV_SERVER_URL!);
-        if (parsedUrl.origin === devUrl.origin) {
-          return;
-        }
-      } else {
-        if (parsedUrl.protocol === 'file:') {
-          return;
-        }
-      }
+  // 1. Inject dynamic CSP headers into all window sessions at the main process level
+  app.on('session-created', (sess) => {
+    sess.webRequest.onHeadersReceived((details, callback) => {
+      // In Dev, allow localhost connections, eval, and inline scripts/styles for Vite HMR
+      // In Prod, restrict script execution to local files only (i.e. 'self')
+      const csp = isDev
+        ? `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: http:; img-src 'self' data: blob:; font-src 'self' data:;`
+        : `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; font-src 'self' data:;`;
 
-      event.preventDefault();
-
-      if (ALLOWED_EXTERNAL_DOMAINS.has(parsedUrl.hostname)) {
-        shell.openExternal(navigationUrl).catch(console.error);
-      }
-    });
-
-    contents.setWindowOpenHandler((details) => {
-      const parsedUrl = new URL(details.url);
-
-      if (ALLOWED_EXTERNAL_DOMAINS.has(parsedUrl.hostname)) {
-        shell.openExternal(details.url).catch(console.error);
-      }
-
-      return { action: 'deny' };
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [csp],
+        },
+      });
     });
   });
-}
 
-export function setupCSP() {
-  const isDev = !!process.env.VITE_DEV_SERVER_URL;
-  
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    let csp = "default-src 'self' 'unsafe-inline' data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws: http: https:; style-src 'self' 'unsafe-inline'; img-src 'self' data:;";
-    
-    // In production, we might want a stricter CSP, but to avoid breaking Vite's build
-    // we use a generally safe but functional CSP.
-    if (!isDev) {
-       csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';";
-    }
+  // 2. Navigation Guards & Window Creation Guards
+  app.on('web-contents-created', (event, contents) => {
+    // Navigation guard
+    contents.on('will-navigate', (event, navigationUrl) => {
+      try {
+        const parsedUrl = new URL(navigationUrl);
 
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [csp]
+        const isDevUrl = isDev && process.env.VITE_DEV_SERVER_URL && navigationUrl.startsWith(process.env.VITE_DEV_SERVER_URL);
+        const isLocalFile = parsedUrl.protocol === 'file:';
+
+        if (!isDevUrl && !isLocalFile && !ALLOWED_EXTERNAL_ORIGINS.includes(parsedUrl.origin)) {
+          console.warn(`[Security] Blocked unauthorized navigation to: ${navigationUrl}`);
+          event.preventDefault();
+        }
+      } catch (err) {
+        console.warn(`[Security] Blocked navigation to invalid URL: ${navigationUrl}`);
+        event.preventDefault();
+      }
+    });
+
+    // Window creation guard
+    contents.setWindowOpenHandler(({ url }) => {
+      try {
+        const parsedUrl = new URL(url);
+
+        const isDevUrl = isDev && process.env.VITE_DEV_SERVER_URL && url.startsWith(process.env.VITE_DEV_SERVER_URL);
+        const isLocalFile = parsedUrl.protocol === 'file:';
+
+        if (!isDevUrl && !isLocalFile && !ALLOWED_EXTERNAL_ORIGINS.includes(parsedUrl.origin)) {
+          console.warn(`[Security] Blocked unauthorized window creation for: ${url}`);
+          return { action: 'deny' };
+        }
+
+        return { action: 'allow' };
+      } catch (err) {
+        console.warn(`[Security] Blocked window creation for invalid URL: ${url}`);
+        return { action: 'deny' };
       }
     });
   });

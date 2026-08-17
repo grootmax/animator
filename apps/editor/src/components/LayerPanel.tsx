@@ -1,11 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { Eye, EyeOff, Lock, Unlock, ChevronRight, ChevronDown } from 'lucide-react';
+// @ts-ignore
 import { useDrag, useDrop } from 'react-dnd';
 
 interface LayerPanelProps {
   store: ReturnType<typeof createSceneGraphStore>;
   nodesCount: number;
+  version?: number;
 }
 
 interface DragItem {
@@ -13,7 +15,7 @@ interface DragItem {
   type: string;
 }
 
-export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _nodesCount }) => {
+export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _nodesCount, version: _version }) => {
   const state = store.getState();
   const nodes = state.nodes;
 
@@ -25,20 +27,25 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
     const [isEditing, setIsEditing] = useState(false);
     const [editName, setEditName] = useState(node.name);
 
-    const hasChildren = node.children && node.children.length > 0;
+    const childNodes = Object.values(nodes).filter(n => n.parentId === id).sort((a,b) => (a.order || '').localeCompare(b.order || ''));
+    const childrenIds = childNodes.map(n => n.id);
+    const hasChildren = childrenIds.length > 0;
 
     const toggleVisible = (e: React.MouseEvent) => {
       e.stopPropagation();
+      store.getState().commitHistory();
       store.getState().updateNode(id, { visible: !node.visible });
     };
 
     const toggleLock = (e: React.MouseEvent) => {
       e.stopPropagation();
+      store.getState().commitHistory();
       store.getState().updateNode(id, { locked: !node.locked });
     };
 
     const handleRename = () => {
-      if (editName.trim()) {
+      if (editName.trim() && editName !== node.name) {
+        store.getState().commitHistory();
         store.getState().updateNode(id, { name: editName });
       }
       setIsEditing(false);
@@ -49,7 +56,7 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
     const [{ isDragging }, drag] = useDrag({
       type: 'LAYER',
       item: { id, type: 'LAYER' },
-      collect: monitor => ({
+      collect: (monitor: any) => ({
         isDragging: monitor.isDragging(),
       }),
     });
@@ -81,11 +88,14 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
          }
 
          if (dropNode.type === 'group' || dropNode.type === 'container') {
-             store.getState().reorderNode(item.id, id, store.getState().nodes[id].children.length);
+             store.getState().reorderNode(item.id, id, Object.values(store.getState().nodes).filter(n => n.parentId === id).length);
          } else {
              const parentId = dropNode.parentId;
-             const siblings = parentId ? store.getState().nodes[parentId].children : Object.values(store.getState().nodes).filter(n => !n.parentId).map(n => n.id);
+             const siblingsNodes = Object.values(store.getState().nodes).filter(n => n.parentId === parentId);
+             siblingsNodes.sort((a,b) => (a.order || '').localeCompare(b.order || ''));
+             const siblings = siblingsNodes.map(n => n.id);
              const dropIndex = siblings.indexOf(id);
+             store.getState().commitHistory();
              store.getState().reorderNode(item.id, parentId, dropIndex + 1);
          }
       }
@@ -138,7 +148,7 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
 
         {expanded && hasChildren && (
           <div className="flex flex-col">
-            {node.children.map(childId => (
+            {childrenIds.map(childId => (
               <LayerNode key={childId} id={childId} depth={depth + 1} />
             ))}
           </div>
@@ -147,7 +157,9 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
     );
   };
 
-  const rootNodes = Object.values(nodes).filter(n => !n.parentId).map(n => n.id);
+  const rootNodesList = Object.values(nodes).filter(n => !n.parentId);
+  rootNodesList.sort((a,b) => (a.order || '').localeCompare(b.order || ''));
+  const rootNodes = rootNodesList.map(n => n.id);
 
   return (
     <div className="flex flex-col h-full bg-gray-800 border-r border-gray-700 w-64 select-none">
