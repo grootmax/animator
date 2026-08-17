@@ -1,5 +1,5 @@
 import React from 'react';
-import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download } from 'lucide-react';
+import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download, Loader2 } from 'lucide-react';
 
 interface ToolbarProps {
   tool: string;
@@ -11,7 +11,8 @@ interface ToolbarProps {
   onExportSvg: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
-  onOpenProject?: () => void;
+  isSaving?: boolean;
+  saveProgress?: number;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -24,7 +25,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onExportSvg,
   onZoomIn,
   onZoomOut,
-  onOpenProject
+  isSaving = false,
+  saveProgress = 0
 }) => {
   const ToolButton = ({ name, icon: Icon }: { name: string, icon: any }) => (
     <button
@@ -59,19 +61,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <ZoomIn size={20} />
         </button>
       </div>
-      <div className="flex gap-1 ml-auto">
-        {onOpenProject && (
-          <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onOpenProject} title="Open Project">
-            <Upload size={20} /> <span className="text-sm">Project</span>
-          </button>
+      <div className="flex gap-1 ml-auto items-center">
+        {isSaving && (
+          <div className="flex items-center gap-2 mr-2 text-blue-400 text-sm">
+            <Loader2 size={16} className="animate-spin" />
+            <span>Saving... {Math.round(saveProgress * 100)}%</span>
+          </div>
         )}
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG">
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG" disabled={isSaving}>
           <Upload size={20} /> <span className="text-sm">Import</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON">
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExport} title="Export JSON" disabled={isSaving}>
           <Download size={20} /> <span className="text-sm">JSON</span>
         </button>
-        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG">
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG" disabled={isSaving}>
           <Download size={20} /> <span className="text-sm">SVG</span>
         </button>
       </div>

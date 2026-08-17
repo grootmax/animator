@@ -1,48 +1,75 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { setupSecurity } from './security';
 
-protocol.registerSchemesAsPrivileged([
-  { scheme: 'asset', privileges: { secure: true, standard: true, supportFetchAPI: true } }
-]);
+setupSecurity();
 
 let mainWindow: BrowserWindow | null = null;
-let currentProjectFolder: string | null = null;
-let currentProjectManifest: any = null;
 
-const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json');
+const DOMAIN_WHITELIST = [
+  'https://fonts.googleapis.com',
+  'https://fonts.gstatic.com'
+];
 
-function saveSettings() {
-  try {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ lastProject: currentProjectFolder }));
-  } catch (e) {
-    console.error('Failed to save settings', e);
-  }
-}
+function setupSecurity() {
+  const isDev = !!process.env.VITE_DEV_SERVER_URL;
+  const devUrl = isDev ? new URL(process.env.VITE_DEV_SERVER_URL!).origin : '';
 
-function loadSettings() {
-  try {
-    if (fs.existsSync(SETTINGS_FILE)) {
-      const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
-      return data.lastProject || null;
-    }
-  } catch (e) {
-    console.error('Failed to load settings', e);
-  }
-  return null;
-}
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const cspRules = [
+      `default-src 'self' ${isDev ? devUrl : ''}`,
+      `script-src 'self' ${isDev ? "'unsafe-inline' 'unsafe-eval' " + devUrl : ''}`,
+      `style-src 'self' 'unsafe-inline' ${DOMAIN_WHITELIST.join(' ')}`,
+      `font-src 'self' data: ${DOMAIN_WHITELIST.join(' ')}`,
+      `img-src 'self' data: blob: ${DOMAIN_WHITELIST.join(' ')} ${isDev ? devUrl : ''}`,
+      `connect-src 'self' ${isDev ? devUrl + " ws: wss:" : ''} ${DOMAIN_WHITELIST.join(' ')}`
+    ];
 
-async function loadProject(manifestPath: string) {
-  const content = await fs.promises.readFile(manifestPath, 'utf-8');
-  currentProjectManifest = JSON.parse(content);
-  currentProjectFolder = path.dirname(manifestPath);
-  saveSettings();
-  
-  return {
-    manifestPath,
-    manifest: currentProjectManifest,
-    projectFolder: currentProjectFolder
-  };
+    const csp = cspRules.map(rule => rule.trim()).filter(Boolean).join('; ');
+
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp]
+      }
+    });
+  });
+
+  app.on('web-contents-created', (event, contents) => {
+    contents.on('will-navigate', (event, navigationUrl) => {
+      try {
+        const parsedUrl = new URL(navigationUrl);
+        const isAppUrl = isDev 
+          ? parsedUrl.origin === devUrl 
+          : parsedUrl.protocol === 'file:';
+          
+        if (!isAppUrl) {
+          event.preventDefault();
+          shell.openExternal(navigationUrl);
+        }
+      } catch (err) {
+        event.preventDefault();
+      }
+    });
+
+    contents.setWindowOpenHandler(({ url }) => {
+      try {
+        const parsedUrl = new URL(url);
+        const isAppUrl = isDev 
+          ? parsedUrl.origin === devUrl 
+          : parsedUrl.protocol === 'file:';
+          
+        if (!isAppUrl) {
+          shell.openExternal(url);
+          return { action: 'deny' };
+        }
+        return { action: 'allow' };
+      } catch (err) {
+        return { action: 'deny' };
+      }
+    });
+  });
 }
 
 function createWindow() {
@@ -50,7 +77,7 @@ function createWindow() {
     width: 1200,
     height: 800,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(app.getAppPath(), 'dist-electron/preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
     },
@@ -59,27 +86,34 @@ function createWindow() {
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    mainWindow.loadFile(path.join(app.getAppPath(), 'dist/index.html'));
   }
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    try {
+      const parsedUrl = new URL(url);
+      if (process.env.VITE_DEV_SERVER_URL) {
+        const devUrl = new URL(process.env.VITE_DEV_SERVER_URL);
+        if (parsedUrl.origin !== devUrl.origin) {
+          event.preventDefault();
+        }
+      } else {
+        if (parsedUrl.protocol !== 'file:' || !parsedUrl.pathname.includes('/dist/index.html')) {
+          event.preventDefault();
+        }
+      }
+    } catch {
+      event.preventDefault();
+    }
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(() => {
+    return { action: 'deny' };
+  });
 }
 
 app.whenReady().then(() => {
-  protocol.registerFileProtocol('asset', (request, callback) => {
-    const urlPath = decodeURIComponent(request.url.replace(/^asset:\/\//, ''));
-    if (!currentProjectFolder) {
-      return callback({ error: -6 }); // net::ERR_FILE_NOT_FOUND
-    }
-    
-    const absolutePath = path.resolve(currentProjectFolder, urlPath);
-    
-    // Security check: must be inside currentProjectFolder
-    if (!absolutePath.startsWith(currentProjectFolder)) {
-      return callback({ error: -2 }); // net::ERR_FAILED (access denied)
-    }
-    
-    callback({ path: absolutePath });
-  });
-
+  setupSecurity();
   createWindow();
 
   app.on('activate', () => {
@@ -106,50 +140,26 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
-  const { canceled, filePath } = await dialog.showSaveDialog({
-    filters: [{ name: 'JSON files', extensions: ['json'] }]
-  });
-  if (canceled || !filePath) return false;
-  await fs.promises.writeFile(filePath, content, 'utf-8');
-  return true;
-});
-
-ipcMain.handle('dialog:openProject', async () => {
-  const { canceled, filePaths } = await dialog.showOpenDialog({
-    properties: ['openFile'],
-    filters: [{ name: 'Project Manifest', extensions: ['json', 'jproj'] }]
-  });
-  if (canceled || filePaths.length === 0) return null;
-  
-  return await loadProject(filePaths[0]);
-});
-
-ipcMain.handle('project:getLastOpened', async () => {
-  const lastProjectFolder = loadSettings();
-  if (lastProjectFolder && fs.existsSync(lastProjectFolder)) {
-    try {
-       // Look for a manifest in this folder
-       const files = await fs.promises.readdir(lastProjectFolder);
-       const manifestFile = files.find(f => f.endsWith('.json') || f.endsWith('.jproj'));
-       if (manifestFile) {
-         return await loadProject(path.join(lastProjectFolder, manifestFile));
-       }
-    } catch (e) {
-      console.error('Error auto-loading project', e);
-    }
+  try {
+    JSON.parse(content);
+  } catch (error) {
+    return false;
   }
-  return null;
-});
 
-ipcMain.handle('dialog:saveSceneData', async (event, buffer: Uint8Array) => {
-  // Use Uint8Array over IPC - SharedArrayBuffer serialization
-  const { canceled, filePath } = await dialog.showSaveDialog({
-    filters: [{ name: 'Project Files', extensions: ['json', 'jproj'] }]
-  });
-  if (canceled || !filePath) return false;
-  
-  // Note: For actual zero-copy shared memory we receive a buffer
-  // Here buffer will be passed natively as an ArrayBuffer/Uint8Array or SharedArrayBuffer
-  await fs.promises.writeFile(filePath, Buffer.from(buffer));
-  return true;
+  try {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      filters: [{ name: 'JSON files', extensions: ['json'] }]
+    });
+
+    if (canceled || !filePath) return false;
+
+    if (path.extname(filePath).toLowerCase() !== '.json') {
+      return false;
+    }
+
+    await fs.promises.writeFile(filePath, content, 'utf-8');
+    return true;
+  } catch (error) {
+    return false;
+  }
 });
