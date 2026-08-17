@@ -5,10 +5,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "package": "electron-builder build --mac --win --linux"
+    "package": "electron-builder build --mac --linux"
   },
   "build": {
-    "appId": "com.monorepo.editor",
+    "appId": "com.monorepo.editor", "productName": "MonorepoEditor",
     "directories": {
       "output": "release"
     },
@@ -17,7 +17,7 @@
       "dist-electron/**/*"
     ],
     "mac": {
-      "target": "dmg"
+      "target": "zip"
     },
     "win": {
       "target": "nsis"
@@ -27,6 +27,7 @@
     }
   },
   "dependencies": {
+    "@monorepo/runtime-player": "*",
     "@monorepo/animation-engine": "*",
     "@monorepo/renderer": "*",
     "@monorepo/scene-graph": "*",
@@ -39,6 +40,7 @@
     "zustand": "^4.4.1"
   },
   "devDependencies": {
+    "@types/node": "^18.19.130",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
     "@vitejs/plugin-react": "^4.0.3",
