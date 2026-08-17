@@ -1,25 +1,47 @@
-import { createSceneGraphStore, createAssetRegistryStore, SceneNode } from '@monorepo/scene-graph';
-import { PixiBridge } from '@monorepo/renderer';
-import { AnimationEngine, Track } from '@monorepo/animation-engine';
+import { SceneNode } from '@monorepo/scene-graph';
+import { Track } from '@monorepo/animation-engine';
 
 export interface ExportedProject {
   scene: Record<string, Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>>;
   animations: Track[];
-  assets?: Record<string, { id: string, type: 'image' | 'video', name: string }>;
   metadata: any;
 }
 
 export class RuntimePlayer {
-  private store: ReturnType<typeof createSceneGraphStore>;
-  private assetRegistry: ReturnType<typeof createAssetRegistryStore>;
-  private engine: AnimationEngine;
-  private bridge: PixiBridge;
+  private worker: Worker;
+  private sharedBuffer: SharedArrayBuffer;
+  private syncArray: Float32Array;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.store = createSceneGraphStore();
-    this.assetRegistry = createAssetRegistryStore();
-    this.engine = new AnimationEngine(this.store);
-    this.bridge = new PixiBridge(canvas, this.store, this.assetRegistry);
+    // SharedArrayBuffer for node state sync (up to 100k nodes * 16 floats per node)
+    this.sharedBuffer = new SharedArrayBuffer(100000 * 16 * 4);
+    this.syncArray = new Float32Array(this.sharedBuffer);
+
+    let offscreen: OffscreenCanvas | HTMLCanvasElement = canvas;
+    if ('transferControlToOffscreen' in canvas) {
+      offscreen = canvas.transferControlToOffscreen();
+    }
+
+    this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+    this.worker.postMessage({
+      type: 'init',
+      payload: { canvas: offscreen, sharedBuffer: this.sharedBuffer }
+    }, offscreen instanceof OffscreenCanvas ? [offscreen] : []);
+
+    // Proxy viewport events to the worker
+    canvas.addEventListener('pointerdown', (e) => this.proxyEvent('pointerdown', e));
+    canvas.addEventListener('pointermove', (e) => this.proxyEvent('pointermove', e));
+    canvas.addEventListener('pointerup', (e) => this.proxyEvent('pointerup', e));
+  }
+
+  private proxyEvent(type: string, e: PointerEvent) {
+    this.worker.postMessage({
+      type: 'interaction',
+      payload: {
+        eventType: type,
+        eventData: { clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId }
+      }
+    });
   }
 
   public load(json: string | ExportedProject) {
@@ -34,45 +56,25 @@ export class RuntimePlayer {
       data = json;
     }
 
-    // Load assets first (just metadata, in a real player we'd fetch the binary from URL)
-    if (data.assets) {
-      for (const [id, assetMeta] of Object.entries(data.assets)) {
-        // Here we just add it with a dummy ArrayBuffer because we don't have the binary. 
-        // Real implementation would fetch the binary from a server based on `id`
-        this.assetRegistry.getState().addAsset({
-          id,
-          type: assetMeta.type,
-          name: assetMeta.name,
-          data: new ArrayBuffer(0)
-        });
-      }
-    }
-
-    // Load scene
-    if (data.scene) {
-      Object.values(data.scene).forEach(node => {
-        this.store.getState().addNode(node as any);
-      });
-      this.store.getState().recalculateMatrices();
-    }
-
-    // Load metadata and animations
-    if (data.metadata?.duration) {
-      this.engine.setDuration(data.metadata.duration);
-    }
-
-    if (data.animations) {
-      data.animations.forEach(track => {
-        this.engine.addTrack(track);
-      });
-    }
+    this.worker.postMessage({
+      type: 'load',
+      payload: { data }
+    });
   }
 
   public play() {
-    this.engine.play();
+    this.worker.postMessage({ type: 'play' });
   }
 
   public pause() {
-    this.engine.pause();
+    this.worker.postMessage({ type: 'pause' });
+  }
+
+  public seek(time: number) {
+    this.worker.postMessage({ type: 'seek', payload: { time } });
+  }
+
+  public updateNode(id: string, updates: any) {
+    this.worker.postMessage({ type: 'updateNode', payload: { id, updates } });
   }
 }

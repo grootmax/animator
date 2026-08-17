@@ -1,20 +1,19 @@
 import * as PIXI from 'pixi.js';
-import { SceneNode, createSceneGraphStore, createAssetRegistryStore } from '@monorepo/scene-graph';
+import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
 import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
-import { tokenizePath } from '@monorepo/serialization';
+import { tokenizePath, PathToken } from '@monorepo/serialization';
 
 export class PixiBridge {
   private app: PIXI.Application;
   private viewport: Viewport;
   private handles: TransformHandles;
   private store: ReturnType<typeof createSceneGraphStore>;
-  private assetRegistry: ReturnType<typeof createAssetRegistryStore>;
-  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | PIXI.Sprite> = new Map();
-  private assetTextures: Map<string, PIXI.Texture> = new Map();
+  private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
+  private pathCache: Map<string, PathToken[]> = new Map();
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>, assetRegistry: ReturnType<typeof createAssetRegistryStore>) {
+  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
       view: canvas,
       resizeTo: window,
@@ -25,14 +24,17 @@ export class PixiBridge {
 
     this.app.stage.sortableChildren = true;
 
-    this.viewport = new Viewport(this.app);
+    this.viewport = new Viewport(this.app, store);
     this.handles = new TransformHandles(store, this.viewport);
+
+    this.remoteSelectionsContainer = new PIXI.Container();
+    this.remoteSelectionsContainer.zIndex = 999;
+    this.viewport.container.addChild(this.remoteSelectionsContainer);
 
     // Add handles directly to the viewport so they pan and zoom with the nodes!
     this.viewport.container.addChild(this.handles.container);
 
     this.store = store;
-    this.assetRegistry = assetRegistry;
 
     this.viewport.container.interactive = true;
     this.viewport.container.on('pointerdown', (e) => {
@@ -41,19 +43,27 @@ export class PixiBridge {
       }
     });
 
-    this.store.subscribe((state) => {
-      this.syncNodes(state.nodes);
-      this.handles.update();
-    });
-
-    this.assetRegistry.subscribe((state) => {
-      // Retrigger sync when assets update
-      this.syncNodes(this.store.getState().nodes);
+    let updateQueued = false;
+    this.store.subscribe(() => {
+      if (!updateQueued) {
+        updateQueued = true;
+        queueMicrotask(() => {
+          updateQueued = false;
+          const state = this.store.getState();
+          this.syncNodes(state.nodes);
+          this.handles.update();
+        });
+      }
     });
 
     this.app.ticker.add(() => {
         this.handles.update();
     });
+  }
+
+  private getMaterialHash(node: SceneNode): string {
+    if (node.type === 'container' || node.type === 'group') return 'container';
+    return `${node.fill || 'none'}_${node.stroke || 'none'}_${node.strokeWidth || 0}`;
   }
 
   private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
@@ -80,7 +90,11 @@ export class PixiBridge {
   }
 
   private drawPath(graphics: PIXI.Graphics, pathData: string) {
-    const tokens = tokenizePath(pathData);
+    let tokens = this.pathCache.get(pathData);
+    if (!tokens) {
+      tokens = tokenizePath(pathData);
+      this.pathCache.set(pathData, tokens);
+    }
     let x = 0, y = 0;
 
     for (const t of tokens) {
@@ -110,15 +124,19 @@ export class PixiBridge {
   }
 
   private syncNodes(nodes: Record<string, SceneNode>) {
+    const usedPaths = new Set<string>();
+
     for (const [id, node] of Object.entries(nodes)) {
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
         if (node.type === 'rect' || node.type === 'circle' || node.type === 'path' || node.type === 'ellipse' || node.type === 'line' || node.type === 'polyline') {
           pixiNode = new PIXI.Graphics();
-        } else if (node.type === 'image' || node.type === 'video') {
-          pixiNode = new PIXI.Sprite();
-          (pixiNode as PIXI.Sprite).anchor.set(0.5); // Center anchor for easy rotation/scaling
+        } else if (node.type === 'image') {
+          pixiNode = new PIXI.Container();
+          const sprite = new PIXI.Sprite();
+          sprite.anchor.set(0.5);
+          pixiNode.addChild(sprite);
         } else {
           pixiNode = new PIXI.Container();
         }
@@ -139,6 +157,13 @@ export class PixiBridge {
         } else {
           this.viewport.container.addChild(pixiNode);
         }
+      } else {
+        const expectedParent = node.parentId && this.pixiNodes.has(node.parentId) 
+          ? this.pixiNodes.get(node.parentId)! 
+          : this.viewport.container;
+        if (pixiNode.parent !== expectedParent) {
+          expectedParent.addChild(pixiNode);
+        }
       }
 
       // Update visibility and opacity
@@ -149,13 +174,21 @@ export class PixiBridge {
         pixiNode.clear();
 
         if (node.fill) {
-            const fill = parseInt(node.fill.replace('#', '0x'));
-            pixiNode.beginFill(fill);
+            const fill = typeof PIXI.utils?.string2hex === 'function' 
+              ? PIXI.utils.string2hex(node.fill) 
+              : parseInt(node.fill.replace('#', '0x')) || 0;
+            if (!isNaN(fill)) {
+              pixiNode.beginFill(fill);
+            }
         }
         if (node.stroke) {
-            const stroke = parseInt(node.stroke.replace('#', '0x'));
+            const stroke = typeof PIXI.utils?.string2hex === 'function'
+              ? PIXI.utils.string2hex(node.stroke)
+              : parseInt(node.stroke.replace('#', '0x')) || 0;
             const strokeWidth = node.strokeWidth !== undefined ? node.strokeWidth : 2;
-            pixiNode.lineStyle(strokeWidth, stroke);
+            if (!isNaN(stroke)) {
+              pixiNode.lineStyle(strokeWidth, stroke);
+            }
         }
 
         if (node.type === 'rect' && node.width && node.height) {
@@ -176,60 +209,53 @@ export class PixiBridge {
             }
           }
         } else if (node.type === 'path' && node.pathData) {
+          usedPaths.add(node.pathData);
           this.drawPath(pixiNode, node.pathData);
         }
 
         if (node.fill) {
             pixiNode.endFill();
         }
-      } else if (pixiNode instanceof PIXI.Sprite) {
-        if (node.assetId) {
-          const asset = this.assetRegistry.getState().getAsset(node.assetId);
-          if (asset) {
-            if (asset.status === 'loading') {
-              // Create a placeholder texture if not already created
-              if (!this.assetTextures.has('placeholder')) {
-                const graphics = new PIXI.Graphics();
-                graphics.beginFill(0x888888);
-                graphics.drawRect(0, 0, 100, 100);
-                graphics.endFill();
-                this.assetTextures.set('placeholder', this.app.renderer.generateTexture(graphics));
-              }
-              pixiNode.texture = this.assetTextures.get('placeholder')!;
-              
-              if (node.width && node.height) {
-                pixiNode.width = node.width;
-                pixiNode.height = node.height;
-              }
-            } else if (asset.status === 'ready' && asset.url) {
-              if (!this.assetTextures.has(asset.url)) {
-                // Determine if video or image
-                if (asset.type === 'video') {
-                  const texture = PIXI.Texture.from(asset.url);
-                  const baseTex = texture.baseTexture.resource as PIXI.VideoResource;
-                  if (baseTex.source) {
-                    (baseTex.source as HTMLVideoElement).loop = true;
-                    (baseTex.source as HTMLVideoElement).muted = true;
-                    (baseTex.source as HTMLVideoElement).play();
-                  }
-                  this.assetTextures.set(asset.url, texture);
-                } else {
-                  this.assetTextures.set(asset.url, PIXI.Texture.from(asset.url));
-                }
-              }
-              pixiNode.texture = this.assetTextures.get(asset.url)!;
-              
-              // Set sprite dimensions if specified, else use natural texture size
-              if (node.width && node.height) {
-                pixiNode.width = node.width;
-                pixiNode.height = node.height;
-              }
-            }
-          }
+      } else if (node.type === 'image') {
+        const sprite = (pixiNode as PIXI.Container).children[0] as PIXI.Sprite;
+        
+        if (node.src) {
+           const currentSrc = (sprite as any)._currentSrc;
+           if (currentSrc !== node.src) {
+               (sprite as any)._currentSrc = node.src;
+               const tex = PIXI.Texture.from(node.src);
+               sprite.texture = tex;
+               
+               if (!tex.valid) {
+                   (tex.baseTexture as any).once('loaded', () => {
+                       const n = this.store.getState().nodes[id];
+                       if (n && n.width !== undefined && n.height !== undefined && sprite.texture === tex) {
+                           sprite.width = n.width;
+                           sprite.height = n.height;
+                       }
+                   });
+               }
+           }
+        } else {
+           sprite.texture = PIXI.Texture.EMPTY;
+           (sprite as any)._currentSrc = undefined;
+        }
+
+        if (node.width !== undefined && node.height !== undefined && sprite.texture.valid) {
+           sprite.width = node.width;
+           sprite.height = node.height;
+        } else if (node.width === undefined || node.height === undefined) {
+           sprite.scale.set(1);
         }
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);
+    }
+
+    for (const path of this.pathCache.keys()) {
+      if (!usedPaths.has(path)) {
+        this.pathCache.delete(path);
+      }
     }
   }
 }
