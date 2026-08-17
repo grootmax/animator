@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "concurrently -k \"vite\" \"tsc -p tsconfig.electron.json -w\" \"wait-on tcp:5173 file:dist-electron/main.js file:dist-electron/preload.js && VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
-    "build": "tsc -b && vite build && tsc -p tsconfig.electron.json && node scripts/validate-build.js",
-    "package": "electron-builder build --mac --win --linux"
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "package": "electron-builder build --mac --linux"
   },
   "build": {
-    "appId": "com.monorepo.editor",
+    "appId": "com.monorepo.editor", "productName": "MonorepoEditor",
     "directories": {
       "output": "release"
     },
@@ -17,7 +17,7 @@
       "dist-electron/**/*"
     ],
     "mac": {
-      "target": "dmg"
+      "target": "zip"
     },
     "win": {
       "target": "nsis"
@@ -27,6 +27,7 @@
     }
   },
   "dependencies": {
+    "@monorepo/runtime-player": "*",
     "@monorepo/animation-engine": "*",
     "@monorepo/renderer": "*",
     "@monorepo/scene-graph": "*",
@@ -39,16 +40,16 @@
     "zustand": "^4.4.1"
   },
   "devDependencies": {
+    "@types/node": "^18.19.130",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
     "@vitejs/plugin-react": "^4.0.3",
     "autoprefixer": "^10.4.15",
-    "concurrently": "^8.2.1",
     "electron": "^25.3.0",
     "electron-builder": "^24.6.4",
     "postcss": "^8.4.29",
     "tailwindcss": "^3.3.3",
     "vite": "^4.4.5",
-    "wait-on": "^7.0.1"
+    "vite-plugin-electron": "^0.28.0"
   }
 }
