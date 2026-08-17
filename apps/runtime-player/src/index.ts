@@ -1,6 +1,5 @@
-import { createSceneGraphStore, SceneNode } from '@monorepo/scene-graph';
-import { PixiBridge, RendererConfig } from '@monorepo/renderer';
-import { AnimationEngine, Track } from '@monorepo/animation-engine';
+import { SceneNode } from '@monorepo/scene-graph';
+import { Track } from '@monorepo/animation-engine';
 
 export interface ExportedProject {
   scene: Record<string, Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>>;
@@ -8,27 +7,41 @@ export interface ExportedProject {
   metadata: any;
 }
 
-export interface RuntimePlayerConfig {
-  canvas: any;
-  width: number;
-  height: number;
-  resolution: number;
-  backgroundColor?: number;
-}
-
 export class RuntimePlayer {
-  public store: ReturnType<typeof createSceneGraphStore>;
-  public engine: AnimationEngine;
-  public renderer: PixiBridge;
+  private worker: Worker;
+  private sharedBuffer: SharedArrayBuffer;
+  private syncArray: Float32Array;
 
-  private isDestroyed = false;
-  private rafId: number | null = null;
-  private lastTime = 0;
+  constructor(canvas: HTMLCanvasElement) {
+    // SharedArrayBuffer for node state sync (up to 100k nodes * 16 floats per node)
+    this.sharedBuffer = new SharedArrayBuffer(100000 * 16 * 4);
+    this.syncArray = new Float32Array(this.sharedBuffer);
 
-  constructor(config: RuntimePlayerConfig) {
-    this.store = createSceneGraphStore();
-    this.engine = new AnimationEngine(this.store);
-    this.renderer = new PixiBridge(config, this.store);
+    let offscreen: OffscreenCanvas | HTMLCanvasElement = canvas;
+    if ('transferControlToOffscreen' in canvas) {
+      offscreen = canvas.transferControlToOffscreen();
+    }
+
+    this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+    this.worker.postMessage({
+      type: 'init',
+      payload: { canvas: offscreen, sharedBuffer: this.sharedBuffer }
+    }, offscreen instanceof OffscreenCanvas ? [offscreen] : []);
+
+    // Proxy viewport events to the worker
+    canvas.addEventListener('pointerdown', (e) => this.proxyEvent('pointerdown', e));
+    canvas.addEventListener('pointermove', (e) => this.proxyEvent('pointermove', e));
+    canvas.addEventListener('pointerup', (e) => this.proxyEvent('pointerup', e));
+  }
+
+  private proxyEvent(type: string, e: PointerEvent) {
+    this.worker.postMessage({
+      type: 'interaction',
+      payload: {
+        eventType: type,
+        eventData: { clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId }
+      }
+    });
   }
 
   public load(json: string | ExportedProject) {
@@ -43,116 +56,25 @@ export class RuntimePlayer {
       data = json;
     }
 
-    // Load scene
-    if (data.scene) {
-      Object.values(data.scene).forEach(node => {
-        this.store.getState().addNode(node as any);
-      });
-      this.store.getState().recalculateMatrices();
-    }
-
-    // Load metadata and animations
-    if (data.metadata?.duration) {
-      this.engine.setDuration(data.metadata.duration);
-    }
-
-    if (data.animations) {
-      this.engine.setTracks(data.animations);
-    }
+    this.worker.postMessage({
+      type: 'load',
+      payload: { data }
+    });
   }
 
-  // Playback Control API
   public play() {
-    if (this.engine.getIsPlaying()) return;
-    this.engine.play();
-    this.lastTime = performance.now();
-    this.startLoop();
+    this.worker.postMessage({ type: 'play' });
   }
 
   public pause() {
-    this.engine.pause();
-    this.stopLoop();
+    this.worker.postMessage({ type: 'pause' });
   }
 
   public seek(time: number) {
-    this.engine.seek(time);
+    this.worker.postMessage({ type: 'seek', payload: { time } });
   }
 
-  public setTracks(tracks: Track[]) {
-    this.engine.setTracks(tracks);
-  }
-
-  public getTracks() {
-    return this.engine.getTracks();
-  }
-
-  public getDuration() {
-    return this.engine.getDuration();
-  }
-
-  public getIsPlaying() {
-    return this.engine.getIsPlaying();
-  }
-
-  public getStore() {
-    return this.store;
-  }
-
-  // Lifecycle
-  public tick(dt: number) {
-    if (this.isDestroyed) return;
-    this.engine.tick(dt);
-    this.renderer.handles.update();
-  }
-
-  private startLoop() {
-    if (this.rafId !== null) return;
-    const loop = (now: number) => {
-      const dt = now - this.lastTime;
-      this.lastTime = now;
-      this.tick(dt);
-      
-      if (this.engine.getIsPlaying()) {
-        this.rafId = requestAnimationFrame(loop);
-      } else {
-        this.rafId = null;
-      }
-    };
-    this.rafId = requestAnimationFrame(loop);
-  }
-
-  private stopLoop() {
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
-    }
-  }
-
-  public destroy() {
-    this.isDestroyed = true;
-    this.stopLoop();
-  }
-
-  public resize(width: number, height: number, resolution?: number) {
-    this.renderer.resize(width, height, resolution);
-  }
-
-  // Input injection API
-  public emitPointerDown(e: any) {
-    this.renderer.viewport.onPointerDown(e);
-  }
-  
-  public emitPointerMove(e: any) {
-    this.renderer.viewport.onPointerMove(e);
-    this.renderer.handles.onPointerMove(e);
-  }
-  
-  public emitPointerUp(e: any) {
-    this.renderer.viewport.onPointerUp();
-    this.renderer.handles.onPointerUp();
-  }
-
-  public emitWheel(e: any) {
-    this.renderer.viewport.onWheel(e);
+  public updateNode(id: string, updates: any) {
+    this.worker.postMessage({ type: 'updateNode', payload: { id, updates } });
   }
 }
