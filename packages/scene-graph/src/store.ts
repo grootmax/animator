@@ -1,31 +1,23 @@
+import { generateKeyBetween } from '@monorepo/math';
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline';
-
-export interface TransientNodeState {
-  x: number;
-  y: number;
-  rotation: number;
-  scaleX: number;
-  scaleY: number;
-  skewX: number;
-  skewY: number;
-  opacity: number;
-  localMatrix: Matrix3;
-  worldMatrix: Matrix3;
-  isDirty: boolean;
-  isRenderDirty: boolean; // Flag to tell the renderer it needs syncing
-}
-
-export const transientState: Record<string, TransientNodeState> = {};
+export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image';
 
 export interface SceneNode {
   id: string;
   name: string;
   type: NodeType;
   parentId: string | null;
-  children: string[];
+  order: string;
+  x: number;
+  y: number;
+  rotation: number;
+  scaleX: number;
+  scaleY: number;
+  skewX?: number;
+  skewY?: number;
+  opacity: number;
   visible: boolean;
   locked: boolean;
   width?: number;
@@ -42,171 +34,196 @@ export interface SceneNode {
   x2?: number;
   y2?: number;
   points?: string;
+  src?: string;
+
+  // Internal state
+  localMatrix: Matrix3;
+  worldMatrix: Matrix3;
+  isDirty: boolean;
 }
 
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
   rootId: string | null;
-  addNode: (node: Partial<SceneNode & Omit<TransientNodeState, 'localMatrix' | 'worldMatrix' | 'isDirty' | 'isRenderDirty'>> & { id: string, type: NodeType }) => void;
-  updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'children'>>) => void;
-  updateTransientNode: (id: string, updates: Partial<Omit<TransientNodeState, 'localMatrix' | 'worldMatrix' | 'isDirty' | 'isRenderDirty'>>) => void;
+  viewport: { x: number; y: number; zoom: number };
+  selectedNodeId: string | null;
+  remoteSelections: Record<string, { nodeId: string; color: string; userName?: string }>;
+  addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
+  updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
+  setViewport: (viewport: { x: number; y: number; zoom: number }) => void;
+  setSelectedNodeId: (id: string | null) => void;
+  setRemoteSelection: (userId: string, nodeId: string | null, color?: string, userName?: string) => void;
 }
 
-const getDefaultNode = (node: Partial<SceneNode & Omit<TransientNodeState, 'localMatrix' | 'worldMatrix' | 'isDirty' | 'isRenderDirty'>> & { id: string, type: NodeType }): SceneNode => {
-  const {
-    x, y, rotation, scaleX, scaleY, skewX, skewY, opacity,
-    ...rest
-  } = node;
+const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }): SceneNode => ({
+  parentId: null,
   
-  return {
-    parentId: null,
-    children: [],
-    name: node.id,
-    visible: true,
-    locked: false,
-    ...rest
-  };
-};
+  name: node.id,
+  x: 0,
+  y: 0,
+  rotation: 0,
+  scaleX: 1,
+  scaleY: 1,
+  opacity: 1,
+  visible: true,
+  locked: false,
+  order: '',
+  ...node,
+  localMatrix: createMatrix(),
+  worldMatrix: createMatrix(),
+  isDirty: true
+});
 
-export const createSceneGraphStore = () => createStore<SceneGraphState>((set, get) => ({
+import { syncMiddleware, SyncMessage } from './sync';
+
+export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) => {
+  const config = (set: any, get: any) => ({
   nodes: {},
   rootId: null,
+  viewport: { x: 0, y: 0, zoom: 1 },
+  selectedNodeId: null,
+  remoteSelections: {},
 
-  addNode: (node) => {
-    // Add to transient state mutably
-    transientState[node.id] = {
-      x: node.x ?? 0,
-      y: node.y ?? 0,
-      rotation: node.rotation ?? 0,
-      scaleX: node.scaleX ?? 1,
-      scaleY: node.scaleY ?? 1,
-      skewX: node.skewX ?? 0,
-      skewY: node.skewY ?? 0,
-      opacity: node.opacity ?? 1,
-      localMatrix: createMatrix(),
-      worldMatrix: createMatrix(),
-      isDirty: true,
-      isRenderDirty: true
-    };
+  setViewport: (viewport) => set({ viewport }),
+  
+  setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+  
+  setRemoteSelection: (userId, nodeId, color, userName) => set((state) => {
+    const newRemoteSelections = { ...state.remoteSelections };
+    if (nodeId === null) {
+      delete newRemoteSelections[userId];
+    } else {
+      newRemoteSelections[userId] = { nodeId, color: color || '#ff0000', userName };
+    }
+    return { remoteSelections: newRemoteSelections };
+  }),
 
-    set((state) => {
+  addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => {
+    set((state: SceneGraphState) => {
       const newNode = getDefaultNode(node);
+      
+      const siblings = Object.values(state.nodes).filter((n: any) => n.parentId === (node.parentId || null));
+      siblings.sort((a: any, b: any) => (a.order || '').localeCompare(b.order || ''));
+      const lastSibling = siblings[siblings.length - 1];
+      newNode.order = generateKeyBetween(lastSibling?.order || null, null);
+      
       const newNodes = { ...state.nodes, [node.id]: newNode };
-
-      if (node.parentId) {
-        const parent = newNodes[node.parentId];
-        if (parent) {
-          newNodes[node.parentId] = {
-            ...parent,
-            children: [...parent.children, node.id]
-          };
-        }
-      }
-
+      
       return {
         nodes: newNodes,
         rootId: state.rootId || (node.parentId === null ? node.id : state.rootId)
       };
-    });
+    }, false, { type: 'addNode', payload: node });
   },
 
-  updateNode: (id, updates) => {
-    set((state) => {
+  updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => {
+    set((state: SceneGraphState) => {
       const node = state.nodes[id];
       if (!node) return state;
 
-      const newNodes = { ...state.nodes, [id]: { ...node, ...updates } };
+      const SPATIAL_PROPERTIES = ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'skewX', 'skewY'];
+      const hasSpatialUpdate = Object.keys(updates).some(key => SPATIAL_PROPERTIES.includes(key));
+
+      // O(1) dirty marking: just mark the current node if spatial properties changed.
+      // The recalculate step will propagate this to children automatically!
+      const isDirty = node.isDirty || hasSpatialUpdate;
+      const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty } };
+
       return { nodes: newNodes };
-    });
+    }, false, { type: 'updateNode', payload: { id, updates } });
   },
 
-  updateTransientNode: (id, updates) => {
-    const tNode = transientState[id];
-    if (tNode) {
-      Object.assign(tNode, updates);
-      tNode.isDirty = true;
-      tNode.isRenderDirty = true;
-    }
-  },
-
-  reorderNode: (id, newParentId, index) => {
-    transientState[id].isDirty = true;
-    
-    set((state) => {
+  reorderNode: (id: string, newParentId: string | null, index: number) => {
+    set((state: SceneGraphState) => {
       const node = state.nodes[id];
       if (!node) return state;
 
       const newNodes = { ...state.nodes };
 
-      if (node.parentId && newNodes[node.parentId]) {
-        const parent = newNodes[node.parentId];
-        newNodes[node.parentId] = {
-          ...parent,
-          children: parent.children.filter(childId => childId !== id)
-        };
-      }
+      const siblings = Object.values(state.nodes).filter((n: any) => n.parentId === newParentId && n.id !== id);
+      siblings.sort((a, b) => (a.order || '').localeCompare(b.order || ''));
 
-      if (newParentId && newNodes[newParentId]) {
-        const newParent = newNodes[newParentId];
-        const newChildren = [...newParent.children];
-        newChildren.splice(index, 0, id);
-        newNodes[newParentId] = {
-          ...newParent,
-          children: newChildren
-        };
-      }
+      const prev = index > 0 ? siblings[index - 1] : null;
+      const next = index < siblings.length ? siblings[index] : null;
 
-      newNodes[id] = { ...node, parentId: newParentId };
+      const newOrder = generateKeyBetween(prev?.order || null, next?.order || null);
+
+      newNodes[id] = { ...node, parentId: newParentId, order: newOrder, isDirty: true };
+
+      return { nodes: newNodes };
+    }, false, { type: 'reorderNode', payload: { id, newParentId, index } });
+  },
+
+  markDirty: (id: string) => {
+    set((state: SceneGraphState) => {
+      const node = state.nodes[id];
+      if (!node) return state;
+
+      // O(1) dirty marking
+      const newNodes = { ...state.nodes, [id]: { ...node, isDirty: true } };
+
       return { nodes: newNodes };
     });
   },
 
-  markDirty: (id) => {
-    if (transientState[id]) {
-      transientState[id].isDirty = true;
-      transientState[id].isRenderDirty = true;
-    }
-  },
-
   recalculateMatrices: () => {
-    const { nodes, rootId } = get();
-    if (!rootId || !nodes[rootId]) return;
+    set((state: SceneGraphState) => {
+      const newNodes = { ...state.nodes };
+      const { rootId } = state;
+      const childrenMap: Record<string, string[]> = {};
+      Object.values(newNodes).forEach((n: any) => {
+        const p = n.parentId || 'root';
+        if (!childrenMap[p]) childrenMap[p] = [];
+        childrenMap[p].push(n.id);
+      });
+      for (const k in childrenMap) {
+        childrenMap[k].sort((a: any, b: any) => ((newNodes as any)[a].order || '').localeCompare((newNodes as any)[b].order || ''));
+      }
 
-    const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
-      const node = nodes[nodeId];
-      const tNode = transientState[nodeId];
-      if (!node || !tNode) return;
+      if (!rootId || !newNodes[rootId]) return state;
 
-      const isNowDirty = tNode.isDirty || parentWasDirty;
-      let currentWorldMatrix = parentWorldMatrix;
+      const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
+        const node = newNodes[nodeId];
+        if (!node) return;
 
-      if (isNowDirty) {
-        if (tNode.isDirty) {
-          getTransformMatrix(
-            tNode.localMatrix,
-            tNode.x, tNode.y, 
-            tNode.rotation, 
-            tNode.scaleX, tNode.scaleY,
-            tNode.skewX, tNode.skewY
-          );
+        const isWorldDirty = node.isDirty || parentWasDirty;
+        let currentWorldMatrix = parentWorldMatrix;
+
+        if (isWorldDirty) {
+          let localMatrix = node.localMatrix;
+
+          if (node.isDirty) {
+            localMatrix = getTransformMatrix(
+              node.x, node.y, 
+              node.rotation, 
+              node.scaleX, node.scaleY,
+              node.skewX || 0, node.skewY || 0
+            );
+          }
+          currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
+
+          newNodes[nodeId] = {
+            ...node,
+            localMatrix,
+            worldMatrix: currentWorldMatrix
+          };
+        } else {
+            currentWorldMatrix = node.worldMatrix;
         }
-        multiplyMatrix(tNode.worldMatrix, parentWorldMatrix, tNode.localMatrix);
-        currentWorldMatrix = tNode.worldMatrix;
 
-        tNode.isDirty = false;
-        // Do NOT set isRenderDirty to false here, renderer clears it after sync
-      } else {
-        currentWorldMatrix = tNode.worldMatrix;
-      }
+        for (const childId of node.children) {
+          traverse(childId, currentWorldMatrix, isWorldDirty);
+        }
+      };
 
-      for (const childId of node.children) {
-        traverse(childId, currentWorldMatrix, isNowDirty);
-      }
-    };
+      traverse(rootId, createMatrix(), false);
 
-    traverse(rootId, createMatrix(), false);
+      return { nodes: newNodes };
+    });
   }
-}));
+  });
+  return createStore<SceneGraphState>(broadcastCb ? syncMiddleware(config as any, broadcastCb) as any : config as any);
+};
