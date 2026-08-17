@@ -1,81 +1,96 @@
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { AnimationEngine, Track } from '@monorepo/animation-engine';
 import { PixiBridge } from '@monorepo/renderer';
-import { AnimationEngine } from '@monorepo/animation-engine';
 
 let store: ReturnType<typeof createSceneGraphStore>;
 let engine: AnimationEngine;
-let bridge: any;
+let bridge: PixiBridge;
+
+// Virtualize requestAnimationFrame if missing
+if (typeof self.requestAnimationFrame !== 'function') {
+  self.requestAnimationFrame = (cb: FrameRequestCallback) => {
+    return self.setTimeout(() => cb(performance.now()), 1000 / 60) as unknown as number;
+  };
+  self.cancelAnimationFrame = (id: number) => {
+    self.clearTimeout(id);
+  };
+}
+
+// Virtualize DOMParser for SVG Parsing if needed
+if (typeof DOMParser === 'undefined') {
+  (self as any).DOMParser = class {
+    parseFromString(str: string, type: string) {
+      // Very crude virtualization for worker
+      return {
+        documentElement: { children: [] },
+        querySelector: () => null
+      } as any;
+    }
+  };
+}
 
 self.onmessage = (e) => {
-  const msg = e.data;
-  if (msg.type === 'INIT') {
-    store = createSceneGraphStore();
-    engine = new AnimationEngine(store);
-    
-    // We send back playhead info every 30ms
-    setInterval(() => {
-        if (engine && engine.getIsPlaying()) {
-            self.postMessage({
-                type: 'PLAYHEAD_SYNC',
-                playhead: engine.getPlayhead()
-            });
-        }
-    }, 33);
-    
-    bridge = new PixiBridge(msg.canvas, store, true);
-  } else if (msg.type === 'RESIZE') {
-    if (bridge) bridge['app'].renderer.resize(msg.width, msg.height);
-  } else if (msg.type === 'ADD_NODE') {
-    store.getState().addNode(msg.node);
-  } else if (msg.type === 'UPDATE_NODE') {
-    store.getState().updateNode(msg.id, msg.updates);
-    store.getState().recalculateMatrices();
-  } else if (msg.type === 'REORDER_NODE') {
-    store.getState().reorderNode(msg.id, msg.newParentId, msg.index);
-    store.getState().recalculateMatrices();
-  } else if (msg.type === 'BATCH_UPDATE') {
-    msg.updates.forEach((u: any) => {
-       if (u.type === 'ADD') store.getState().addNode(u.node);
-       if (u.type === 'UPDATE') store.getState().updateNode(u.id, u.updates);
-    });
-    store.getState().recalculateMatrices();
-  } else if (msg.type === 'ENGINE_CMD') {
-    if (msg.cmd === 'play') engine.play();
-    if (msg.cmd === 'pause') engine.pause();
-    if (msg.cmd === 'seek') {
-       engine.seek(msg.time);
-       store.getState().recalculateMatrices();
+  const { type, payload } = e.data;
+
+  switch (type) {
+    case 'init': {
+      const { canvas } = payload;
+      store = createSceneGraphStore();
+      engine = new AnimationEngine(store);
+      // PixiBridge will use the offscreen canvas
+      bridge = new PixiBridge(canvas, store);
+      break;
     }
-    if (msg.cmd === 'addTrack') engine.addTrack(msg.track);
-    
-    self.postMessage({ type: 'ENGINE_STATE', isPlaying: engine.getIsPlaying(), playhead: engine.getPlayhead() });
-  } else if (msg.type === 'DOM_EVENT') {
-    const rawEvent = msg.event;
-    rawEvent.preventDefault = () => {};
-    rawEvent.stopPropagation = () => {};
-    
-    if (bridge && bridge['app']) {
-        const events = bridge['app'].renderer.events;
-        if (rawEvent.type === 'pointerdown') events.onPointerDown(rawEvent);
-        else if (rawEvent.type === 'pointermove') events.onPointerMove(rawEvent);
-        else if (rawEvent.type === 'pointerup' || rawEvent.type === 'pointerleave') events.onPointerUp(rawEvent);
-        else if (rawEvent.type === 'wheel') {
-           // PIXI 7 EventSystem doesn't have onWheel natively exposed easily in the same way, 
-           // but we can emit it directly to the stage!
-           // Wait, mapEvent maps it. Let's just emit to stage.
-           const mapped = new (bridge as any).app.renderer.events.EventConstructor();
-           // populate mapped event
-           Object.assign(mapped, rawEvent);
-           mapped.globalX = rawEvent.clientX;
-           mapped.globalY = rawEvent.clientY;
-           bridge['app'].stage.emit('wheel', mapped);
-        }
+    case 'load': {
+      const { data } = payload;
+      if (data.scene) {
+        Object.values(data.scene).forEach(node => {
+          store.getState().addNode(node as any);
+        });
+        store.getState().recalculateMatrices();
+      }
+      if (data.metadata?.duration) {
+        engine.setDuration(data.metadata.duration);
+      }
+      if (data.animations) {
+        data.animations.forEach((track: Track) => {
+          engine.addTrack(track);
+        });
+      }
+      break;
     }
-  } else if (msg.type === 'ZOOM') {
-    if (bridge && bridge['viewport']) {
-      bridge['viewport'].container.scale.x *= msg.factor;
-      bridge['viewport'].container.scale.y *= msg.factor;
-      bridge['viewport'].drawGrid();
+    case 'play': {
+      engine.play();
+      break;
+    }
+    case 'pause': {
+      engine.pause();
+      break;
+    }
+    case 'seek': {
+      engine.seek(payload.time);
+      break;
+    }
+    case 'updateNode': {
+      const { id, updates } = payload;
+      store.getState().updateNode(id, updates);
+      store.getState().recalculateMatrices();
+      break;
+    }
+    case 'interaction': {
+      // Route pointer events to the PixiBridge container
+      if (bridge && (bridge as any).viewport) {
+        const { eventType, eventData } = payload;
+        const viewport = (bridge as any).viewport;
+        if (eventType === 'pointerdown') {
+          viewport.container.emit('pointerdown', eventData);
+        } else if (eventType === 'pointermove') {
+          viewport.container.emit('pointermove', eventData);
+        } else if (eventType === 'pointerup') {
+          viewport.container.emit('pointerup', eventData);
+        }
+      }
+      break;
     }
   }
 };

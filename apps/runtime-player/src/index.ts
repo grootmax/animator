@@ -9,11 +9,39 @@ export interface ExportedProject {
 
 export class RuntimePlayer {
   private worker: Worker;
+  private sharedBuffer: SharedArrayBuffer;
+  private syncArray: Float32Array;
 
   constructor(canvas: HTMLCanvasElement) {
+    // SharedArrayBuffer for node state sync (up to 100k nodes * 16 floats per node)
+    this.sharedBuffer = new SharedArrayBuffer(100000 * 16 * 4);
+    this.syncArray = new Float32Array(this.sharedBuffer);
+
+    let offscreen: OffscreenCanvas | HTMLCanvasElement = canvas;
+    if ('transferControlToOffscreen' in canvas) {
+      offscreen = canvas.transferControlToOffscreen();
+    }
+
     this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-    const offscreen = canvas.transferControlToOffscreen();
-    this.worker.postMessage({ type: 'INIT', canvas: offscreen }, [offscreen]);
+    this.worker.postMessage({
+      type: 'init',
+      payload: { canvas: offscreen, sharedBuffer: this.sharedBuffer }
+    }, offscreen instanceof OffscreenCanvas ? [offscreen] : []);
+
+    // Proxy viewport events to the worker
+    canvas.addEventListener('pointerdown', (e) => this.proxyEvent('pointerdown', e));
+    canvas.addEventListener('pointermove', (e) => this.proxyEvent('pointermove', e));
+    canvas.addEventListener('pointerup', (e) => this.proxyEvent('pointerup', e));
+  }
+
+  private proxyEvent(type: string, e: PointerEvent) {
+    this.worker.postMessage({
+      type: 'interaction',
+      payload: {
+        eventType: type,
+        eventData: { clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId }
+      }
+    });
   }
 
   public load(json: string | ExportedProject) {
@@ -28,27 +56,25 @@ export class RuntimePlayer {
       data = json;
     }
 
-    if (data.scene) {
-      const updates = Object.values(data.scene).map(n => ({ type: 'ADD', node: n }));
-      this.worker.postMessage({ type: 'BATCH_UPDATE', updates });
-    }
-
-    if (data.metadata?.duration) {
-      // We don't have explicit setDuration on the worker right now but we can assume tracks cover it
-    }
-
-    if (data.animations) {
-      data.animations.forEach(track => {
-        this.worker.postMessage({ type: 'ENGINE_CMD', cmd: 'addTrack', track });
-      });
-    }
+    this.worker.postMessage({
+      type: 'load',
+      payload: { data }
+    });
   }
 
   public play() {
-    this.worker.postMessage({ type: 'ENGINE_CMD', cmd: 'play' });
+    this.worker.postMessage({ type: 'play' });
   }
 
   public pause() {
-    this.worker.postMessage({ type: 'ENGINE_CMD', cmd: 'pause' });
+    this.worker.postMessage({ type: 'pause' });
+  }
+
+  public seek(time: number) {
+    this.worker.postMessage({ type: 'seek', payload: { time } });
+  }
+
+  public updateNode(id: string, updates: any) {
+    this.worker.postMessage({ type: 'updateNode', payload: { id, updates } });
   }
 }

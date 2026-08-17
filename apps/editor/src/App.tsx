@@ -1,15 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { PixiBridge } from '@monorepo/renderer';
+import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
+// @ts-ignore
 import { DndProvider } from 'react-dnd';
+// @ts-ignore
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { EngineProxy } from './engineProxy';
 
 // Create singletons for the app
-const store = createSceneGraphStore();
+const channel = new BroadcastChannel('scene-graph-sync');
+const store = createSceneGraphStore((msg) => {
+  channel.postMessage(msg);
+});
+channel.onmessage = (event) => {
+  if (event.data && typeof (store as any).applyRemote === 'function') {
+    (store as any).applyRemote(event.data);
+  }
+};
+const engine = new AnimationEngine(store);
 
 // Extend Window interface for Electron IPC
 declare global {
@@ -21,92 +33,26 @@ declare global {
   }
 }
 
-let worker: Worker;
-let engineProxy: EngineProxy;
-
-// Intercept store updates to forward to worker
-const originalAddNode = store.getState().addNode;
-const originalUpdateNode = store.getState().updateNode;
-const originalReorderNode = store.getState().reorderNode;
-
-store.getState().addNode = (node) => {
-  originalAddNode(node);
-  if (worker) worker.postMessage({ type: 'ADD_NODE', node });
-};
-
-store.getState().updateNode = (id, updates) => {
-  originalUpdateNode(id, updates);
-  if (worker) worker.postMessage({ type: 'UPDATE_NODE', id, updates });
-};
-
-store.getState().reorderNode = (id, newParentId, index) => {
-  originalReorderNode(id, newParentId, index);
-  if (worker) worker.postMessage({ type: 'REORDER_NODE', id, newParentId, index });
-};
-
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [nodesCount, setNodesCount] = useState(0);
+  const [storeVersion, setStoreVersion] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [saveProgress, setSaveProgress] = useState<number | null>(null);
+  const [showSaveProgress, setShowSaveProgress] = useState(false);
 
   useEffect(() => {
-    if (canvasRef.current && !worker) {
-      worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-      engineProxy = new EngineProxy(worker);
-
-      const offscreen = canvasRef.current.transferControlToOffscreen();
-      worker.postMessage({ type: 'INIT', canvas: offscreen }, [offscreen]);
-
-      worker.onmessage = (e) => {
-        const msg = e.data;
-        if (msg.type === 'PLAYHEAD_SYNC' || msg.type === 'ENGINE_STATE') {
-          engineProxy.syncState(msg.isPlaying !== undefined ? msg.isPlaying : engineProxy.getIsPlaying(), msg.playhead);
-        }
-      };
-
-      // Forward resize
-      const handleResize = () => {
-        worker.postMessage({ type: 'RESIZE', width: window.innerWidth, height: window.innerHeight });
-      };
-      window.addEventListener('resize', handleResize);
-      handleResize();
-
-      // Forward pointer events to the worker
-      const forwardEvent = (e: Event) => {
-        const pe = e as any;
-        worker.postMessage({
-           type: 'DOM_EVENT',
-           event: {
-              type: pe.type,
-              pointerId: pe.pointerId,
-              pointerType: pe.pointerType,
-              clientX: pe.clientX,
-              clientY: pe.clientY,
-              globalX: pe.clientX,
-              globalY: pe.clientY,
-              button: pe.button,
-              buttons: pe.buttons,
-              shiftKey: pe.shiftKey,
-              deltaY: pe.deltaY,
-              isPrimary: pe.isPrimary
-           }
-        });
-      };
-      
-      const c = canvasRef.current;
-      c.addEventListener('pointerdown', forwardEvent);
-      c.addEventListener('pointermove', forwardEvent);
-      c.addEventListener('pointerup', forwardEvent);
-      c.addEventListener('pointerleave', forwardEvent);
-      c.addEventListener('wheel', forwardEvent, { passive: false });
-      
-      // Global pointer up for dragging outside
-      window.addEventListener('pointerup', forwardEvent);
+    if (canvasRef.current) {
+      // Initialize renderer
+      const bridge = new PixiBridge(canvasRef.current, store);
+      // We keep bridge instance alive
+      (window as any).__bridge = bridge;
 
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
+        setStoreVersion(state.version);
       });
 
       return () => unsubscribe();
@@ -114,13 +60,26 @@ function App() {
   }, []);
 
   useEffect(() => {
-    let frame: number;
-    const checkPlayState = () => {
-      if (engineProxy) setIsPlaying(engineProxy.getIsPlaying());
-      frame = requestAnimationFrame(checkPlayState);
+    return engine.subscribeUI((state) => {
+      setIsPlaying(state.isPlaying);
+    });
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        store.getState().undo();
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        store.getState().redo();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        store.getState().redo();
+      }
     };
-    frame = requestAnimationFrame(checkPlayState);
-    return () => cancelAnimationFrame(frame);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   const handleImportSvg = async () => {
@@ -129,12 +88,10 @@ function App() {
       if (svgContent) {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
-        // Batch ADD_NODE for performance
-        if (worker) {
-            const updates = nodes.map(n => ({ type: 'ADD', node: n }));
-            worker.postMessage({ type: 'BATCH_UPDATE', updates });
+        if (nodes.length > 0) {
+          store.getState().commitHistory();
+          nodes.forEach(node => store.getState().addNode(node));
         }
-        nodes.forEach(node => originalAddNode(node));
       }
     } else {
       alert("Electron API not available");
@@ -144,27 +101,73 @@ function App() {
   const handleSaveState = async () => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
-
-      // Filter out internal state (localMatrix, worldMatrix, isDirty) to create clean export
+      const nodeKeys = Object.keys(state);
+      const totalNodes = nodeKeys.length;
+      
       const cleanScene: Record<string, any> = {};
-      for (const [id, node] of Object.entries(state)) {
-        const cleanNode = { ...node };
-        delete (cleanNode as any).localMatrix;
-        delete (cleanNode as any).worldMatrix;
-        delete (cleanNode as any).isDirty;
-        cleanScene[id] = cleanNode;
-      }
+      
+      let currentIndex = 0;
+      
+      const showProgressTimeout = setTimeout(() => {
+        setShowSaveProgress(true);
+      }, 500);
 
-      const exportData = {
-        scene: cleanScene,
-        animations: engineProxy.getTracks(),
-        metadata: {
-          version: "1.0.0",
-          duration: engineProxy.getDuration()
+      const processBatch = (deadline?: any) => {
+        const startTime = performance.now();
+        
+        while (currentIndex < totalNodes) {
+          if (deadline && deadline.timeRemaining) {
+            if (deadline.timeRemaining() < 2) break;
+          } else {
+            if (performance.now() - startTime > 10) break;
+          }
+          
+          const id = nodeKeys[currentIndex];
+          const node = state[id];
+          const cleanNode = { ...node };
+          delete (cleanNode as any).localMatrix;
+          delete (cleanNode as any).worldMatrix;
+          delete (cleanNode as any).isDirty;
+          cleanScene[id] = cleanNode;
+          
+          currentIndex++;
+        }
+        
+        setSaveProgress(Math.floor((currentIndex / totalNodes) * 100));
+
+        if (currentIndex < totalNodes) {
+          if ('requestIdleCallback' in window) {
+            (window as any).requestIdleCallback(processBatch);
+          } else {
+            setTimeout(processBatch, 0);
+          }
+        } else {
+          finishSave();
         }
       };
 
-      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+      const finishSave = async () => {
+        clearTimeout(showProgressTimeout);
+        setShowSaveProgress(false);
+        setSaveProgress(null);
+        
+        const exportData = {
+          scene: cleanScene,
+          animations: engine.getTracks(),
+          metadata: {
+            version: "1.0.0",
+            duration: engine.getDuration()
+          }
+        };
+
+        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+      };
+      
+      if ('requestIdleCallback' in window) {
+        (window as any).requestIdleCallback(processBatch);
+      } else {
+        setTimeout(processBatch, 0);
+      }
     } else {
       alert("Electron API not available");
     }
@@ -186,23 +189,24 @@ function App() {
     const nodeIds = Object.keys(state.nodes);
     if (nodeIds.length > 0) {
       const testNodeId = nodeIds[0];
-      engineProxy.addTrack({
+      engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: [
-          { time: 0, value: 0, easing: 'linear' },
-          { time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          { time: 4000, value: 0, easing: 'easeInOutQuad' }
-        ]
+        keyframes: {
+          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
+          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        }
       });
-      engineProxy.play();
+      engine.play();
     } else {
+      store.getState().commitHistory();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
         type: 'rect',
         parentId: null,
-        children: [],
+        
         x: window.innerWidth / 2,
         y: window.innerHeight / 2,
         rotation: 0,
@@ -212,25 +216,36 @@ function App() {
         height: 100,
         fill: '#ff0000'
       });
+      state.recalculateMatrices();
     }
   };
 
   const handleTogglePlay = () => {
-    if (engineProxy.getIsPlaying()) engineProxy.pause();
-    else engineProxy.play();
+    if (engine.getIsPlaying()) engine.pause();
+    else engine.play();
   };
 
   const handleZoomIn = () => {
-    if (worker) worker.postMessage({ type: 'ZOOM', factor: 1.2 });
+    const bridge = (window as any).__bridge;
+    if (bridge && bridge.viewport) {
+      bridge.viewport.container.scale.x *= 1.2;
+      bridge.viewport.container.scale.y *= 1.2;
+      bridge.viewport.drawGrid();
+    }
   };
 
   const handleZoomOut = () => {
-    if (worker) worker.postMessage({ type: 'ZOOM', factor: 1 / 1.2 });
+    const bridge = (window as any).__bridge;
+    if (bridge && bridge.viewport) {
+      bridge.viewport.container.scale.x /= 1.2;
+      bridge.viewport.container.scale.y /= 1.2;
+      bridge.viewport.drawGrid();
+    }
   };
 
   return (
     <DndProvider backend={HTML5Backend}>
-      <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden">
+      <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden relative">
         <Toolbar
           tool={tool}
           setTool={setTool}
@@ -244,7 +259,7 @@ function App() {
         />
 
         <div className="flex flex-1 overflow-hidden">
-          <LayerPanel store={store} nodesCount={nodesCount} />
+          <LayerPanel store={store} nodesCount={nodesCount} version={storeVersion} />
 
           <div className="flex-1 relative bg-[#1a1a1a]">
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
@@ -258,7 +273,17 @@ function App() {
           </div>
         </div>
 
-        {engineProxy && <Timeline engine={engineProxy as any} store={store} />}
+        <Timeline engine={engine} store={store} />
+
+        {showSaveProgress && (
+          <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 p-6 rounded-lg border border-gray-700 flex flex-col items-center gap-3">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+              <div className="text-sm font-medium">Saving Project...</div>
+              <div className="text-xs text-gray-400">{saveProgress}%</div>
+            </div>
+          </div>
+        )}
       </div>
     </DndProvider>
   );
