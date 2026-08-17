@@ -29,6 +29,7 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
+      exportSvg: (content: string) => Promise<boolean>;
     }
   }
 }
@@ -178,7 +179,7 @@ function App() {
       const state = store.getState().nodes;
       const serializer = new SvgSerializer();
       const svgString = serializer.serialize(state);
-      await window.electronAPI.saveFile(svgString);
+      await window.electronAPI.exportSvg(svgString);
     } else {
       alert("Electron API not available");
     }
