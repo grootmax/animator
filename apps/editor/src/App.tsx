@@ -6,7 +6,9 @@ import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
+// @ts-ignore
 import { DndProvider } from 'react-dnd';
+// @ts-ignore
 import { HTML5Backend } from 'react-dnd-html5-backend';
 
 // Create singletons for the app

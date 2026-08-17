@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { Eye, EyeOff, Lock, Unlock, ChevronRight, ChevronDown } from 'lucide-react';
+// @ts-ignore
 import { useDrag, useDrop } from 'react-dnd';
 
 interface LayerPanelProps {
@@ -55,7 +56,7 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
     const [{ isDragging }, drag] = useDrag({
       type: 'LAYER',
       item: { id, type: 'LAYER' },
-      collect: monitor => ({
+      collect: (monitor: any) => ({
         isDragging: monitor.isDragging(),
       }),
     });
