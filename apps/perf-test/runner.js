@@ -9,11 +9,16 @@ async function run() {
     stdio: 'pipe',
   });
 
+  let serverUrl = 'http://localhost:4173';
   await new Promise((resolve) => {
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/http:\/\/(localhost|127\.0\.0\.1):(\d+)/);
+      if (match) {
+        serverUrl = match[0];
+      }
+      if (output.includes('ready in') || match) {
         resolve();
       }
     });
@@ -36,10 +41,15 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('console', async (msg) => {
+      const args = await Promise.all(msg.args().map(arg => arg.jsonValue().catch(() => arg.toString())));
+      console.log('BROWSER:', ...args);
+    });
+    page.on('pageerror', (err) => console.error('PAGE ERROR:', err));
+    page.on('requestfailed', (req) => console.error('FAILED REQUEST:', req.url(), req.failure()));
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    console.log(`Navigating to ${serverUrl} ...`);
+    await page.goto(serverUrl, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
     
