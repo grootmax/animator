@@ -1,6 +1,16 @@
 import { SceneNode, NodeType } from '@monorepo/scene-graph';
 import { Matrix3, createMatrix, multiplyMatrix } from '@monorepo/math';
 
+let DOMParserConstructor: any = typeof DOMParser !== 'undefined' ? DOMParser : null;
+if (!DOMParserConstructor) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    DOMParserConstructor = require('@xmldom/xmldom').DOMParser;
+  } catch (e) {
+    // Fallback if not in node with xmldom
+  }
+}
+
 let idCounter = 0;
 const generateId = () => `node_${idCounter++}`;
 
@@ -68,10 +78,11 @@ export class SvgParser {
   }
 
   public parse(svgString: string): SceneNode[] {
-    const parser = new DOMParser();
+    const ParserClass = DOMParserConstructor || DOMParser;
+    const parser = new ParserClass();
     const doc = parser.parseFromString(svgString, 'image/svg+xml');
 
-    if (doc.querySelector('parsererror')) {
+    if (typeof doc.querySelector === 'function' && doc.querySelector('parsererror')) {
       throw new Error('Invalid SVG string');
     }
 
@@ -81,7 +92,7 @@ export class SvgParser {
 
     let lastOrder = null;
     Array.from(svgElement.children).forEach(child => {
-      this.processElement(child, null, rootNodes, viewportMatrix);
+      this.processElement(child as Element, null, rootNodes, viewportMatrix);
     });
 
     return rootNodes;
@@ -169,14 +180,15 @@ export class SvgParser {
   }
 
   private processElement(element: Element, parentId: string | null, nodesList: SceneNode[], parentMatrix: Matrix3) {
-    const id = element.id || generateId();
+    const elementId = element.getAttribute('id') || (element as any).id;
+    const id = elementId || generateId();
     let type: NodeType = 'group';
 
     const tagName = element.tagName.toLowerCase();
-    if (!['g', 'svg', 'symbol', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'path'].includes(tagName)) {
+    if (!['g', 'svg', 'symbol', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'path', 'image'].includes(tagName)) {
       // Recurse into unsupported tags like <defs> without creating a SceneNode for them
       Array.from(element.children).forEach(child => {
-        this.processElement(child, parentId, nodesList, parentMatrix);
+        this.processElement(child as Element, parentId, nodesList, parentMatrix);
       });
       return;
     }
@@ -193,6 +205,7 @@ export class SvgParser {
       case 'line': type = 'line'; break;
       case 'polyline': type = 'polyline'; break;
       case 'path': type = 'path'; break;
+      case 'image': type = 'image'; break;
       default: return; // Ignore unsupported
     }
 
@@ -204,7 +217,7 @@ export class SvgParser {
     let width = 0;
     let height = 0;
 
-    if (type === 'rect') {
+    if (type === 'rect' || type === 'image') {
       width = parseFloat(element.getAttribute('width') || '0');
       height = parseFloat(element.getAttribute('height') || '0');
       xAttr += width / 2;
@@ -239,7 +252,7 @@ export class SvgParser {
 
     const node: Partial<SceneNode> = {
       id,
-      name: element.id || type,
+      name: elementId || type,
       type,
       parentId,
       order: '',
@@ -257,9 +270,14 @@ export class SvgParser {
       strokeWidth: strokeWidthStr !== null ? parseFloat(strokeWidthStr) : undefined
     };
 
-    if (type === 'rect') {
+    if (type === 'rect' || type === 'image') {
       node.width = parseFloat(element.getAttribute('width') || '0');
       node.height = parseFloat(element.getAttribute('height') || '0');
+      if (type === 'image') {
+        const href = element.getAttribute('href') || element.getAttribute('xlink:href') || '';
+        node.imageData = href;
+        node.src = href;
+      }
     } else if (type === 'circle') {
       node.radius = parseFloat(element.getAttribute('r') || '0');
     } else if (type === 'ellipse') {
@@ -292,7 +310,7 @@ export class SvgParser {
     nodesList.push(sceneNode);
 
     Array.from(element.children).forEach(child => {
-      this.processElement(child, id, nodesList, combinedMatrix);
+      this.processElement(child as Element, id, nodesList, combinedMatrix);
     });
   }
 }
