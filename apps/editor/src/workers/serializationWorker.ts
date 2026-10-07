@@ -5,11 +5,13 @@ self.onmessage = (e: MessageEvent) => {
 
   // Perform data cleaning by removing internal and computed properties
   const cleanScene: Record<string, any> = {};
-  for (const [id, node] of Object.entries(state)) {
-    delete (node as any).localMatrix;
-    delete (node as any).worldMatrix;
-    delete (node as any).isDirty;
-    cleanScene[id] = node;
+  if (state && typeof state === 'object') {
+    for (const [id, node] of Object.entries(state as Record<string, any>)) {
+      if (node && typeof node === 'object') {
+        const { localMatrix, worldMatrix, isDirty, ...cleanNode } = node;
+        cleanScene[id] = cleanNode;
+      }
+    }
   }
 
   const exportData = {
