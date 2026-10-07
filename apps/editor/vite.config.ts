@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import electron from 'vite-plugin-electron';
 import path from 'path';
 
-export default defineConfig(({ command }) => ({
+export default defineConfig({
   base: './',
   resolve: {
     alias: {
@@ -16,7 +16,7 @@ export default defineConfig(({ command }) => ({
   },
   plugins: [
     react(),
-    command === 'serve' ? electron([
+    electron([
       {
         entry: 'electron/main.ts',
         onstart(options) {
@@ -29,6 +29,6 @@ export default defineConfig(({ command }) => ({
           options.reload();
         },
       }
-    ]) : null,
+    ]),
   ],
-}));
+});
