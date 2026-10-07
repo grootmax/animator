@@ -44,9 +44,14 @@ self.onmessage = (e) => {
     case 'load': {
       const { data } = payload;
       if (data.scene) {
-        Object.values(data.scene).forEach(node => {
-          store.getState().addNode(node as any);
-        });
+        const nodesList = Object.values(data.scene);
+        if (typeof store.getState().addNodesBulk === 'function') {
+          store.getState().addNodesBulk(nodesList as any);
+        } else {
+          nodesList.forEach(node => {
+            store.getState().addNode(node as any);
+          });
+        }
         store.getState().recalculateMatrices();
       }
       if (data.metadata?.duration) {

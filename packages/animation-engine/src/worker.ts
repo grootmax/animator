@@ -18,18 +18,18 @@ const getEasingFunction = (type: EasingType = 'linear') => {
   }
 };
 
-const binarySearchKeyframes = (keyframes: Keyframe[], time: number): [Keyframe | null, Keyframe | null] => {
+const binarySearchKeyframes = (keyframes: Keyframe[], frame: number): [Keyframe | null, Keyframe | null] => {
   if (keyframes.length === 0) return [null, null];
-  if (time <= keyframes[0].time) return [keyframes[0], keyframes[0]];
-  if (time >= keyframes[keyframes.length - 1].time) return [keyframes[keyframes.length - 1], keyframes[keyframes.length - 1]];
+  if (frame <= keyframes[0].frame) return [keyframes[0], keyframes[0]];
+  if (frame >= keyframes[keyframes.length - 1].frame) return [keyframes[keyframes.length - 1], keyframes[keyframes.length - 1]];
 
   let low = 0;
   let high = keyframes.length - 1;
 
   while (low <= high) {
     const mid = Math.floor((low + high) / 2);
-    if (keyframes[mid].time === time) return [keyframes[mid], keyframes[mid]];
-    if (keyframes[mid].time < time) {
+    if (keyframes[mid].frame === frame) return [keyframes[mid], keyframes[mid]];
+    if (keyframes[mid].frame < frame) {
       low = mid + 1;
     } else {
       high = mid - 1;
@@ -46,8 +46,8 @@ const calculateUpdates = () => {
     if (!start || !end) continue;
 
     let value = start.value;
-    if (start !== end) {
-      const progress = (playhead - start.time) / (end.time - start.time);
+    if (start !== end && typeof start.value === 'number' && typeof end.value === 'number') {
+      const progress = (playhead - start.frame) / (end.frame - start.frame);
       const easingFn = getEasingFunction(start.easing);
       const easedProgress = easingFn(progress);
       value = start.value + (end.value - start.value) * easedProgress;

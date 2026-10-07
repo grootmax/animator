@@ -19,7 +19,7 @@ async function runBenchmark() {
   let m2 = createMatrix();
   m1[0] = 1.1; m2[1] = 0.5;
   for (let i = 0; i < 1000000; i++) {
-    m1 = multiplyMatrix(m1, m2);
+    m1 = multiplyMatrix(m1, m1, m2);
   }
   const baselineEnd = performance.now();
   results.baselineMatrixTime = baselineEnd - baselineStart;
@@ -36,14 +36,18 @@ async function runBenchmark() {
   const canvas = document.getElementById('stage') as HTMLCanvasElement;
   const player = new RuntimePlayer(canvas);
 
-  const loadStart = performance.now();
-  player.load(project);
-  const loadEnd = performance.now();
-  results.loadTime = loadEnd - loadStart;
-  console.log('Load & Init Recalculate Time:', results.loadTime);
+  try {
+    const loadStart = performance.now();
+    player.load(project);
+    const loadEnd = performance.now();
+    results.loadTime = loadEnd - loadStart;
+    console.log('Load & Init Recalculate Time:', results.loadTime);
 
-  // Playback Phase
-  player.play();
+    // Playback Phase
+    player.play();
+  } catch (err: any) {
+    console.error('BENCHMARK EXCEPTION:', err?.stack || err?.message || err);
+  }
 
   let frameCount = 0;
   const frameTimes: number[] = [];
