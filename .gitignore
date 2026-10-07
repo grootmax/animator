@@ -3,3 +3,6 @@ dist/
 dist-electron/
 release/
 release
+*.tsbuildinfo
+.turbo/
+perf-results.json
