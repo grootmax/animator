@@ -3,9 +3,10 @@
   "pipeline": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", "dist-electron/**"]
+      "outputs": ["dist/**", "dist-electron/**", "*.tsbuildinfo"]
     },
     "dev": {
+      "dependsOn": ["^build"],
       "cache": false,
       "persistent": true
     },
@@ -13,6 +14,9 @@
       "dependsOn": ["build"],
       "outputs": ["release/**"]
     },
-    "test": {}
+    "test": {},
+    "test:e2e": {
+      "dependsOn": ["build"]
+    }
   }
 }
