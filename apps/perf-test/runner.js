@@ -9,11 +9,16 @@ async function run() {
     stdio: 'pipe',
   });
 
+  let serverPort = '4173';
   await new Promise((resolve) => {
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/http:\/\/localhost:(\d+)/);
+      if (match) {
+        serverPort = match[1];
+        resolve();
+      } else if (output.includes('ready in')) {
         resolve();
       }
     });
@@ -22,12 +27,8 @@ async function run() {
     });
   });
 
-  console.log('Server started. Launching Puppeteer...');
+  console.log(`Server started. Launching Puppeteer on port ${serverPort}...`);
   
-  // Create an explicit build before starting if we use `preview`, but let's actually just spawn `vite` (dev server) for simplicity.
-  // Wait, I spawned `vite preview`. Let me kill it and spawn `vite` (dev server) instead to avoid needing a build step.
-  // Let me just fix the command in the spawned process later if needed. For now, it's just 'vite'.
-
   let browser;
   try {
     browser = await puppeteer.launch({
@@ -36,10 +37,11 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('console', (msg) => console.log('BROWSER:', msg.type(), msg.text()));
+    page.on('pageerror', (err) => console.error('BROWSER ERROR:', err));
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    console.log(`Navigating to http://localhost:${serverPort} ...`);
+    await page.goto(`http://localhost:${serverPort}`, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
     
