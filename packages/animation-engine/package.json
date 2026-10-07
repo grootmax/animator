@@ -4,10 +4,12 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "dev": "tsc -b -w"
   },
   "dependencies": {
     "@monorepo/math": "*",
-    "@monorepo/scene-graph": "*"
+    "@monorepo/scene-graph": "*",
+    "@monorepo/serialization": "*"
   }
 }
