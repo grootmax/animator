@@ -50,7 +50,7 @@ const calculateUpdates = () => {
       const progress = (playhead - start.time) / (end.time - start.time);
       const easingFn = getEasingFunction(start.easing);
       const easedProgress = easingFn(progress);
-      value = start.value + (end.value - start.value) * easedProgress;
+      value = Number(start.value) + (Number(end.value) - Number(start.value)) * easedProgress;
     }
 
     if (!updates.has(track.nodeId)) {

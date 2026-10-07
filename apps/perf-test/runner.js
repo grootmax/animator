@@ -7,13 +7,19 @@ async function run() {
   const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
     cwd: __dirname,
     stdio: 'pipe',
+    detached: true,
   });
 
+  let serverUrl = 'http://localhost:4173';
   await new Promise((resolve) => {
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/Local:\s+(http:\/\/[^\s]+)/);
+      if (match) {
+        serverUrl = match[1];
+        resolve();
+      } else if (output.includes('ready in')) {
         resolve();
       }
     });
@@ -36,10 +42,18 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('pageerror', (err) => console.error('PAGE ERROR:', err));
+    page.on('console', async (msg) => {
+      try {
+        const args = await Promise.all(msg.args().map(a => a.jsonValue().catch(() => a.toString())));
+        console.log('BROWSER:', msg.type(), ...args);
+      } catch {
+        console.log('BROWSER:', msg.type(), msg.text());
+      }
+    });
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    console.log(`Navigating to ${serverUrl} ...`);
+    await page.goto(serverUrl, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
     
@@ -99,7 +113,11 @@ async function run() {
     process.exitCode = 1;
   } finally {
     if (browser) await browser.close();
-    viteProcess.kill();
+    try {
+      if (viteProcess.pid) {
+        process.kill(-viteProcess.pid, 'SIGKILL');
+      }
+    } catch {}
     process.exit();
   }
 }
