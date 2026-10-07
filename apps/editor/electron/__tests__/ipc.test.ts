@@ -13,6 +13,7 @@ vi.mock('electron', () => {
       whenReady: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
       quit: vi.fn(),
+      getAppPath: vi.fn().mockReturnValue('/mock/path'),
     },
     BrowserWindow: MockBrowserWindow,
     ipcMain: {
