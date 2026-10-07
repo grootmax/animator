@@ -4,16 +4,20 @@ const path = require('path');
 
 async function run() {
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  const viteProcess = spawn('npx', ['vite'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
+
+  let serverUrl = '';
 
   await new Promise((resolve) => {
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/Local:\s+(http:\/\/localhost:\d+\/)/);
+      if (match) {
+        serverUrl = match[1];
         resolve();
       }
     });
@@ -22,11 +26,7 @@ async function run() {
     });
   });
 
-  console.log('Server started. Launching Puppeteer...');
-  
-  // Create an explicit build before starting if we use `preview`, but let's actually just spawn `vite` (dev server) for simplicity.
-  // Wait, I spawned `vite preview`. Let me kill it and spawn `vite` (dev server) instead to avoid needing a build step.
-  // Let me just fix the command in the spawned process later if needed. For now, it's just 'vite'.
+  console.log(`Server started at ${serverUrl}. Launching Puppeteer...`);
 
   let browser;
   try {
@@ -36,10 +36,19 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('console', async (msg) => {
+      try {
+        const args = await Promise.all(msg.args().map(arg => arg.jsonValue().catch(() => String(arg))));
+        console.log('BROWSER:', ...args);
+      } catch (e) {
+        console.log('BROWSER:', msg.text());
+      }
+    });
+    page.on('pageerror', (err) => console.log('BROWSER PAGE ERROR:', err.stack || err));
+    page.on('requestfailed', (req) => console.log('REQUEST FAILED:', req.url(), req.failure()));
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    console.log(`Navigating to ${serverUrl} ...`);
+    await page.goto(serverUrl, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
     
