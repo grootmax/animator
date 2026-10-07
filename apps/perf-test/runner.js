@@ -1,32 +1,17 @@
 const puppeteer = require('puppeteer');
-const { spawn } = require('child_process');
+const { createServer } = require('vite');
 const path = require('path');
 
 async function run() {
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
-    cwd: __dirname,
-    stdio: 'pipe',
+  const server = await createServer({
+    configFile: path.resolve(__dirname, 'vite.config.ts'),
+    root: __dirname,
+    server: { port: 4173 }
   });
-
-  await new Promise((resolve) => {
-    viteProcess.stdout.on('data', (data) => {
-      const output = data.toString();
-      console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
-        resolve();
-      }
-    });
-    viteProcess.stderr.on('data', (data) => {
-      console.error('VITE ERR:', data.toString());
-    });
-  });
+  await server.listen();
 
   console.log('Server started. Launching Puppeteer...');
-  
-  // Create an explicit build before starting if we use `preview`, but let's actually just spawn `vite` (dev server) for simplicity.
-  // Wait, I spawned `vite preview`. Let me kill it and spawn `vite` (dev server) instead to avoid needing a build step.
-  // Let me just fix the command in the spawned process later if needed. For now, it's just 'vite'.
 
   let browser;
   try {
@@ -36,7 +21,16 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('pageerror', (err) => console.error('PAGE ERROR:', err));
+    page.on('requestfailed', (req) => console.error('REQ FAILED:', req.url(), req.failure()?.errorText));
+    page.on('console', async (msg) => {
+      try {
+        const args = await Promise.all(msg.args().map(a => a.jsonValue().catch(() => a.toString())));
+        console.log('BROWSER:', ...args);
+      } catch {
+        console.log('BROWSER:', msg.text());
+      }
+    });
 
     console.log('Navigating to http://localhost:4173 ...');
     await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
@@ -99,8 +93,7 @@ async function run() {
     process.exitCode = 1;
   } finally {
     if (browser) await browser.close();
-    viteProcess.kill();
-    process.exit();
+    if (server) await server.close();
   }
 }
 

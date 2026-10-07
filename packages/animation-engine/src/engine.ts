@@ -1,20 +1,6 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
-
-export interface Keyframe {
-  id: string;
-  time: number; // in milliseconds
-  value: number | string;
-  easing?: EasingType;
-}
-
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
-}
+import { EasingType, Keyframe, Track, NetworkRole, Heartbeat } from './types';
 
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
@@ -280,7 +266,7 @@ export class AnimationEngine {
 
     for (const track of this.tracks) {
       const keyframesArray = Object.values(track.keyframes).sort((a, b) => {
-        if (a.time === b.time) return a.id.localeCompare(b.id);
+        if (a.time === b.time) return (a.id || '').localeCompare(b.id || '');
         return a.time - b.time;
       });
       const [start, end] = this.binarySearchKeyframes(keyframesArray, this.playhead);
@@ -309,7 +295,13 @@ export class AnimationEngine {
       for (const [nodeId, nodeUpdates] of updates.entries()) {
         batchUpdates[nodeId] = nodeUpdates;
       }
-      storeState.updateNodesBatch(batchUpdates);
+      if (typeof (storeState as any).updateNodesBatch === 'function') {
+        (storeState as any).updateNodesBatch(batchUpdates);
+      } else {
+        for (const [id, updates] of Object.entries(batchUpdates)) {
+          storeState.updateNode(id, updates);
+        }
+      }
       requiresMatrixUpdate = true;
     }
 
