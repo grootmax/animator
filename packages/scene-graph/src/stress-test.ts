@@ -17,8 +17,8 @@ function runStressTest() {
   const currentNormMs = runNormalization();
   console.log(`Normalization took: ${currentNormMs.toFixed(2)}ms`);
 
-  const BASELINE_TARGET_MS = 1300;
-  const BASELINE_NORM_MS = 1280; // Approximate normalization time when target was set
+  const BASELINE_TARGET_MS = 250;
+  const BASELINE_NORM_MS = 30; // Approximate in-place normalization time when target was set
   
   // Adjusted baseline based on the current machine's performance
   const adjustedBaselineMs = BASELINE_TARGET_MS * (currentNormMs / BASELINE_NORM_MS);
