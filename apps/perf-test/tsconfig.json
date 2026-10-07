@@ -4,7 +4,14 @@
     "outDir": "dist",
     "rootDir": "src",
     "module": "ESNext",
-    "moduleResolution": "node"
+    "moduleResolution": "bundler",
+    "paths": {
+      "@monorepo/math": ["../../packages/math/src"],
+      "@monorepo/scene-graph": ["../../packages/scene-graph/src"],
+      "@monorepo/animation-engine": ["../../packages/animation-engine/src"],
+      "@monorepo/renderer": ["../../packages/renderer/src"],
+      "@monorepo/runtime-player": ["../runtime-player/src"]
+    }
   },
   "include": ["src/**/*"],
   "references": [

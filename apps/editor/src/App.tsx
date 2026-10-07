@@ -62,7 +62,7 @@ function App() {
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
-        setStoreVersion(state.version);
+        setStoreVersion((state as any).version || 0);
       });
 
       return () => unsubscribe();
@@ -70,7 +70,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    return engine.subscribeUI((state) => {
+    return engine.subscribeUI((state: any) => {
       setIsPlaying(state.isPlaying);
     });
   }, []);
@@ -79,13 +79,13 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().undo();
+        (store.getState() as any).undo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -118,7 +118,7 @@ function App() {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
         if (nodes.length > 0) {
-          store.getState().commitHistory();
+          (store.getState() as any).commitHistory?.();
           nodes.forEach(node => store.getState().addNode(node));
         }
       }
@@ -232,15 +232,15 @@ function App() {
       engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: {
-          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
-          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
-        }
+        keyframes: [
+          { id: 'a', time: 0, value: 0, easing: 'linear' },
+          { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        ]
       });
       engine.play();
     } else {
-      store.getState().commitHistory();
+      (store.getState() as any).commitHistory?.();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
@@ -370,8 +370,6 @@ function App() {
   };
 
   const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
     e.preventDefault();
   };
 

@@ -36,7 +36,21 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('console', async (msg) => {
+      try {
+        const args = await Promise.all(msg.args().map(async (arg) => {
+          try {
+            return await page.evaluate(el => el instanceof Error ? el.stack || el.message : el, arg);
+          } catch {
+            return arg.toString();
+          }
+        }));
+        console.log('BROWSER:', msg.text(), ...args);
+      } catch {
+        console.log('BROWSER:', msg.text());
+      }
+    });
+    page.on('pageerror', (err) => console.log('PAGE ERROR:', err.stack || err));
 
     console.log('Navigating to http://localhost:4173 ...');
     await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
