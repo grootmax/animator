@@ -143,5 +143,16 @@ describe('IPC Integrity Suite', () => {
     (dialog.showSaveDialog as any).mockResolvedValue({ canceled: true, filePath: undefined });
     saveResult = await saveFileHandler(null, '{"test":false}');
     expect(saveResult).toBe(false);
+
+    // Test dialog:saveFile - Invalid JSON
+    await expect(saveFileHandler(null, 'invalid json payload')).rejects.toThrow(
+      'Invalid JSON payload: data must be valid JSON'
+    );
+
+    // Test dialog:saveFile - Non-JSON extension
+    (dialog.showSaveDialog as any).mockResolvedValue({ canceled: false, filePath: '/test/path.txt' });
+    await expect(saveFileHandler(null, '{"test":true}')).rejects.toThrow(
+      'Invalid file extension: only .json files are allowed'
+    );
   });
 });
