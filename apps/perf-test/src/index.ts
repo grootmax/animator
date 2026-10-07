@@ -19,7 +19,7 @@ async function runBenchmark() {
   let m2 = createMatrix();
   m1[0] = 1.1; m2[1] = 0.5;
   for (let i = 0; i < 1000000; i++) {
-    m1 = multiplyMatrix(m1, m2);
+    m1 = multiplyMatrix(createMatrix(), m1, m2);
   }
   const baselineEnd = performance.now();
   results.baselineMatrixTime = baselineEnd - baselineStart;
@@ -116,4 +116,6 @@ async function runBenchmark() {
   });
 }
 
-runBenchmark().catch(console.error);
+runBenchmark().catch((err) => {
+  console.error('BENCHMARK ERROR:', err?.stack || err?.message || String(err));
+});

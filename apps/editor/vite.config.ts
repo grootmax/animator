@@ -5,6 +5,9 @@ import path from 'path';
 
 export default defineConfig({
   base: './',
+  test: {
+    exclude: ['tests/**', 'node_modules/**']
+  },
   resolve: {
     alias: {
       '@monorepo/math': path.resolve(__dirname, '../../packages/math/src/index.ts'),
