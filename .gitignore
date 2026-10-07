@@ -4,3 +4,6 @@ dist-electron/
 release/
 *.tsbuildinfo
 .turbo
+playwright-report/
+test-results/
+perf-results.json

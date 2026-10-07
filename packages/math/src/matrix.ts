@@ -6,7 +6,26 @@ export const createMatrix = (): Matrix3 => [
   0, 0, 1
 ];
 
-export const multiplyMatrix = (out: Matrix3, a: Matrix3, b: Matrix3): Matrix3 => {
+export function multiplyMatrix(a: Matrix3, b: Matrix3): Matrix3;
+export function multiplyMatrix(out: Matrix3, a: Matrix3, b: Matrix3): Matrix3;
+export function multiplyMatrix(
+  arg0: Matrix3,
+  arg1: Matrix3,
+  arg2?: Matrix3
+): Matrix3 {
+  let out: Matrix3;
+  let a: Matrix3;
+  let b: Matrix3;
+  if (arg2 !== undefined) {
+    out = arg0;
+    a = arg1;
+    b = arg2;
+  } else {
+    out = createMatrix();
+    a = arg0;
+    b = arg1;
+  }
+
   const a00 = a[0], a01 = a[1], a02 = a[2];
   const a10 = a[3], a11 = a[4], a12 = a[5];
   const a20 = a[6], a21 = a[7], a22 = a[8];
@@ -26,20 +45,60 @@ export const multiplyMatrix = (out: Matrix3, a: Matrix3, b: Matrix3): Matrix3 =>
   out[8] = b20 * a02 + b21 * a12 + b22 * a22;
 
   return out;
-};
+}
 
-// We don't change translate/rotate/scale/skew internally but we inline them in getTransformMatrix
-// for zero allocations, avoiding intermediate arrays.
-export const getTransformMatrix = (
+export function getTransformMatrix(
+  x: number, 
+  y: number, 
+  rotation: number, 
+  scaleX: number, 
+  scaleY: number,
+  skewX?: number,
+  skewY?: number
+): Matrix3;
+export function getTransformMatrix(
   out: Matrix3,
   x: number, 
   y: number, 
   rotation: number, 
   scaleX: number, 
   scaleY: number,
-  skewX: number = 0,
-  skewY: number = 0
-): Matrix3 => {
+  skewX?: number,
+  skewY?: number
+): Matrix3;
+export function getTransformMatrix(
+  arg0: Matrix3 | number,
+  arg1: number,
+  arg2: number,
+  arg3: number,
+  arg4?: number,
+  arg5?: number,
+  arg6?: number,
+  arg7?: number
+): Matrix3 {
+  let out: Matrix3;
+  let x: number, y: number, rotation: number, scaleX: number, scaleY: number, skewX: number, skewY: number;
+
+  if (typeof arg0 === 'number') {
+    out = createMatrix();
+    x = arg0;
+    y = arg1;
+    rotation = arg2;
+    scaleX = arg3;
+    scaleY = arg4 ?? 1;
+    skewX = arg5 ?? 0;
+    skewY = arg6 ?? 0;
+  } else {
+    out = arg0;
+    x = arg1;
+    y = arg2;
+    rotation = arg3;
+    scaleX = arg4 ?? 1;
+    scaleY = arg5 ?? 1;
+    skewX = arg6 ?? 0;
+    skewY = arg7 ?? 0;
+  }
+
   const c = Math.cos(rotation);
   const s = Math.sin(rotation);
   
@@ -51,7 +110,6 @@ export const getTransformMatrix = (
   if (skewX !== 0 || skewY !== 0) {
     const tx = Math.tan(skewX);
     const ty = Math.tan(skewY);
-    // Multiply by skew matrix [1, ty, 0, tx, 1, 0, 0, 0, 1]
     const temp00 = m00 + m10 * ty;
     const temp01 = m01 + m11 * ty;
     const temp10 = m00 * tx + m10;
@@ -71,7 +129,7 @@ export const getTransformMatrix = (
   out[8] = 1;
   
   return out;
-};
+}
 
 export const translateMatrix = (m: Matrix3, x: number, y: number): Matrix3 => {
   const out = createMatrix();
@@ -143,7 +201,6 @@ export const multiplyMatrixMut = (out: Matrix3, a: Matrix3, b: Matrix3): Matrix3
   return out;
 };
 
-// Temporary matrices to avoid allocation
 const _m1 = createMatrix();
 const _m2 = createMatrix();
 const _m3 = createMatrix();

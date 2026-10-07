@@ -1,6 +1,7 @@
 import { generateKeyBetween } from '@monorepo/math';
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
+import { syncMiddleware, SyncMessage } from './sync';
 
 export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image';
 
@@ -9,6 +10,7 @@ export interface SceneNode {
   name: string;
   type: NodeType;
   parentId: string | null;
+  children?: string[];
   order: string;
   x: number;
   y: number;
@@ -49,7 +51,9 @@ export interface SceneGraphState {
   selectedNodeId: string | null;
   remoteSelections: Record<string, { nodeId: string; color: string; userName?: string }>;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
+  addNodesBulk: (nodes: Array<Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }>) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  updateNodesBatch: (batchUpdates: Record<string, Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
@@ -60,7 +64,7 @@ export interface SceneGraphState {
 
 const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }): SceneNode => ({
   parentId: null,
-  
+  children: [],
   name: node.id,
   x: 0,
   y: 0,
@@ -77,8 +81,6 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
   isDirty: true
 });
 
-import { syncMiddleware, SyncMessage } from './sync';
-
 export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) => {
   const config = (set: any, get: any) => ({
   nodes: {},
@@ -87,11 +89,11 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
   selectedNodeId: null,
   remoteSelections: {},
 
-  setViewport: (viewport) => set({ viewport }),
+  setViewport: (viewport: { x: number; y: number; zoom: number }) => set({ viewport }),
   
-  setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+  setSelectedNodeId: (selectedNodeId: string | null) => set({ selectedNodeId }),
   
-  setRemoteSelection: (userId, nodeId, color, userName) => set((state) => {
+  setRemoteSelection: (userId: string, nodeId: string | null, color?: string, userName?: string) => set((state: SceneGraphState) => {
     const newRemoteSelections = { ...state.remoteSelections };
     if (nodeId === null) {
       delete newRemoteSelections[userId];
@@ -119,6 +121,44 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
     }, false, { type: 'addNode', payload: node });
   },
 
+  addNodesBulk: (nodesToAdd: Array<Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }>) => {
+    set((state: SceneGraphState) => {
+      const newNodes = { ...state.nodes };
+      let newRootId = state.rootId;
+      const clonedParents = new Set<string>();
+
+      for (const node of nodesToAdd) {
+        const newNode = getDefaultNode(node);
+        newNodes[node.id] = newNode;
+
+        if (node.parentId === null && !newRootId) {
+          newRootId = node.id;
+        }
+      }
+
+      for (const node of nodesToAdd) {
+        if (node.parentId) {
+          const parent = newNodes[node.parentId];
+          if (parent) {
+            if (!clonedParents.has(node.parentId)) {
+              newNodes[node.parentId] = {
+                ...parent,
+                children: [...(parent.children || [])]
+              };
+              clonedParents.add(node.parentId);
+            }
+            newNodes[node.parentId].children!.push(node.id);
+          }
+        }
+      }
+
+      return {
+        nodes: newNodes,
+        rootId: newRootId
+      };
+    });
+  },
+
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => {
     set((state: SceneGraphState) => {
       const node = state.nodes[id];
@@ -127,13 +167,29 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
       const SPATIAL_PROPERTIES = ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'skewX', 'skewY'];
       const hasSpatialUpdate = Object.keys(updates).some(key => SPATIAL_PROPERTIES.includes(key));
 
-      // O(1) dirty marking: just mark the current node if spatial properties changed.
-      // The recalculate step will propagate this to children automatically!
       const isDirty = node.isDirty || hasSpatialUpdate;
       const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty } };
 
       return { nodes: newNodes };
     }, false, { type: 'updateNode', payload: { id, updates } });
+  },
+
+  updateNodesBatch: (batchUpdates: Record<string, any>) => {
+    set((state: SceneGraphState) => {
+      const newNodes = { ...state.nodes };
+      const SPATIAL_PROPERTIES = ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'skewX', 'skewY'];
+
+      for (const [id, updates] of Object.entries(batchUpdates)) {
+        const node = newNodes[id];
+        if (node) {
+          const hasSpatialUpdate = Object.keys(updates).some(key => SPATIAL_PROPERTIES.includes(key));
+          const isDirty = node.isDirty || hasSpatialUpdate;
+          newNodes[id] = { ...node, ...updates, isDirty };
+        }
+      }
+
+      return { nodes: newNodes };
+    });
   },
 
   reorderNode: (id: string, newParentId: string | null, index: number) => {
@@ -162,7 +218,6 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
       const node = state.nodes[id];
       if (!node) return state;
 
-      // O(1) dirty marking
       const newNodes = { ...state.nodes, [id]: { ...node, isDirty: true } };
 
       return { nodes: newNodes };
@@ -214,7 +269,8 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
             currentWorldMatrix = node.worldMatrix;
         }
 
-        for (const childId of node.children) {
+        const children = childrenMap[nodeId] || node.children || [];
+        for (const childId of children) {
           traverse(childId, currentWorldMatrix, isWorldDirty);
         }
       };

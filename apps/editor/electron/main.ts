@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { setupSecurity } from './security';
 
 setupSecurity();
@@ -12,72 +13,18 @@ const DOMAIN_WHITELIST = [
   'https://fonts.gstatic.com'
 ];
 
-function setupSecurity() {
-  const isDev = !!process.env.VITE_DEV_SERVER_URL;
-  const devUrl = isDev ? new URL(process.env.VITE_DEV_SERVER_URL!).origin : '';
 
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const cspRules = [
-      `default-src 'self' ${isDev ? devUrl : ''}`,
-      `script-src 'self' ${isDev ? "'unsafe-inline' 'unsafe-eval' " + devUrl : ''}`,
-      `style-src 'self' 'unsafe-inline' ${DOMAIN_WHITELIST.join(' ')}`,
-      `font-src 'self' data: ${DOMAIN_WHITELIST.join(' ')}`,
-      `img-src 'self' data: blob: ${DOMAIN_WHITELIST.join(' ')} ${isDev ? devUrl : ''}`,
-      `connect-src 'self' ${isDev ? devUrl + " ws: wss:" : ''} ${DOMAIN_WHITELIST.join(' ')}`
-    ];
-
-    const csp = cspRules.map(rule => rule.trim()).filter(Boolean).join('; ');
-
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [csp]
-      }
-    });
-  });
-
-  app.on('web-contents-created', (event, contents) => {
-    contents.on('will-navigate', (event, navigationUrl) => {
-      try {
-        const parsedUrl = new URL(navigationUrl);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
-          event.preventDefault();
-          shell.openExternal(navigationUrl);
-        }
-      } catch (err) {
-        event.preventDefault();
-      }
-    });
-
-    contents.setWindowOpenHandler(({ url }) => {
-      try {
-        const parsedUrl = new URL(url);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
-          shell.openExternal(url);
-          return { action: 'deny' };
-        }
-        return { action: 'allow' };
-      } catch (err) {
-        return { action: 'deny' };
-      }
-    });
-  });
-}
 
 function createWindow() {
+  const preloadPath = fs.existsSync(path.join(__dirname, 'preload.js'))
+    ? path.join(__dirname, 'preload.js')
+    : path.join(app.getAppPath(), 'dist-electron/preload.js');
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist-electron/preload.js'),
+      preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
     },
@@ -115,7 +62,10 @@ function createWindow() {
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    mainWindow.loadFile(path.join(app.getAppPath(), 'dist/index.html'));
+    const indexPath = fs.existsSync(path.join(__dirname, '../dist/index.html')) 
+      ? path.join(__dirname, '../dist/index.html') 
+      : path.join(app.getAppPath(), 'dist/index.html');
+    mainWindow.loadFile(indexPath);
   }
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -174,13 +124,24 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'darwin' || process.env.TEST_MODE === 'true') {
     app.quit();
   }
 });
 
 // IPC Handlers
 ipcMain.handle('dialog:openFile', async () => {
+  if (process.env.TEST_MODE === 'true') {
+    const testFilePath = path.join(app.getAppPath(), 'test-resources/test.svg');
+    const fallbackPath = path.join(__dirname, '../test-resources/test.svg');
+    if (fs.existsSync(testFilePath)) {
+      return fs.promises.readFile(testFilePath, 'utf-8');
+    } else if (fs.existsSync(fallbackPath)) {
+      return fs.promises.readFile(fallbackPath, 'utf-8');
+    }
+    return '<svg><rect id="rect" x="0" y="0" width="100" height="100"/></svg>';
+  }
+
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
     filters: [{ name: 'SVG files', extensions: ['svg'] }]
@@ -194,6 +155,12 @@ ipcMain.handle('dialog:saveFile', async (_, content: string) => {
     JSON.parse(content);
   } catch (error) {
     return false;
+  }
+
+  if (process.env.TEST_MODE === 'true') {
+    const testFilePath = process.env.TEST_SAVE_PATH || path.join(os.tmpdir(), 'test-save.json');
+    await fs.promises.writeFile(testFilePath, content, 'utf-8');
+    return true;
   }
 
   try {
