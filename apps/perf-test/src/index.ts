@@ -17,9 +17,10 @@ async function runBenchmark() {
   const baselineStart = performance.now();
   let m1 = createMatrix();
   let m2 = createMatrix();
+  let mOut = createMatrix();
   m1[0] = 1.1; m2[1] = 0.5;
   for (let i = 0; i < 1000000; i++) {
-    m1 = multiplyMatrix(m1, m2);
+    multiplyMatrix(mOut, m1, m2);
   }
   const baselineEnd = performance.now();
   results.baselineMatrixTime = baselineEnd - baselineStart;
@@ -116,4 +117,8 @@ async function runBenchmark() {
   });
 }
 
-runBenchmark().catch(console.error);
+runBenchmark().catch((err) => {
+  console.error('Benchmark error:', err && err.stack ? err.stack : String(err));
+  window.__perf_results__ = { error: String(err && err.stack ? err.stack : err), frameMetrics: { totalFrames: 0, stdDev: 999 } };
+  window.__perf_done__ = true;
+});

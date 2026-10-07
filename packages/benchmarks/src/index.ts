@@ -32,14 +32,17 @@ function measure(name: string, fn: () => void, iterations: number = DEFAULT_ITER
 const mathResults: Record<string, number> = {};
 
 const m1 = createMatrix();
-const m2 = getTransformMatrix(10, 20, 0.5, 2, 2, 0.1, 0.1);
+const m2 = createMatrix();
+getTransformMatrix(m2, 10, 20, 0.5, 2, 2, 0.1, 0.1);
 
+const m3 = createMatrix();
 mathResults['multiplyMatrix'] = measure('Math: multiplyMatrix', () => {
-  multiplyMatrix(m1, m2);
+  multiplyMatrix(m3, m1, m2);
 }, 1000000);
 
+const m4 = createMatrix();
 mathResults['getTransformMatrix'] = measure('Math: getTransformMatrix', () => {
-  getTransformMatrix(10, 20, 0.5, 2, 2, 0.1, 0.1);
+  getTransformMatrix(m4, 10, 20, 0.5, 2, 2, 0.1, 0.1);
 }, 1000000);
 
 // 2. Scene Graph Benchmark

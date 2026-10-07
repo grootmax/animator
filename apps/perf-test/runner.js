@@ -4,16 +4,22 @@ const path = require('path');
 
 async function run() {
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  const viteProcess = spawn('npx', ['vite'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
+
+  let serverPort = 4173;
 
   await new Promise((resolve) => {
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/http:\/\/localhost:(\d+)/);
+      if (match) {
+        serverPort = parseInt(match[1], 10);
+        resolve();
+      } else if (output.includes('ready in')) {
         resolve();
       }
     });
@@ -22,11 +28,7 @@ async function run() {
     });
   });
 
-  console.log('Server started. Launching Puppeteer...');
-  
-  // Create an explicit build before starting if we use `preview`, but let's actually just spawn `vite` (dev server) for simplicity.
-  // Wait, I spawned `vite preview`. Let me kill it and spawn `vite` (dev server) instead to avoid needing a build step.
-  // Let me just fix the command in the spawned process later if needed. For now, it's just 'vite'.
+  console.log(`Server started on port ${serverPort}. Launching Puppeteer...`);
 
   let browser;
   try {
@@ -36,14 +38,17 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('console', async (msg) => {
+      const args = await Promise.all(msg.args().map(a => a.jsonValue().catch(() => a.toString())));
+      console.log('BROWSER:', ...args);
+    });
+    page.on('pageerror', (err) => console.error('BROWSER PAGE ERROR:', err));
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    const targetUrl = `http://localhost:${serverPort}`;
+    console.log(`Navigating to ${targetUrl} ...`);
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
-    
-    // Increase timeout since generation and 5s playback will take at least 6-10s
     await page.waitForFunction(() => window.__perf_done__ === true, { timeout: 60000 });
 
     const results = await page.evaluate(() => window.__perf_results__);
@@ -52,19 +57,8 @@ async function run() {
 
     const { frameMetrics, baselineMatrixTime } = results;
 
-    // Check performance logic
-    // We want to fail if standard deviation is too high, or violation percent is > threshold.
-    // Given the 100K nodes, running in a headless VM might be slow.
-    // The relative baseline approach: check if frame time is proportional to baseline.
-    
-    // Baseline check scaling: assume baseline time of 150ms on CI means ~1x factor.
     const baselineFactor = baselineMatrixTime / 150.0;
-    
-    // Scale acceptable jank threshold based on baseline factor
     const maxStdDev = Math.max(15, 15 * baselineFactor); 
-    
-    // Also, we can check that we aren't completely deadlocked.
-    // (Handled below)
 
     console.log(`Baseline Factor: ${baselineFactor.toFixed(2)}x`);
     console.log(`Allowed StdDev: ${maxStdDev.toFixed(2)}ms, Actual: ${frameMetrics.stdDev?.toFixed(2) || 'N/A'}ms`);
