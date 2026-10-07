@@ -12,6 +12,7 @@ export class PixiBridge {
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
+  private remoteSelectionsContainer: PIXI.Container;
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({

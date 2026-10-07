@@ -1,6 +1,9 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 
+export type NetworkRole = 'standalone' | 'host' | 'client' | 'leader' | 'follower';
+export type Heartbeat = { playhead: number; isPlaying: boolean; timestamp?: number };
+
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
 
 export interface Keyframe {
@@ -305,11 +308,9 @@ export class AnimationEngine {
     let requiresMatrixUpdate = false;
 
     if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
       for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
+        storeState.updateNode(nodeId, nodeUpdates);
       }
-      storeState.updateNodesBatch(batchUpdates);
       requiresMatrixUpdate = true;
     }
 
