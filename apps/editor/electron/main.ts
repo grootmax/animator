@@ -1,9 +1,9 @@
 import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { setupSecurity } from './security';
+import { setupSecurity as initSecurity } from './security';
 
-setupSecurity();
+initSecurity();
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -36,8 +36,8 @@ function setupSecurity() {
     });
   });
 
-  app.on('web-contents-created', (event, contents) => {
-    contents.on('will-navigate', (event, navigationUrl) => {
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('will-navigate', (navEvent, navigationUrl) => {
       try {
         const parsedUrl = new URL(navigationUrl);
         const isAppUrl = isDev 
@@ -45,11 +45,11 @@ function setupSecurity() {
           : parsedUrl.protocol === 'file:';
           
         if (!isAppUrl) {
-          event.preventDefault();
+          navEvent.preventDefault();
           shell.openExternal(navigationUrl);
         }
       } catch (err) {
-        event.preventDefault();
+        navEvent.preventDefault();
       }
     });
 

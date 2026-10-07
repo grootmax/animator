@@ -1,4 +1,4 @@
-import { app, session } from 'electron';
+import { app } from 'electron';
 import { URL } from 'url';
 
 const ALLOWED_EXTERNAL_ORIGINS: string[] = [];
@@ -25,9 +25,9 @@ export function setupSecurity() {
   });
 
   // 2. Navigation Guards & Window Creation Guards
-  app.on('web-contents-created', (event, contents) => {
+  app.on('web-contents-created', (_event, contents) => {
     // Navigation guard
-    contents.on('will-navigate', (event, navigationUrl) => {
+    contents.on('will-navigate', (navEvent, navigationUrl) => {
       try {
         const parsedUrl = new URL(navigationUrl);
 
@@ -36,11 +36,11 @@ export function setupSecurity() {
 
         if (!isDevUrl && !isLocalFile && !ALLOWED_EXTERNAL_ORIGINS.includes(parsedUrl.origin)) {
           console.warn(`[Security] Blocked unauthorized navigation to: ${navigationUrl}`);
-          event.preventDefault();
+          navEvent.preventDefault();
         }
       } catch (err) {
         console.warn(`[Security] Blocked navigation to invalid URL: ${navigationUrl}`);
-        event.preventDefault();
+        navEvent.preventDefault();
       }
     });
 
