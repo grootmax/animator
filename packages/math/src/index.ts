@@ -1,4 +1,3 @@
-export * from './matrix';
-export * from './easing';
-export * from './fractional';
-// force rebuild
+export * from './matrix.js';
+export * from './easing.js';
+export * from './fractional.js';

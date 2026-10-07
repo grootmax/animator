@@ -1,5 +1,5 @@
 import { StateCreator } from 'zustand/vanilla';
-import { SceneGraphState } from './store';
+import { SceneGraphState } from './store.js';
 
 export type SyncMessage = {
   type: string;

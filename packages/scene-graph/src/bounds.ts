@@ -1,5 +1,5 @@
 import { StoreApi } from 'zustand/vanilla';
-import { SceneNode, SceneGraphState } from './store';
+import { SceneNode, SceneGraphState } from './store.js';
 import { Matrix3 } from '@monorepo/math';
 
 export interface PathToken {

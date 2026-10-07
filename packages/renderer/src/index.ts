@@ -1,3 +1,3 @@
-export * from './viewport';
-export * from './handles';
-export * from './bridge';
+export * from './viewport.js';
+export * from './handles.js';
+export * from './bridge.js';

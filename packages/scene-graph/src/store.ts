@@ -1,7 +1,7 @@
 import { generateKeyBetween } from '@monorepo/math';
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
-import { invalidateBounds } from './bounds';
+import { invalidateBounds } from './bounds.js';
 
 export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image';
 
@@ -79,7 +79,7 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
   isDirty: true
 });
 
-import { syncMiddleware, SyncMessage } from './sync';
+import { syncMiddleware, SyncMessage } from './sync.js';
 
 export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) => {
   const config = (set: any, get: any) => ({
@@ -221,14 +221,22 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
       const newNodes = { ...state.nodes };
       const { rootId } = state;
       const childrenMap: Record<string, string[]> = {};
-      Object.values(newNodes).forEach((n: any) => {
+      for (const id in newNodes) {
+        const n = newNodes[id];
         if (n.parentId) {
           if (!childrenMap[n.parentId]) childrenMap[n.parentId] = [];
           childrenMap[n.parentId].push(n.id);
         }
-      });
+      }
       for (const k in childrenMap) {
-        childrenMap[k].sort((a: any, b: any) => ((newNodes as any)[a].order || '').localeCompare((newNodes as any)[b].order || ''));
+        const arr = childrenMap[k];
+        if (arr.length > 1) {
+          arr.sort((aId, bId) => {
+            const oa = newNodes[aId]?.order || '';
+            const ob = newNodes[bId]?.order || '';
+            return oa < ob ? -1 : oa > ob ? 1 : 0;
+          });
+        }
       }
 
       if (!rootId || !newNodes[rootId]) return state;
@@ -255,12 +263,6 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
           }
           multiplyMatrix(node.worldMatrix, parentWorldMatrix, node.localMatrix);
           currentWorldMatrix = node.worldMatrix;
-
-          newNodes[nodeId] = {
-            ...node,
-            localMatrix,
-            worldMatrix: currentWorldMatrix
-          };
         } else {
             currentWorldMatrix = node.worldMatrix;
         }
