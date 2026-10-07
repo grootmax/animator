@@ -37,7 +37,7 @@ export const Timeline: React.FC<TimelineProps> = ({ engine, store }) => {
         timeDisplayRef.current.textContent = `${(currentPlayhead / 1000).toFixed(2)}s`;
       }
 
-      setIsPlaying((prev) => {
+      setIsPlaying((prev: boolean) => {
         if (prev !== currentlyPlaying) return currentlyPlaying;
         return prev;
       });
