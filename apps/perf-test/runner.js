@@ -1,10 +1,11 @@
 const puppeteer = require('puppeteer');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const path = require('path');
 
 async function run() {
+  try { execSync('fuser -k 4173/tcp 2>/dev/null || true'); } catch {}
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  const viteProcess = spawn('npx', ['vite', '--port', '4173', '--strictPort'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
@@ -32,11 +33,19 @@ async function run() {
   try {
     browser = await puppeteer.launch({
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--enable-features=SharedArrayBuffer'],
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('pageerror', err => console.log('PAGE ERROR:', err.message, err.stack));
+    page.on('console', async (msg) => {
+      try {
+        const args = await Promise.all(msg.args().map(a => a.jsonValue().catch(() => a.toString())));
+        console.log('BROWSER:', msg.text(), ...args);
+      } catch {
+        console.log('BROWSER:', msg.text());
+      }
+    });
 
     console.log('Navigating to http://localhost:4173 ...');
     await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
