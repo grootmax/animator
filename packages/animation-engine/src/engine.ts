@@ -1,20 +1,6 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
-
-export interface Keyframe {
-  id: string;
-  time: number; // in milliseconds
-  value: number | string;
-  easing?: EasingType;
-}
-
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
-}
+import { EasingType, Keyframe, Track, NetworkRole, Heartbeat } from './types';
 
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
@@ -190,6 +176,8 @@ export class AnimationEngine {
   private broadcastHeartbeat() {
     if (this.role === 'leader' && this.onHeartbeat) {
       this.onHeartbeat({
+        time: performance.now(),
+        role: this.role,
         playhead: this.playhead,
         isPlaying: this.isPlaying
       });
@@ -199,9 +187,10 @@ export class AnimationEngine {
   public receiveHeartbeat(heartbeat: Heartbeat, estimatedLatency: number = 0) {
     if (this.role !== 'follower') return;
 
+    const basePlayhead = heartbeat.playhead ?? 0;
     const targetPlayhead = heartbeat.isPlaying 
-      ? heartbeat.playhead + estimatedLatency 
-      : heartbeat.playhead;
+      ? basePlayhead + estimatedLatency 
+      : basePlayhead;
 
     const drift = Math.abs(this.playhead - targetPlayhead);
 
@@ -305,11 +294,9 @@ export class AnimationEngine {
     let requiresMatrixUpdate = false;
 
     if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
       for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
+        storeState.updateNode(nodeId, nodeUpdates);
       }
-      storeState.updateNodesBatch(batchUpdates);
       requiresMatrixUpdate = true;
     }
 
