@@ -5,10 +5,14 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -b",
-    "dev": "tsc -b -w"
+    "dev": "tsc -b -w",
+    "test": "vitest run"
   },
   "dependencies": {
     "@monorepo/math": "*",
     "@monorepo/scene-graph": "*"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0"
   }
 }
