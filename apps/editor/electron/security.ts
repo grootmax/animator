@@ -12,8 +12,8 @@ export function setupSecurity() {
       // In Dev, allow localhost connections, eval, and inline scripts/styles for Vite HMR
       // In Prod, restrict script execution to local files only (i.e. 'self')
       const csp = isDev
-        ? `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: http:; img-src 'self' data: blob:; font-src 'self' data:;`
-        : `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; font-src 'self' data:;`;
+        ? `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: http:; img-src 'self' data: blob: studio:; font-src 'self' data:;`
+        : `default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data: blob: studio:; font-src 'self' data:;`;
 
       callback({
         responseHeaders: {

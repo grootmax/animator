@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test:e2e": "playwright test",
     "package": "electron-builder build --mac --linux"
   },
   "build": {
@@ -41,6 +42,7 @@
     "zustand": "^4.4.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.38.0",
     "@types/node": "^18.19.130",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
