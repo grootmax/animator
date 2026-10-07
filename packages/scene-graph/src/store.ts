@@ -235,15 +235,6 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
     set((state: SceneGraphState) => {
       const newNodes = { ...state.nodes };
       const { rootId } = state;
-      const childrenMap: Record<string, string[]> = {};
-      Object.values(newNodes).forEach((n: any) => {
-        const p = n.parentId || 'root';
-        if (!childrenMap[p]) childrenMap[p] = [];
-        childrenMap[p].push(n.id);
-      });
-      for (const k in childrenMap) {
-        childrenMap[k].sort((a: any, b: any) => ((newNodes as any)[a].order || '').localeCompare((newNodes as any)[b].order || ''));
-      }
 
       if (!rootId || !newNodes[rootId]) return state;
 
