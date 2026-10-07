@@ -5,6 +5,10 @@ vi.mock('electron', () => {
   class MockBrowserWindow {
     loadURL = vi.fn();
     loadFile = vi.fn();
+    webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
     static getAllWindows = vi.fn().mockReturnValue([]);
   }
 
@@ -13,6 +17,8 @@ vi.mock('electron', () => {
       whenReady: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
       quit: vi.fn(),
+      getPath: vi.fn().mockReturnValue('/mock/user/data'),
+      getAppPath: vi.fn().mockReturnValue('/mock/app/path'),
     },
     BrowserWindow: MockBrowserWindow,
     ipcMain: {
@@ -27,6 +33,20 @@ vi.mock('electron', () => {
     },
     ipcRenderer: {
       invoke: vi.fn(),
+    },
+    session: {
+      defaultSession: {
+        webRequest: {
+          onHeadersReceived: vi.fn(),
+        },
+      },
+    },
+    protocol: {
+      registerSchemesAsPrivileged: vi.fn(),
+      registerFileProtocol: vi.fn(),
+    },
+    shell: {
+      openExternal: vi.fn(),
     },
   };
 });
@@ -59,7 +79,15 @@ describe('IPC Integrity Suite', () => {
     
     // Strict check for exactly what is exposed
     const exposedAPI = (contextBridge.exposeInMainWorld as any).mock.calls[0][1];
-    expect(Object.keys(exposedAPI)).toEqual(['openFile', 'saveFile']);
+    expect(Object.keys(exposedAPI)).toEqual([
+      'openFile',
+      'saveFile',
+      'loadRecentProject',
+      'openProject',
+      'saveProject',
+      'saveProjectAs',
+      'readAssetBuffer'
+    ]);
     
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledWith(
       'electronAPI',

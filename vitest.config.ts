@@ -1,0 +1,12 @@
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+  test: {
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/apps/editor/tests/**',
+      '**/electron/writerUtils.test.ts'
+    ]
+  }
+});

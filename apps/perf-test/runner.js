@@ -4,7 +4,7 @@ const path = require('path');
 
 async function run() {
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  const viteProcess = spawn('npx', ['vite', '--port', '4173', '--strictPort'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
@@ -99,8 +99,8 @@ async function run() {
     process.exitCode = 1;
   } finally {
     if (browser) await browser.close();
-    viteProcess.kill();
-    process.exit();
+    viteProcess.kill('SIGKILL');
+    process.exit(process.exitCode || 0);
   }
 }
 
