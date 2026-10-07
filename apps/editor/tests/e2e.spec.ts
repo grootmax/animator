@@ -15,7 +15,7 @@ test.describe('Multi-OS Integrity Suite', () => {
 
     // Launch Electron app
     app = await electron.launch({
-      args: [path.join(__dirname, '../dist-electron/main.js')],
+      args: [path.join(__dirname, '../dist-electron/main.js'), '--no-sandbox'],
       env: {
         ...process.env,
         TEST_MODE: 'true',

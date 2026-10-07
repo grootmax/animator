@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, protocol, net } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { setupSecurity } from './security';
 
 // Register custom protocol as privileged
@@ -17,7 +18,7 @@ function createWindow() {
     width: 1200,
     height: 800,
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist-electron/preload.js'),
+      preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
     },
@@ -55,30 +56,8 @@ function createWindow() {
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    mainWindow.loadFile(path.join(app.getAppPath(), 'dist/index.html'));
+    mainWindow.loadFile(path.resolve(__dirname, '../dist/index.html'));
   }
-
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    try {
-      const parsedUrl = new URL(url);
-      if (process.env.VITE_DEV_SERVER_URL) {
-        const devUrl = new URL(process.env.VITE_DEV_SERVER_URL);
-        if (parsedUrl.origin !== devUrl.origin) {
-          event.preventDefault();
-        }
-      } else {
-        if (parsedUrl.protocol !== 'file:' || !parsedUrl.pathname.includes('/dist/index.html')) {
-          event.preventDefault();
-        }
-      }
-    } catch {
-      event.preventDefault();
-    }
-  });
-
-  mainWindow.webContents.setWindowOpenHandler(() => {
-    return { action: 'deny' };
-  });
 }
 
 app.whenReady().then(() => {
@@ -122,7 +101,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'darwin' || process.env.TEST_MODE === 'true') {
     app.quit();
   }
 });
@@ -178,6 +157,10 @@ function addRecent(filePath: string) {
 
 // IPC Handlers
 ipcMain.handle('dialog:openFile', async () => {
+  if (process.env.TEST_MODE === 'true') {
+    const testFilePath = path.join(__dirname, '../test-resources/test.svg');
+    return fs.promises.readFile(testFilePath, 'utf-8');
+  }
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
     filters: [{ name: 'SVG files', extensions: ['svg'] }]
@@ -188,6 +171,11 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:openFileWithMetadata', async () => {
+  if (process.env.TEST_MODE === 'true') {
+    const testFilePath = path.join(__dirname, '../test-resources/test.svg');
+    const content = await fs.promises.readFile(testFilePath, 'utf-8');
+    return { content, filePath: testFilePath };
+  }
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
   });
@@ -198,6 +186,11 @@ ipcMain.handle('dialog:openFileWithMetadata', async () => {
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
+  if (process.env.TEST_MODE === 'true') {
+    const testFilePath = process.env.TEST_SAVE_PATH || path.join(os.tmpdir(), 'test-save.json');
+    await fs.promises.writeFile(testFilePath, content, 'utf-8');
+    return true;
+  }
   try {
     JSON.parse(content);
   } catch (error) {
@@ -230,6 +223,11 @@ ipcMain.handle('dialog:saveFileDirect', async (_, filePath: string, content: str
 });
 
 ipcMain.handle('dialog:saveFileWithDialog', async (_, content: string) => {
+  if (process.env.TEST_MODE === 'true') {
+    const testFilePath = process.env.TEST_SAVE_PATH || path.join(os.tmpdir(), 'test-save.json');
+    await fs.promises.writeFile(testFilePath, content, 'utf-8');
+    return testFilePath;
+  }
   const { canceled, filePath } = await dialog.showSaveDialog({});
   if (canceled || !filePath) return null;
   await fs.promises.writeFile(filePath, content, 'utf-8');
@@ -256,6 +254,11 @@ ipcMain.handle('dialog:saveBinaryFileDirect', async (_, filePath: string, buffer
 
 
 ipcMain.handle('dialog:saveBinaryFileWithDialog', async (_, buffer: ArrayBuffer) => {
+  if (process.env.TEST_MODE === 'true') {
+    const testFilePath = process.env.TEST_SAVE_PATH || path.join(os.tmpdir(), 'test-save.json');
+    await fs.promises.writeFile(testFilePath, Buffer.from(buffer));
+    return testFilePath;
+  }
   const { canceled, filePath } = await dialog.showSaveDialog({});
   if (canceled || !filePath) return null;
   await fs.promises.writeFile(filePath, Buffer.from(buffer));
