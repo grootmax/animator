@@ -1,4 +1,4 @@
-import { app, session } from 'electron';
+import { app } from 'electron';
 import { URL } from 'url';
 
 const ALLOWED_EXTERNAL_ORIGINS: string[] = [];
@@ -13,7 +13,7 @@ export function setupSecurity() {
       // In Prod, restrict script execution to local files only (i.e. 'self')
       const csp = isDev
         ? `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: http:; img-src 'self' data: blob:; font-src 'self' data:;`
-        : `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; font-src 'self' data:;`;
+        : `default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; font-src 'self' data:;`;
 
       callback({
         responseHeaders: {
@@ -25,7 +25,7 @@ export function setupSecurity() {
   });
 
   // 2. Navigation Guards & Window Creation Guards
-  app.on('web-contents-created', (event, contents) => {
+  app.on('web-contents-created', (_event, contents) => {
     // Navigation guard
     contents.on('will-navigate', (event, navigationUrl) => {
       try {
