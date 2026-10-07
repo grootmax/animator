@@ -2,8 +2,6 @@ import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 
-setupSecurity();
-
 let mainWindow: BrowserWindow | null = null;
 
 const DOMAIN_WHITELIST = [
@@ -18,7 +16,7 @@ function setupSecurity() {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const cspRules = [
       `default-src 'self' ${isDev ? devUrl : ''}`,
-      `script-src 'self' ${isDev ? "'unsafe-inline' 'unsafe-eval' " + devUrl : ''}`,
+      `script-src 'self' 'unsafe-inline' 'unsafe-eval' ${isDev ? devUrl : ''}`,
       `style-src 'self' 'unsafe-inline' ${DOMAIN_WHITELIST.join(' ')}`,
       `font-src 'self' data: ${DOMAIN_WHITELIST.join(' ')}`,
       `img-src 'self' data: blob: ${DOMAIN_WHITELIST.join(' ')} ${isDev ? devUrl : ''}`,
@@ -76,7 +74,7 @@ function createWindow() {
     width: 1200,
     height: 800,
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist-electron/preload.js'),
+      preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
     },
@@ -114,7 +112,7 @@ function createWindow() {
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    mainWindow.loadFile(path.join(app.getAppPath(), 'dist/index.html'));
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -199,6 +197,10 @@ ipcMain.handle('dialog:saveProject', async (_, content: Uint8Array) => {
 });
 
 ipcMain.handle('dialog:openFile', async () => {
+  if (process.env.TEST_MODE === 'true') {
+    const testSvgPath = path.join(__dirname, '../test-resources/test.svg');
+    return fs.promises.readFile(testSvgPath, 'utf-8');
+  }
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
     filters: [{ name: 'SVG files', extensions: ['svg'] }]
@@ -208,6 +210,11 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
+  if (process.env.TEST_MODE === 'true' && process.env.TEST_SAVE_PATH) {
+    await fs.promises.writeFile(process.env.TEST_SAVE_PATH, content, 'utf-8');
+    return true;
+  }
+
   try {
     JSON.parse(content);
   } catch (error) {

@@ -9,6 +9,7 @@ interface ToolbarProps {
   onOpenProject: () => void;
   onSaveProject: () => void;
   onImport: () => void;
+  onExportJson?: () => void;
   onExportSvg: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -24,6 +25,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onOpenProject,
   onSaveProject,
   onImport,
+  onExportJson,
   onExportSvg,
   onZoomIn,
   onZoomOut,
@@ -73,6 +75,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <div className="border-l border-gray-600 mx-1"></div>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onImport} title="Import SVG">
           <Upload size={20} /> <span className="text-sm">SVG In</span>
+        </button>
+        <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportJson} title="Export JSON">
+          <Download size={20} /> <span className="text-sm">JSON</span>
         </button>
         <button className="p-2 rounded-md hover:bg-gray-700 flex items-center gap-2" onClick={onExportSvg} title="Export SVG">
           <Download size={20} /> <span className="text-sm">SVG Out</span>

@@ -183,6 +183,23 @@ function App() {
     }
   };
 
+  const handleExportJson = async () => {
+    if (window.electronAPI) {
+      const state = store.getState().nodes;
+      const exportData = {
+        scene: state,
+        animations: engine.getTracks(),
+        metadata: {
+          version: "1.0.0",
+          duration: engine.getDuration()
+        }
+      };
+      await window.electronAPI.saveFile(JSON.stringify(exportData, null, 2));
+    } else {
+      alert("Electron API not available");
+    }
+  };
+
   const handleExportSvg = async () => {
     if (window.electronAPI) {
       const state = store.getState().nodes;
@@ -312,6 +329,7 @@ function App() {
           onOpenProject={handleOpenProject}
           onSaveProject={handleSaveProject}
           onImport={handleImportSvg}
+          onExportJson={handleExportJson}
           onExportSvg={handleExportSvg}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}

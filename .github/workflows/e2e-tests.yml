@@ -32,6 +32,10 @@ jobs:
       if: runner.os == 'Linux'
       run: npx playwright install --with-deps
 
+    - name: Install Playwright browsers (Windows / macOS)
+      if: runner.os != 'Linux'
+      run: npx playwright install
+
     - name: Build project
       run: npm run build
 
