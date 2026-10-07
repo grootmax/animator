@@ -4,7 +4,7 @@ const path = require('path');
 
 async function run() {
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  const viteProcess = spawn('npx', ['vite', '--port', '4173', '--strictPort'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
@@ -23,20 +23,24 @@ async function run() {
   });
 
   console.log('Server started. Launching Puppeteer...');
-  
-  // Create an explicit build before starting if we use `preview`, but let's actually just spawn `vite` (dev server) for simplicity.
-  // Wait, I spawned `vite preview`. Let me kill it and spawn `vite` (dev server) instead to avoid needing a build step.
-  // Let me just fix the command in the spawned process later if needed. For now, it's just 'vite'.
 
   let browser;
   try {
     browser = await puppeteer.launch({
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--enable-features=SharedArrayBuffer'],
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('console', async (msg) => {
+      try {
+        const args = await Promise.all(msg.args().map(arg => arg.jsonValue().catch(() => arg.toString())));
+        console.log('BROWSER:', ...args);
+      } catch (e) {
+        console.log('BROWSER:', msg.text());
+      }
+    });
+    page.on('pageerror', (err) => console.log('BROWSER PAGE ERROR:', err.message, err.stack));
 
     console.log('Navigating to http://localhost:4173 ...');
     await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });

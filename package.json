@@ -11,10 +11,13 @@
     "dev": "turbo run dev",
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",
+    "test:perf": "playwright test",
     "package": "turbo run package"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "electron": "^25.3.0",
+    "serve": "^14.2.6",
     "turbo": "^1.10.0",
     "typescript": "^5.0.0"
   },

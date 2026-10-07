@@ -6,6 +6,7 @@
   },
   "include": ["src/**/*"],
   "references": [
+    { "path": "../../packages/telemetry" },
     { "path": "../../packages/scene-graph" },
     { "path": "../../packages/renderer" },
     { "path": "../../packages/animation-engine" }

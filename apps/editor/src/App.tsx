@@ -3,10 +3,11 @@ import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
+import { telemetry } from '@monorepo/telemetry';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
-// @ts-ignore
+import { DiagnosticHUD } from './components/DiagnosticHUD';
 import { DndProvider } from 'react-dnd';
 // @ts-ignore
 import { HTML5Backend } from 'react-dnd-html5-backend';
@@ -53,7 +54,7 @@ function App() {
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
-        setStoreVersion(state.version);
+        setStoreVersion((state as any).version || 0);
       });
 
       return () => unsubscribe();
@@ -61,7 +62,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    return engine.subscribeUI((state) => {
+    return (engine as any).subscribeUI?.((state: any) => {
       setIsPlaying(state.isPlaying);
     });
   }, []);
@@ -70,17 +71,96 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().undo();
+        (store.getState() as any).undo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        store.getState().redo();
+        (store.getState() as any).redo?.();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    
+    // Expose telemetry and stress test utility for Playwright CI tests
+    (window as any).telemetry = telemetry;
+    (window as any).runStressTest = (nodeCount: number = 100000) => {
+      console.log(`Starting stress test with ${nodeCount} nodes...`);
+      const state = store.getState();
+      
+      store.setState((prev) => {
+        const newNodes = { ...prev.nodes };
+        const rootId = prev.rootId || 'root';
+        const rootNode = newNodes[rootId] || { 
+          id: rootId, 
+          name: rootId,
+          type: 'container', 
+          parentId: null,
+          order: 'a0',
+          x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1, opacity: 1, visible: true, locked: false,
+          localMatrix: [1,0,0,0,1,0,0,0,1],
+          worldMatrix: [1,0,0,0,1,0,0,0,1],
+          isDirty: true
+        };
+        
+        newNodes[rootId] = rootNode;
+        
+        for (let i = 0; i < nodeCount; i++) {
+          const id = `stress_node_${i}`;
+          newNodes[id] = {
+            id,
+            name: id,
+            type: 'container',
+            parentId: rootId,
+            order: `a${i}`,
+            x: Math.random() * window.innerWidth,
+            y: Math.random() * window.innerHeight,
+            rotation: Math.random() * Math.PI,
+            scaleX: 1,
+            scaleY: 1,
+            opacity: 1,
+            visible: true,
+            locked: false,
+            localMatrix: [1,0,0,0,1,0,0,0,1] as any,
+            worldMatrix: [1,0,0,0,1,0,0,0,1] as any,
+            isDirty: true
+          };
+        }
+        
+        return { nodes: newNodes, rootId };
+      });
+      
+      state.recalculateMatrices();
+      
+      // Pause PIXI rendering for engine stress test to avoid WebGL bottleneck
+      const bridge = (window as any).__bridge;
+      if (bridge && bridge.app) {
+        bridge.app.ticker.stop();
+        // Hide viewport to skip render passes entirely if ticker is manually ticked
+        bridge.viewport.container.visible = false;
+        
+        // Unsubscribe bridge to avoid syncNodes during math engine benchmark
+        if (bridge.unsubscribeStore) {
+            bridge.unsubscribeStore();
+        } else {
+            // we didn't save unsubscribe function in bridge...
+            // we can just mock syncNodes
+            (bridge as any).syncNodes = () => {};
+        }
+      }
+      
+      // Expose a tick function for the test to continuously stress the math engine
+      (window as any).tickStress = () => {
+         store.getState().markDirty(store.getState().rootId || 'root');
+         store.getState().recalculateMatrices();
+      };
+      
+      return "Stress test initialized";
+    };
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   const handleImportSvg = async () => {
@@ -90,7 +170,7 @@ function App() {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
         if (nodes.length > 0) {
-          store.getState().commitHistory();
+          (store.getState() as any).commitHistory?.();
           nodes.forEach(node => store.getState().addNode(node));
         }
       }
@@ -193,15 +273,15 @@ function App() {
       engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: {
-          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
-          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
-        }
+        keyframes: [
+          { id: 'a', time: 0, value: 0, easing: 'linear' },
+          { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        ]
       });
       engine.play();
     } else {
-      store.getState().commitHistory();
+      (store.getState() as any).commitHistory?.();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
@@ -302,9 +382,10 @@ function App() {
             onDragOver={handleDragOver}
           >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+            <DiagnosticHUD />
             {/* Overlay a subtle test animation button for quick testing */}
             <button
-               className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
+               className="absolute top-4 right-72 bg-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-500 shadow"
                onClick={handleTestAnimation}
             >
               Add Test Anim

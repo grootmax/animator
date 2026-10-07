@@ -1,20 +1,7 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
-
-export interface Keyframe {
-  id: string;
-  time: number; // in milliseconds
-  value: number | string;
-  easing?: EasingType;
-}
-
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
-}
+import { telemetry } from '@monorepo/telemetry';
+import { EasingType, Keyframe, Track, NetworkRole, Heartbeat } from './types';
 
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
@@ -219,6 +206,9 @@ export class AnimationEngine {
   private tick = () => {
     if (!this.isPlaying) return;
 
+    telemetry.begin('total');
+    telemetry.begin('animation');
+
     const now = performance.now();
     const dt = now - this.lastTime;
     this.lastTime = now;
@@ -239,6 +229,16 @@ export class AnimationEngine {
     }
 
     this.updateNodes();
+
+    telemetry.end('animation');
+
+    // total ends here or in renderer?
+    // Actually, renderer hooks into app.ticker which fires requestAnimationFrame independently!
+    // But since this is a different RAF loop, total frame time might need to be measured separately.
+    // However, if we just want "animation" time here:
+    telemetry.end('total'); // We can also define frame duration in a separate place for accurate measuring, e.g., HUD.
+
+    telemetry.notify(); // Or we can notify in the telemetry itself, but maybe in a specific place. Let's not do notify here if we notify in renderer.
 
     if (this.isPlaying) {
       this.rafId = requestAnimationFrame(this.tick);
@@ -280,7 +280,7 @@ export class AnimationEngine {
 
     for (const track of this.tracks) {
       const keyframesArray = Object.values(track.keyframes).sort((a, b) => {
-        if (a.time === b.time) return a.id.localeCompare(b.id);
+        if (a.time === b.time) return (a.id || '').localeCompare(b.id || '');
         return a.time - b.time;
       });
       const [start, end] = this.binarySearchKeyframes(keyframesArray, this.playhead);
@@ -305,11 +305,9 @@ export class AnimationEngine {
     let requiresMatrixUpdate = false;
 
     if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
       for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
+        storeState.updateNode(nodeId, nodeUpdates);
       }
-      storeState.updateNodesBatch(batchUpdates);
       requiresMatrixUpdate = true;
     }
 

@@ -4,6 +4,7 @@ import { Viewport } from './viewport';
 import { TransformHandles } from './handles';
 import { Matrix3 } from '@monorepo/math';
 import { tokenizePath, PathToken } from '@monorepo/serialization';
+import { telemetry } from '@monorepo/telemetry';
 
 export class PixiBridge {
   private app: PIXI.Application;
@@ -12,6 +13,7 @@ export class PixiBridge {
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
+  private remoteSelectionsContainer: PIXI.Container;
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -25,7 +27,7 @@ export class PixiBridge {
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app, store);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id) => this.pixiNodes.get(id));
 
     this.remoteSelectionsContainer = new PIXI.Container();
     this.remoteSelectionsContainer.zIndex = 999;
@@ -49,15 +51,19 @@ export class PixiBridge {
         updateQueued = true;
         queueMicrotask(() => {
           updateQueued = false;
+          telemetry.begin('rendering');
           const state = this.store.getState();
           this.syncNodes(state.nodes);
           this.handles.update();
+          telemetry.end('rendering');
         });
       }
     });
 
     this.app.ticker.add(() => {
+        telemetry.begin('rendering');
         this.handles.update();
+        telemetry.end('rendering');
     });
   }
 
