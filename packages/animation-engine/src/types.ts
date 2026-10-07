@@ -1,13 +1,23 @@
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
 
 export interface Keyframe {
+  id?: string;
   time: number; // in milliseconds
-  value: number;
+  value: number | string;
   easing?: EasingType;
 }
 
 export interface Track {
   nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity';
-  keyframes: Keyframe[];
+  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
+  keyframes: Keyframe[] | Record<string, Keyframe>;
+}
+
+export type NetworkRole = 'leader' | 'follower' | 'standalone';
+
+export interface Heartbeat {
+  time?: number;
+  playhead: number;
+  isPlaying: boolean;
+  role?: NetworkRole;
 }
