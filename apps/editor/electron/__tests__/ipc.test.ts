@@ -3,6 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock electron before importing anything that uses it
 vi.mock('electron', () => {
   class MockBrowserWindow {
+    webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
     loadURL = vi.fn();
     loadFile = vi.fn();
     static getAllWindows = vi.fn().mockReturnValue([]);
@@ -13,6 +17,7 @@ vi.mock('electron', () => {
       whenReady: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
       quit: vi.fn(),
+      getAppPath: vi.fn().mockReturnValue('/mock/app/path'),
     },
     BrowserWindow: MockBrowserWindow,
     ipcMain: {
@@ -59,13 +64,22 @@ describe('IPC Integrity Suite', () => {
     
     // Strict check for exactly what is exposed
     const exposedAPI = (contextBridge.exposeInMainWorld as any).mock.calls[0][1];
-    expect(Object.keys(exposedAPI)).toEqual(['openFile', 'saveFile']);
+    expect(Object.keys(exposedAPI)).toEqual([
+      'openFile',
+      'saveFile',
+      'saveStreamStart',
+      'saveStreamChunk',
+      'saveStreamEnd'
+    ]);
     
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledWith(
       'electronAPI',
       expect.objectContaining({
         openFile: expect.any(Function),
         saveFile: expect.any(Function),
+        saveStreamStart: expect.any(Function),
+        saveStreamChunk: expect.any(Function),
+        saveStreamEnd: expect.any(Function),
       })
     );
 
@@ -77,6 +91,15 @@ describe('IPC Integrity Suite', () => {
     
     await api.saveFile('test content');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('dialog:saveFile', 'test content');
+
+    await api.saveStreamStart();
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('saveStream:start');
+
+    await api.saveStreamChunk('id1', 'chunk1');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('saveStream:chunk', 'id1', 'chunk1');
+
+    await api.saveStreamEnd('id1');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('saveStream:end', 'id1');
   });
 
   it('verifies all IPC channels defined for native file dialogs request/response integrity', async () => {
