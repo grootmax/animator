@@ -6,7 +6,7 @@ vi.mock('pixi.js', () => {
   return {
     Container: vi.fn().mockImplementation(function() {
       return {
-        scale: { x: 1, y: 1 },
+        scale: { x: 1, y: 1, set: vi.fn() },
         x: 0,
         y: 0,
         toLocal: vi.fn((pt) => ({ x: pt.x, y: pt.y }))

@@ -45,7 +45,7 @@ export const getTransformMatrix = (
   
   let m00 = c;
   let m01 = s;
-  let m10 = -s;
+  let m10 = -s || 0;
   let m11 = c;
   
   if (skewX !== 0 || skewY !== 0) {

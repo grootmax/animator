@@ -1,2 +1,2 @@
-export * from './store';
-export * from './sync';
+export * from './store.js';
+export * from './sync.js';

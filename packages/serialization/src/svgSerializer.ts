@@ -17,8 +17,8 @@ export class SvgSerializer {
 
   private serializeNode(id: string, nodes: Record<string, SceneNode>, indentLevel: number): string {
     const node = nodes[id];
-    const tNode = transientState[id];
-    if (!node || node.visible === false || !tNode) return '';
+    const tNode = transientState[id] || (node as any);
+    if (!node || node.visible === false) return '';
 
     const indent = '  '.repeat(indentLevel);
     let elementStr = '';

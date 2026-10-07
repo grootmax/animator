@@ -15,7 +15,7 @@ export class Viewport {
   private throttleMs = 16;
   private syncTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(app: PIXI.Application, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(app: PIXI.Application, store: ReturnType<typeof createSceneGraphStore> = createSceneGraphStore()) {
     this.app = app;
     this.store = store;
 

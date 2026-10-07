@@ -1,3 +1,3 @@
-export * from './types';
-export * from './engine';
-export * from './interpolators';
+export * from './types.js';
+export * from './engine.js';
+export * from './interpolators.js';

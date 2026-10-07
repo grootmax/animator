@@ -1,9 +1,9 @@
 import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { setupSecurity } from './security';
+import { setupSecurity as applySecurityRules } from './security';
 
-setupSecurity();
+applySecurityRules();
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -12,14 +12,14 @@ const DOMAIN_WHITELIST = [
   'https://fonts.gstatic.com'
 ];
 
-function setupSecurity() {
+function setupMainSecurity() {
   const isDev = !!process.env.VITE_DEV_SERVER_URL;
   const devUrl = isDev ? new URL(process.env.VITE_DEV_SERVER_URL!).origin : '';
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const cspRules = [
       `default-src 'self' ${isDev ? devUrl : ''}`,
-      `script-src 'self' ${isDev ? "'unsafe-inline' 'unsafe-eval' " + devUrl : ''}`,
+      `script-src 'self' 'unsafe-eval' ${isDev ? "'unsafe-inline' " + devUrl : ''}`,
       `style-src 'self' 'unsafe-inline' ${DOMAIN_WHITELIST.join(' ')}`,
       `font-src 'self' data: ${DOMAIN_WHITELIST.join(' ')}`,
       `img-src 'self' data: blob: ${DOMAIN_WHITELIST.join(' ')} ${isDev ? devUrl : ''}`,
@@ -36,7 +36,7 @@ function setupSecurity() {
     });
   });
 
-  app.on('web-contents-created', (event, contents) => {
+  app.on('web-contents-created', (_event, contents) => {
     contents.on('will-navigate', (event, navigationUrl) => {
       try {
         const parsedUrl = new URL(navigationUrl);
@@ -77,7 +77,7 @@ function createWindow() {
     width: 1200,
     height: 800,
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist-electron/preload.js'),
+      preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
     },
@@ -115,7 +115,7 @@ function createWindow() {
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    mainWindow.loadFile(path.join(app.getAppPath(), 'dist/index.html'));
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -142,7 +142,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  setupSecurity();
+  setupMainSecurity();
   createWindow();
 
   app.on('activate', () => {
@@ -181,6 +181,16 @@ app.on('window-all-closed', () => {
 
 // IPC Handlers
 ipcMain.handle('dialog:openFile', async () => {
+  if (process.env.TEST_MODE === 'true') {
+    const testSvgPath = path.join(__dirname, '../test-resources/test.svg');
+    if (fs.existsSync(testSvgPath)) {
+      return fs.promises.readFile(testSvgPath, 'utf-8');
+    }
+    const altSvgPath = path.join(app.getAppPath(), 'test-resources/test.svg');
+    if (fs.existsSync(altSvgPath)) {
+      return fs.promises.readFile(altSvgPath, 'utf-8');
+    }
+  }
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
     filters: [{ name: 'SVG files', extensions: ['svg'] }]
@@ -194,6 +204,11 @@ ipcMain.handle('dialog:saveFile', async (_, content: string) => {
     JSON.parse(content);
   } catch (error) {
     return false;
+  }
+
+  if (process.env.TEST_MODE === 'true' && process.env.TEST_SAVE_PATH) {
+    await fs.promises.writeFile(process.env.TEST_SAVE_PATH, content, 'utf-8');
+    return true;
   }
 
   try {

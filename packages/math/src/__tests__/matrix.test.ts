@@ -17,7 +17,8 @@ describe('Matrix Functions', () => {
   it('should multiply identity matrices and get identity', () => {
     const a = createMatrix();
     const b = createMatrix();
-    expect(multiplyMatrix(a, b)).toEqual(a);
+    const out = createMatrix();
+    expect(multiplyMatrix(out, a, b)).toEqual(a);
   });
 
   it('should translate correctly', () => {
@@ -43,7 +44,8 @@ describe('Matrix Functions', () => {
   });
 
   it('should calculate transform matrix correctly', () => {
-    const t = getTransformMatrix(10, 20, 0, 2, 2);
+    const out = createMatrix();
+    const t = getTransformMatrix(out, 10, 20, 0, 2, 2);
     expect(t).toEqual([2, 0, 0, 0, 2, 0, 10, 20, 1]);
   });
   
