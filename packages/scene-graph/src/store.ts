@@ -80,6 +80,8 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
 
 import { syncMiddleware, SyncMessage } from './sync';
 
+const ROOT_IDENTITY_MATRIX = createMatrix();
+
 export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) => {
   const config = (set: any, get: any) => ({
   nodes: {},
@@ -115,7 +117,7 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
       
       return {
         nodes: newNodes,
-        rootId: state.rootId || (node.parentId === null ? node.id : state.rootId)
+        rootId: state.rootId || (newNode.parentId === null ? node.id : state.rootId)
       };
     }, false, { type: 'addNode', payload: node });
   },
@@ -253,7 +255,7 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
         }
       };
 
-      traverse(rootId, createMatrix(), false);
+      traverse(rootId, ROOT_IDENTITY_MATRIX, false);
 
       return { nodes };
     });
