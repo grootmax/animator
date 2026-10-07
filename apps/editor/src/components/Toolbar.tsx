@@ -1,5 +1,5 @@
 import React from 'react';
-import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download, Loader2 } from 'lucide-react';
+import { Upload, Download, Loader2 } from 'lucide-react';
 
 interface ToolbarProps {
   tool: string;

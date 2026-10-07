@@ -5,6 +5,12 @@ vi.mock('electron', () => {
   class MockBrowserWindow {
     loadURL = vi.fn();
     loadFile = vi.fn();
+    webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+      loadURL: vi.fn(),
+      loadFile: vi.fn(),
+    };
     static getAllWindows = vi.fn().mockReturnValue([]);
   }
 
@@ -13,6 +19,8 @@ vi.mock('electron', () => {
       whenReady: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
       quit: vi.fn(),
+      getPath: vi.fn().mockReturnValue('/mock/user/data'),
+      getAppPath: vi.fn().mockReturnValue('/mock/app/path'),
     },
     BrowserWindow: MockBrowserWindow,
     ipcMain: {
@@ -40,6 +48,7 @@ vi.mock('fs', () => {
     },
     readFileSync: vi.fn(),
     writeFileSync: vi.fn(),
+    existsSync: vi.fn(),
   };
   return {
     ...fsMock,
@@ -59,13 +68,15 @@ describe('IPC Integrity Suite', () => {
     
     // Strict check for exactly what is exposed
     const exposedAPI = (contextBridge.exposeInMainWorld as any).mock.calls[0][1];
-    expect(Object.keys(exposedAPI)).toEqual(['openFile', 'saveFile']);
+    expect(Object.keys(exposedAPI)).toEqual(['openFile', 'saveFile', 'saveFileAs', 'getInitialFile']);
     
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledWith(
       'electronAPI',
       expect.objectContaining({
         openFile: expect.any(Function),
         saveFile: expect.any(Function),
+        saveFileAs: expect.any(Function),
+        getInitialFile: expect.any(Function),
       })
     );
 
@@ -76,7 +87,13 @@ describe('IPC Integrity Suite', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('dialog:openFile');
     
     await api.saveFile('test content');
-    expect(ipcRenderer.invoke).toHaveBeenCalledWith('dialog:saveFile', 'test content');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('file:save', 'test content');
+
+    await api.saveFileAs('test content');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('file:saveAs', 'test content');
+
+    await api.getInitialFile();
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('file:getInitial');
   });
 
   it('verifies all IPC channels defined for native file dialogs request/response integrity', async () => {
@@ -88,7 +105,7 @@ describe('IPC Integrity Suite', () => {
     const handleMock = ipcMain.handle as any;
     
     const openFileHandlerCall = handleMock.mock.calls.find((call: any) => call[0] === 'dialog:openFile');
-    const saveFileHandlerCall = handleMock.mock.calls.find((call: any) => call[0] === 'dialog:saveFile');
+    const saveFileHandlerCall = handleMock.mock.calls.find((call: any) => call[0] === 'file:save');
     
     expect(openFileHandlerCall).toBeDefined();
     expect(saveFileHandlerCall).toBeDefined();
@@ -103,28 +120,26 @@ describe('IPC Integrity Suite', () => {
     let openResult = await openFileHandler();
     expect(dialog.showOpenDialog).toHaveBeenCalledWith(expect.objectContaining({
       properties: ['openFile'],
-      filters: [{ name: 'SVG files', extensions: ['svg'] }]
+      filters: [{ name: 'Project Files', extensions: ['json', 'svg', 'bin'] }]
     }));
-    expect(fs.promises.readFile).toHaveBeenCalledWith('/test/path.svg', 'utf-8');
-    expect(openResult).toBe('<svg></svg>');
+    expect(fs.promises.readFile).toHaveBeenCalledWith('/test/path.svg');
+    expect(openResult).toEqual({ path: '/test/path.svg', content: '<svg></svg>' });
 
     // Test dialog:openFile - Canceled
     (dialog.showOpenDialog as any).mockResolvedValue({ canceled: true, filePaths: [] });
     openResult = await openFileHandler();
     expect(openResult).toBeNull();
 
-    // Test dialog:saveFile - Success
+    // Test file:save - Success
+    (fs.existsSync as any).mockReturnValue(false);
     (dialog.showSaveDialog as any).mockResolvedValue({ canceled: false, filePath: '/test/path.json' });
     (fs.promises.writeFile as any).mockResolvedValue(undefined);
 
     let saveResult = await saveFileHandler(null, '{"test":true}');
-    expect(dialog.showSaveDialog).toHaveBeenCalledWith(expect.objectContaining({
-      filters: [{ name: 'JSON files', extensions: ['json'] }]
-    }));
-    expect(fs.promises.writeFile).toHaveBeenCalledWith('/test/path.json', '{"test":true}', 'utf-8');
-    expect(saveResult).toBe(true);
+    expect(saveResult).toBe('/test/path.json');
 
-    // Test dialog:saveFile - Canceled
+    // Test file:save - Canceled
+    (fs.existsSync as any).mockReturnValue(false);
     (dialog.showSaveDialog as any).mockResolvedValue({ canceled: true, filePath: undefined });
     saveResult = await saveFileHandler(null, '{"test":false}');
     expect(saveResult).toBe(false);
