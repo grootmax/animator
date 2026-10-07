@@ -94,6 +94,12 @@ function interpolateValue(start: number | string, end: number | string, progress
   return start;
 }
 
+export type NetworkRole = 'standalone' | 'leader' | 'follower';
+export interface Heartbeat {
+  playhead: number;
+  isPlaying: boolean;
+}
+
 export class AnimationEngine {
   private store: ReturnType<typeof createSceneGraphStore>;
   private tracks: Track[] = [];
@@ -110,6 +116,21 @@ export class AnimationEngine {
   private heartbeatTimer: any = null;
   private heartbeatRate = 100;
   public driftThreshold = 150;
+  private uiListeners: Array<(state: { isPlaying: boolean; playhead: number }) => void> = [];
+
+  public subscribeUI(listener: (state: { isPlaying: boolean; playhead: number }) => void) {
+    this.uiListeners.push(listener);
+    listener({ isPlaying: this.isPlaying, playhead: this.playhead });
+    return () => {
+      this.uiListeners = this.uiListeners.filter(l => l !== listener);
+    };
+  }
+
+  private notifyUI() {
+    for (const listener of this.uiListeners) {
+      listener({ isPlaying: this.isPlaying, playhead: this.playhead });
+    }
+  }
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
@@ -131,6 +152,7 @@ export class AnimationEngine {
     this.isPlaying = true;
     this.lastTime = performance.now();
     this.drift = 0;
+    this.notifyUI();
     this.tick();
 
     if (this.role === 'leader') {
@@ -145,6 +167,7 @@ export class AnimationEngine {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+    this.notifyUI();
 
     if (this.role === 'leader') {
       this.stopHeartbeat();
@@ -156,6 +179,7 @@ export class AnimationEngine {
     this.drift = 0;
     this.playhead = Math.round(time / 16.67) * 16.67;
     this.updateNodes();
+    this.notifyUI();
 
     if (this.role === 'leader') {
       this.broadcastHeartbeat();
@@ -305,11 +329,9 @@ export class AnimationEngine {
     let requiresMatrixUpdate = false;
 
     if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
       for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
+        storeState.updateNode(nodeId, nodeUpdates);
       }
-      storeState.updateNodesBatch(batchUpdates);
       requiresMatrixUpdate = true;
     }
 

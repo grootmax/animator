@@ -52,6 +52,7 @@ export interface SceneGraphState {
   deletedNodes: Set<string>;
   loadProject: (nodes: Record<string, SceneNode>, rootId: string | null) => void;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
+  addNodesBulk: (nodes: Array<Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }>) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   deleteNode: (id: string) => void;
@@ -145,6 +146,30 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
         modifiedNodes: newModified
       };
     }, false, { type: 'addNode', payload: node });
+  },
+
+  addNodesBulk: (nodesToAdd: Array<Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }>) => {
+    set((state: SceneGraphState) => {
+      const newNodes = { ...state.nodes };
+      let newRootId = state.rootId;
+      const newModified = new Set(state.modifiedNodes);
+
+      for (const node of nodesToAdd) {
+        const newNode = getDefaultNode(node);
+        newNodes[node.id] = newNode;
+        newModified.add(node.id);
+
+        if (node.parentId === null && !newRootId) {
+          newRootId = node.id;
+        }
+      }
+
+      return {
+        nodes: newNodes,
+        rootId: newRootId,
+        modifiedNodes: newModified
+      };
+    });
   },
 
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => {
@@ -261,14 +286,17 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
           let localMatrix = node.localMatrix;
 
           if (node.isDirty) {
-            localMatrix = getTransformMatrix(
+            localMatrix = createMatrix();
+            getTransformMatrix(
+              localMatrix,
               node.x, node.y, 
               node.rotation, 
               node.scaleX, node.scaleY,
               node.skewX || 0, node.skewY || 0
             );
           }
-          currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
+          currentWorldMatrix = createMatrix();
+          multiplyMatrix(currentWorldMatrix, parentWorldMatrix, localMatrix);
 
           newNodes[nodeId] = {
             ...node,
