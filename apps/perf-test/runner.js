@@ -5,7 +5,7 @@ const path = require('path');
 async function run() {
   console.log('Starting Vite server...');
   let serverUrl = 'http://localhost:4173';
-  const viteProcess = spawn('npx', ['vite', '--port', '4173', '--strictPort'], {
+  const viteProcess = spawn('npx', ['vite', '--port', '0'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
