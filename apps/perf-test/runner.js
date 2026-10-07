@@ -4,7 +4,7 @@ const path = require('path');
 
 async function run() {
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  const viteProcess = spawn('npx', ['vite', '--port', '4173', '--strictPort'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
@@ -32,10 +32,11 @@ async function run() {
   try {
     browser = await puppeteer.launch({
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--ignore-gpu-blocklist', '--use-gl=angle', '--use-gl=swiftshader'],
     });
 
     const page = await browser.newPage();
+    page.on('pageerror', (err) => console.log('PAGE ERROR:', err));
     page.on('console', (msg) => console.log('BROWSER:', msg.text()));
 
     console.log('Navigating to http://localhost:4173 ...');
