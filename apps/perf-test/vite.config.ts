@@ -11,5 +11,17 @@ export default defineConfig({
       { find: '@monorepo/serialization', replacement: path.resolve(__dirname, '../../packages/serialization/src/index.ts') },
       { find: '@monorepo/runtime-player', replacement: path.resolve(__dirname, '../../apps/runtime-player/src/index.ts') }
     ]
+  },
+  server: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
+  },
+  preview: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
   }
 });

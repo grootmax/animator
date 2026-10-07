@@ -4,4 +4,5 @@ dist-electron/
 release
 .turbo/
 *.tsbuildinfo
+apps/perf-test/perf-results.json
 
