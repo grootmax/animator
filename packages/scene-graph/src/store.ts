@@ -1,4 +1,4 @@
-import { generateKeyBetween, Matrix3, createMatrix, getTransformMatrix, multiplyMatrix, identityMatrix } from '@monorepo/math';
+import { generateKeyBetween, Matrix3, createMatrix, getTransformMatrix, computeTransformMatrix, multiplyMatrix, identityMatrix } from '@monorepo/math';
 import { createStore } from 'zustand/vanilla';
 import { syncMiddleware, SyncMessage } from './sync';
 
@@ -160,6 +160,8 @@ const copyNodeWithBufferLink = (oldNode: SceneNode, updates: any, buffer: Float3
 
 export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) => {
   const buffer = new Float32Array(MAX_NODES * NODE_DATA_SIZE);
+  let cachedChildrenMap: Record<string, SceneNode[]> | null = null;
+  let cachedNodesRef: any = null;
 
   const config = (set: any, get: any) => ({
     nodes: {},
@@ -246,6 +248,8 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
         const newNodeOffsetMap = { ...state.nodeOffsetMap };
         let rootId = state.rootId;
 
+        const childrenMap: Record<string, SceneNode[]> = {};
+
         for (let i = 0; i < nodesArray.length; i++) {
           const node = nodesArray[i];
           const nodeOffset = offset;
@@ -282,10 +286,18 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
           newNodes[node.id] = newNode;
           newNodeOffsetMap[node.id] = nodeOffset;
 
+          if (node.parentId) {
+            if (!childrenMap[node.parentId]) childrenMap[node.parentId] = [];
+            childrenMap[node.parentId].push(newNode);
+          }
+
           if (!rootId && (node.parentId === null || node.parentId === undefined)) {
             rootId = node.id;
           }
         }
+
+        cachedChildrenMap = childrenMap;
+        cachedNodesRef = newNodes;
 
         return {
           nodes: newNodes,
@@ -357,28 +369,38 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
       if (!rootId) return;
 
-      const childrenMap: Record<string, string[]> = {};
-      Object.values(nodes).forEach((n: any) => {
-        const p = n.parentId || 'root';
-        if (!childrenMap[p]) childrenMap[p] = [];
-        childrenMap[p].push(n.id);
-      });
-      for (const k in childrenMap) {
-        childrenMap[k].sort((a: any, b: any) => ((nodes as any)[a].order || '').localeCompare((nodes as any)[b].order || ''));
+      if (cachedNodesRef !== nodes || !cachedChildrenMap) {
+        cachedChildrenMap = {};
+        const nodeArray = Object.values(nodes);
+        for (let i = 0; i < nodeArray.length; i++) {
+          const n: any = nodeArray[i];
+          if (n.parentId) {
+            if (!cachedChildrenMap[n.parentId]) cachedChildrenMap[n.parentId] = [];
+            cachedChildrenMap[n.parentId].push(n);
+          }
+        }
+        for (const k in cachedChildrenMap) {
+          cachedChildrenMap[k].sort((a: any, b: any) => {
+            const oa = a.order || '';
+            const ob = b.order || '';
+            return oa < ob ? -1 : oa > ob ? 1 : 0;
+          });
+        }
+        cachedNodesRef = nodes;
       }
 
-      const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
-        const node = nodes[nodeId];
-        if (!node) return;
+      const childrenMap = cachedChildrenMap;
 
+      const traverse = (node: SceneNode, parentWorldMatrix: Matrix3, parentWasDirty: boolean, parentIsIdentity: boolean) => {
         const offset = node.bufferOffset;
         const isDirty = buffer[offset + SPATIAL_IS_DIRTY] === 1;
         const isNowDirty = isDirty || parentWasDirty;
         
         let currentWorldMatrix = parentWorldMatrix;
+        let currentIsIdentity = false;
 
         if (isNowDirty) {
-          getTransformMatrix(
+          computeTransformMatrix(
             node.localMatrix,
             buffer[offset + SPATIAL_X],
             buffer[offset + SPATIAL_Y],
@@ -389,21 +411,39 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
             buffer[offset + SPATIAL_SKEW_Y]
           );
 
-          multiplyMatrix(node.worldMatrix, parentWorldMatrix, node.localMatrix);
+          if (parentIsIdentity) {
+            for (let k = 0; k < 9; k++) node.worldMatrix[k] = node.localMatrix[k];
+          } else {
+            multiplyMatrix(node.worldMatrix, parentWorldMatrix, node.localMatrix);
+          }
           buffer[offset + SPATIAL_IS_DIRTY] = 0;
           currentWorldMatrix = node.worldMatrix;
+          currentIsIdentity = parentIsIdentity && (
+            buffer[offset + SPATIAL_X] === 0 &&
+            buffer[offset + SPATIAL_Y] === 0 &&
+            buffer[offset + SPATIAL_ROTATION] === 0 &&
+            buffer[offset + SPATIAL_SCALE_X] === 1 &&
+            buffer[offset + SPATIAL_SCALE_Y] === 1 &&
+            buffer[offset + SPATIAL_SKEW_X] === 0 &&
+            buffer[offset + SPATIAL_SKEW_Y] === 0
+          );
         } else {
           currentWorldMatrix = node.worldMatrix;
         }
 
-        const children = childrenMap[nodeId] || [];
-        for (let i = 0; i < children.length; i++) {
-          traverse(children[i], currentWorldMatrix, isNowDirty);
+        const children = childrenMap[node.id];
+        if (children) {
+          for (let i = 0; i < children.length; i++) {
+            traverse(children[i], currentWorldMatrix, isNowDirty, currentIsIdentity);
+          }
         }
       };
 
-      const rootWorldMatrix = createMatrix();
-      traverse(rootId, rootWorldMatrix, false);
+      const rootNode = nodes[rootId];
+      if (rootNode) {
+        const rootWorldMatrix = createMatrix();
+        traverse(rootNode, rootWorldMatrix, false, true);
+      }
     }
   });
 
