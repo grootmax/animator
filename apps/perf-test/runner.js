@@ -9,16 +9,37 @@ async function run() {
     stdio: 'pipe',
   });
 
-  await new Promise((resolve) => {
+  let serverUrl = 'http://localhost:4173';
+  let resolved = false;
+
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        resolve();
+      }
+    }, 15000);
+
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/http:\/\/(localhost|127\.0\.0\.1):\d+/);
+      if (match && !resolved) {
+        serverUrl = match[0];
+        resolved = true;
+        clearTimeout(timeout);
         resolve();
       }
     });
     viteProcess.stderr.on('data', (data) => {
       console.error('VITE ERR:', data.toString());
+    });
+    viteProcess.on('error', (err) => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        reject(err);
+      }
     });
   });
 
@@ -42,8 +63,8 @@ async function run() {
       console.log('BROWSER:', ...args);
     });
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    console.log(`Navigating to ${serverUrl} ...`);
+    await page.goto(serverUrl, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
     
@@ -104,7 +125,7 @@ async function run() {
   } finally {
     if (browser) await browser.close();
     viteProcess.kill();
-    process.exit();
+    process.exit(process.exitCode || 0);
   }
 }
 
