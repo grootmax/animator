@@ -14,7 +14,8 @@ export class RuntimePlayer {
 
   constructor(canvas: HTMLCanvasElement) {
     // SharedArrayBuffer for node state sync (up to 100k nodes * 16 floats per node)
-    this.sharedBuffer = new SharedArrayBuffer(100000 * 16 * 4);
+    const BufferClass = typeof SharedArrayBuffer !== 'undefined' ? SharedArrayBuffer : ArrayBuffer;
+    this.sharedBuffer = new BufferClass(100000 * 16 * 4) as SharedArrayBuffer;
     this.syncArray = new Float32Array(this.sharedBuffer);
 
     let offscreen: OffscreenCanvas | HTMLCanvasElement = canvas;
