@@ -3,13 +3,16 @@ const { spawn } = require('child_process');
 const path = require('path');
 
 async function run() {
+  try {
+    require('child_process').execSync('fuser -k 4173/tcp 2>/dev/null || true');
+  } catch (e) {}
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  const viteProcess = spawn('npx', ['vite', '--port', '4173', '--strictPort'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
 
-  await new Promise((resolve) => {
+  await new Promise((resolve, reject) => {
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
@@ -19,6 +22,11 @@ async function run() {
     });
     viteProcess.stderr.on('data', (data) => {
       console.error('VITE ERR:', data.toString());
+    });
+    viteProcess.on('exit', (code) => {
+      if (code !== 0) {
+        reject(new Error(`Vite process exited with code ${code}`));
+      }
     });
   });
 
@@ -36,7 +44,15 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('pageerror', (err) => console.error('PAGE ERROR:', err));
+    page.on('console', async (msg) => {
+      try {
+        const args = await Promise.all(msg.args().map(arg => arg.jsonValue().catch(() => arg.toString())));
+        console.log('BROWSER:', msg.text(), args);
+      } catch (e) {
+        console.log('BROWSER:', msg.text());
+      }
+    });
 
     console.log('Navigating to http://localhost:4173 ...');
     await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
@@ -99,8 +115,8 @@ async function run() {
     process.exitCode = 1;
   } finally {
     if (browser) await browser.close();
-    viteProcess.kill();
-    process.exit();
+    if (viteProcess) viteProcess.kill('SIGKILL');
+    process.exit(process.exitCode || 0);
   }
 }
 
