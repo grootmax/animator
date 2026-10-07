@@ -32,7 +32,7 @@ export function setupSecurity() {
         const parsedUrl = new URL(navigationUrl);
 
         const isDevUrl = isDev && process.env.VITE_DEV_SERVER_URL && navigationUrl.startsWith(process.env.VITE_DEV_SERVER_URL);
-        const isLocalFile = parsedUrl.protocol === 'file:';
+        const isLocalFile = parsedUrl.protocol === 'file:' || parsedUrl.protocol === 'about:';
 
         if (!isDevUrl && !isLocalFile && !ALLOWED_EXTERNAL_ORIGINS.includes(parsedUrl.origin)) {
           console.warn(`[Security] Blocked unauthorized navigation to: ${navigationUrl}`);
@@ -50,7 +50,7 @@ export function setupSecurity() {
         const parsedUrl = new URL(url);
 
         const isDevUrl = isDev && process.env.VITE_DEV_SERVER_URL && url.startsWith(process.env.VITE_DEV_SERVER_URL);
-        const isLocalFile = parsedUrl.protocol === 'file:';
+        const isLocalFile = parsedUrl.protocol === 'file:' || parsedUrl.protocol === 'about:';
 
         if (!isDevUrl && !isLocalFile && !ALLOWED_EXTERNAL_ORIGINS.includes(parsedUrl.origin)) {
           console.warn(`[Security] Blocked unauthorized window creation for: ${url}`);
@@ -62,6 +62,10 @@ export function setupSecurity() {
         console.warn(`[Security] Blocked window creation for invalid URL: ${url}`);
         return { action: 'deny' };
       }
+    });
+
+    contents.on('will-attach-webview', (event) => {
+      event.preventDefault();
     });
   });
 }

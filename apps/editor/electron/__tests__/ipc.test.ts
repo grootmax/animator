@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock electron before importing anything that uses it
 vi.mock('electron', () => {
   class MockBrowserWindow {
+    webContents = { on: vi.fn(), setWindowOpenHandler: vi.fn() };
     loadURL = vi.fn();
     loadFile = vi.fn();
     static getAllWindows = vi.fn().mockReturnValue([]);
@@ -59,7 +60,21 @@ describe('IPC Integrity Suite', () => {
     
     // Strict check for exactly what is exposed
     const exposedAPI = (contextBridge.exposeInMainWorld as any).mock.calls[0][1];
-    expect(Object.keys(exposedAPI)).toEqual(['openFile', 'saveFile']);
+    expect(Object.keys(exposedAPI)).toEqual([
+      'openFile',
+      'openAsset',
+      'openDirectory',
+      'findFileRecursively',
+      'readFileBinary',
+      'watchFile',
+      'unwatchFile',
+      'resolveRelative',
+      'dirname',
+      'relative',
+      'onFileChanged',
+      'saveProject',
+      'saveFile'
+    ]);
     
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledWith(
       'electronAPI',
@@ -103,10 +118,10 @@ describe('IPC Integrity Suite', () => {
     let openResult = await openFileHandler();
     expect(dialog.showOpenDialog).toHaveBeenCalledWith(expect.objectContaining({
       properties: ['openFile'],
-      filters: [{ name: 'SVG files', extensions: ['svg'] }]
+      filters: [{ name: 'Project/SVG', extensions: ['svg', 'json'] }]
     }));
     expect(fs.promises.readFile).toHaveBeenCalledWith('/test/path.svg', 'utf-8');
-    expect(openResult).toBe('<svg></svg>');
+    expect(openResult).toEqual({ content: '<svg></svg>', filePath: '/test/path.svg' });
 
     // Test dialog:openFile - Canceled
     (dialog.showOpenDialog as any).mockResolvedValue({ canceled: true, filePaths: [] });

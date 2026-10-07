@@ -21,94 +21,20 @@ function createWindow() {
     },
   });
 
-  // Security Hardening: Navigation guards
-  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
-    const parsedUrl = new URL(navigationUrl);
-    const isDev = !!process.env.VITE_DEV_SERVER_URL;
-    let isAllowed = false;
-
-    if (isDev && process.env.VITE_DEV_SERVER_URL) {
-      const devServerUrl = new URL(process.env.VITE_DEV_SERVER_URL);
-      if (parsedUrl.origin === devServerUrl.origin) {
-        isAllowed = true;
-      }
-    }
-    
-    if (parsedUrl.protocol === 'file:') {
-      isAllowed = true;
-    }
-
-    if (!isAllowed) {
-      console.warn(`Blocked unauthorized navigation to: ${navigationUrl}`);
-      event.preventDefault();
-    }
-  });
-
-  // Security Hardening: Window open handlers
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    console.warn(`Blocked unauthorized window open request for: ${url}`);
-    return { action: 'deny' };
-  });
-
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
-
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    try {
-      const parsedUrl = new URL(url);
-      if (process.env.VITE_DEV_SERVER_URL) {
-        const devUrl = new URL(process.env.VITE_DEV_SERVER_URL);
-        if (parsedUrl.origin !== devUrl.origin) {
-          event.preventDefault();
-        }
-      } else {
-        const normalizedPath = parsedUrl.pathname.replace(/\\/g, '/').toLowerCase();
-        if (parsedUrl.protocol !== 'file:' || !normalizedPath.endsWith('/dist/index.html')) {
-          event.preventDefault();
-        }
-      }
-    } catch {
-      event.preventDefault();
-    }
-  });
-
-  mainWindow.webContents.setWindowOpenHandler(() => {
-    return { action: 'deny' };
-  });
 }
 
 app.whenReady().then(() => {
-  setupSecurity();
   createWindow();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
-  });
-
-  app.on('web-contents-created', (_, contents) => {
-    contents.on('will-navigate', (event, navigationUrl) => {
-      const parsedUrl = new URL(navigationUrl);
-      const isLocalUrl = 
-        parsedUrl.protocol === 'file:' || 
-        (process.env.VITE_DEV_SERVER_URL && parsedUrl.origin === new URL(process.env.VITE_DEV_SERVER_URL).origin);
-      
-      if (!isLocalUrl) {
-        event.preventDefault();
-      }
-    });
-
-    contents.setWindowOpenHandler(() => {
-      return { action: 'deny' };
-    });
-
-    contents.on('will-attach-webview', (event) => {
-      event.preventDefault();
-    });
   });
 });
 
