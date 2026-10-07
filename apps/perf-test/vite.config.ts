@@ -2,6 +2,11 @@ import { defineConfig } from 'vite';
 import path from 'path';
 
 export default defineConfig({
+  server: {
+    fs: {
+      allow: [path.resolve(__dirname, '../../')],
+    },
+  },
   resolve: {
     alias: [
       { find: '@monorepo/math', replacement: path.resolve(__dirname, '../../packages/math/src/index.ts') },
