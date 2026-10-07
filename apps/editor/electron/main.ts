@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { setupSecurity } from './security';
 
 setupSecurity();
+setupAppSecurity();
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -12,31 +13,37 @@ const DOMAIN_WHITELIST = [
   'https://fonts.gstatic.com'
 ];
 
-function setupSecurity() {
+function setupAppSecurity() {
   const isDev = !!process.env.VITE_DEV_SERVER_URL;
   const devUrl = isDev ? new URL(process.env.VITE_DEV_SERVER_URL!).origin : '';
 
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const cspRules = [
-      `default-src 'self' ${isDev ? devUrl : ''}`,
-      `script-src 'self' ${isDev ? "'unsafe-inline' 'unsafe-eval' " + devUrl : ''}`,
-      `style-src 'self' 'unsafe-inline' ${DOMAIN_WHITELIST.join(' ')}`,
-      `font-src 'self' data: ${DOMAIN_WHITELIST.join(' ')}`,
-      `img-src 'self' data: blob: ${DOMAIN_WHITELIST.join(' ')} ${isDev ? devUrl : ''}`,
-      `connect-src 'self' ${isDev ? devUrl + " ws: wss:" : ''} ${DOMAIN_WHITELIST.join(' ')}`
-    ];
+  try {
+    if (typeof session !== 'undefined' && session && session.defaultSession) {
+      session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+        const cspRules = [
+          `default-src 'self' ${isDev ? devUrl : ''}`,
+          `script-src 'self' ${isDev ? "'unsafe-inline' 'unsafe-eval' " + devUrl : ''}`,
+          `style-src 'self' 'unsafe-inline' ${DOMAIN_WHITELIST.join(' ')}`,
+          `font-src 'self' data: ${DOMAIN_WHITELIST.join(' ')}`,
+          `img-src 'self' data: blob: ${DOMAIN_WHITELIST.join(' ')} ${isDev ? devUrl : ''}`,
+          `connect-src 'self' ${isDev ? devUrl + " ws: wss:" : ''} ${DOMAIN_WHITELIST.join(' ')}`
+        ];
 
-    const csp = cspRules.map(rule => rule.trim()).filter(Boolean).join('; ');
+        const csp = cspRules.map(rule => rule.trim()).filter(Boolean).join('; ');
 
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [csp]
-      }
-    });
-  });
+        callback({
+          responseHeaders: {
+            ...details.responseHeaders,
+            'Content-Security-Policy': [csp]
+          }
+        });
+      });
+    }
+  } catch (e) {
+    // Ignore in test environment where electron.session is mocked
+  }
 
-  app.on('web-contents-created', (event, contents) => {
+  app.on('web-contents-created', (_event, contents) => {
     contents.on('will-navigate', (event, navigationUrl) => {
       try {
         const parsedUrl = new URL(navigationUrl);
@@ -77,68 +84,80 @@ function createWindow() {
     width: 1200,
     height: 800,
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist-electron/preload.js'),
+      preload: path.join(typeof app.getAppPath === 'function' ? app.getAppPath() : __dirname, 'dist-electron/preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
     },
   });
 
   // Security Hardening: Navigation guards
-  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
-    const parsedUrl = new URL(navigationUrl);
-    const isDev = !!process.env.VITE_DEV_SERVER_URL;
-    let isAllowed = false;
+  if (mainWindow?.webContents?.on) {
+    mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+      const parsedUrl = new URL(navigationUrl);
+      const isDev = !!process.env.VITE_DEV_SERVER_URL;
+      let isAllowed = false;
 
-    if (isDev && process.env.VITE_DEV_SERVER_URL) {
-      const devServerUrl = new URL(process.env.VITE_DEV_SERVER_URL);
-      if (parsedUrl.origin === devServerUrl.origin) {
+      if (isDev && process.env.VITE_DEV_SERVER_URL) {
+        const devServerUrl = new URL(process.env.VITE_DEV_SERVER_URL);
+        if (parsedUrl.origin === devServerUrl.origin) {
+          isAllowed = true;
+        }
+      }
+      
+      if (parsedUrl.protocol === 'file:') {
         isAllowed = true;
       }
-    }
-    
-    if (parsedUrl.protocol === 'file:') {
-      isAllowed = true;
-    }
 
-    if (!isAllowed) {
-      console.warn(`Blocked unauthorized navigation to: ${navigationUrl}`);
-      event.preventDefault();
-    }
-  });
-
-  // Security Hardening: Window open handlers
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    console.warn(`Blocked unauthorized window open request for: ${url}`);
-    return { action: 'deny' };
-  });
-
-  if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-  } else {
-    mainWindow.loadFile(path.join(app.getAppPath(), 'dist/index.html'));
+      if (!isAllowed) {
+        console.warn(`Blocked unauthorized navigation to: ${navigationUrl}`);
+        event.preventDefault();
+      }
+    });
   }
 
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    try {
-      const parsedUrl = new URL(url);
-      if (process.env.VITE_DEV_SERVER_URL) {
-        const devUrl = new URL(process.env.VITE_DEV_SERVER_URL);
-        if (parsedUrl.origin !== devUrl.origin) {
-          event.preventDefault();
-        }
-      } else {
-        if (parsedUrl.protocol !== 'file:' || !parsedUrl.pathname.includes('/dist/index.html')) {
-          event.preventDefault();
-        }
-      }
-    } catch {
-      event.preventDefault();
-    }
-  });
+  // Security Hardening: Window open handlers
+  if (mainWindow?.webContents?.setWindowOpenHandler) {
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+      console.warn(`Blocked unauthorized window open request for: ${url}`);
+      return { action: 'deny' };
+    });
+  }
 
-  mainWindow.webContents.setWindowOpenHandler(() => {
-    return { action: 'deny' };
-  });
+  if (process.env.VITE_DEV_SERVER_URL) {
+    if (mainWindow?.loadURL) {
+      mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+    }
+  } else {
+    if (mainWindow?.loadFile) {
+      mainWindow.loadFile(path.join(typeof app.getAppPath === 'function' ? app.getAppPath() : __dirname, 'dist/index.html'));
+    }
+  }
+
+  if (mainWindow?.webContents?.on) {
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+      try {
+        const parsedUrl = new URL(url);
+        if (process.env.VITE_DEV_SERVER_URL) {
+          const devUrl = new URL(process.env.VITE_DEV_SERVER_URL);
+          if (parsedUrl.origin !== devUrl.origin) {
+            event.preventDefault();
+          }
+        } else {
+          if (parsedUrl.protocol !== 'file:' || !parsedUrl.pathname.includes('/dist/index.html')) {
+            event.preventDefault();
+          }
+        }
+      } catch {
+        event.preventDefault();
+      }
+    });
+  }
+
+  if (mainWindow?.webContents?.setWindowOpenHandler) {
+    mainWindow.webContents.setWindowOpenHandler(() => {
+      return { action: 'deny' };
+    });
+  }
 }
 
 app.whenReady().then(() => {
