@@ -29,9 +29,7 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
-<<<<<<< HEAD
-      exportSvg: (content: string) => Promise<boolean>;
-=======
+      exportSvg?: (content: string) => Promise<boolean>;
       projectOpen: () => Promise<{ filePath: string, content: Uint8Array } | null>;
       projectSave: (content: Uint8Array, filePath?: string) => Promise<{ success: boolean, filePath?: string }>;
       readBinary: (filePath: string) => Promise<Uint8Array | null>;
@@ -40,7 +38,6 @@ declare global {
       pathRelative: (from: string, to: string) => string;
       pathResolve: (base: string, rel: string) => string;
       pathDirname: (p: string) => string;
->>>>>>> b443960 (Implement Professional Asset Workflow)
     }
   }
 }
@@ -51,13 +48,10 @@ function App() {
   const [storeVersion, setStoreVersion] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
-<<<<<<< HEAD
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [showSaveProgress, setShowSaveProgress] = useState(false);
-=======
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null);
   const [assetManifest, setAssetManifest] = useState<Record<string, { relativePath: string, mimeType: string }>>({});
->>>>>>> b443960 (Implement Professional Asset Workflow)
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -67,9 +61,9 @@ function App() {
       (window as any).__bridge = bridge;
 
       // Subscribe to node count for UI
-      const unsubscribe = store.subscribe((state) => {
-        setNodesCount(Object.keys(state.nodes).length);
-        setStoreVersion(state.version);
+      const unsubscribe = store.subscribe((_state) => {
+        setNodesCount(Object.keys(store.getState().nodes).length);
+        setStoreVersion(v => v + 1);
       });
 
       return () => unsubscribe();
@@ -86,13 +80,13 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().undo();
+        store.getState().undo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().redo();
+        store.getState().redo?.();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        store.getState().redo();
+        store.getState().redo?.();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -100,17 +94,9 @@ function App() {
   }, []);
 
   const handleImportSvg = async () => {
-    if (window.electronAPI) {
-<<<<<<< HEAD
-      const svgContent = await window.electronAPI.openFile();
-      if (svgContent) {
-        const parser = new SvgParser();
-        const nodes = parser.parse(svgContent);
-        if (nodes.length > 0) {
-          store.getState().commitHistory();
-          nodes.forEach(node => store.getState().addNode(node));
-=======
-      const result = await window.electronAPI.projectOpen();
+    const api = window.electronAPI;
+    if (api) {
+      const result = await api.projectOpen();
       if (result) {
         setActiveProjectPath(result.filePath);
         if (result.filePath.endsWith('.svg')) {
@@ -118,8 +104,10 @@ function App() {
           const contentStr = decoder.decode(result.content);
           const parser = new SvgParser();
           const nodes = parser.parse(contentStr);
-          // clear existing nodes?
-          nodes.forEach(node => store.getState().addNode(node));
+          if (nodes.length > 0) {
+            store.getState().commitHistory?.();
+            nodes.forEach(node => store.getState().addNode(node));
+          }
         } else if (result.filePath.endsWith('.json')) {
           const decoder = new TextDecoder();
           const contentStr = decoder.decode(result.content);
@@ -130,13 +118,13 @@ function App() {
           }
           
           const nodes = data.scene;
-          const rootDir = window.electronAPI.pathDirname(result.filePath);
+          const rootDir = api.pathDirname(result.filePath);
           
+          store.getState().commitHistory?.();
           Object.values(nodes).forEach((node: any) => {
-            if (node.type === 'image' && node.assetId && data.manifest.assets[node.assetId]) {
-               // resolve relative path to absolute for asset:// rendering
+            if (node.type === 'image' && node.assetId && data.manifest?.assets?.[node.assetId]) {
                const relPath = data.manifest.assets[node.assetId].relativePath;
-               node.assetId = window.electronAPI!.pathResolve(rootDir, relPath);
+               node.assetId = api.pathResolve(rootDir, relPath);
             }
             store.getState().addNode(node);
           });
@@ -144,7 +132,6 @@ function App() {
           if (data.animations) {
              data.animations.forEach((anim: any) => engine.addTrack(anim));
           }
->>>>>>> b443960 (Implement Professional Asset Workflow)
         }
       }
     } else {
@@ -153,7 +140,8 @@ function App() {
   };
 
   const handleSaveState = async () => {
-    if (window.electronAPI) {
+    const api = window.electronAPI;
+    if (api) {
       const state = store.getState().nodes;
       const nodeKeys = Object.keys(state);
       const totalNodes = nodeKeys.length;
@@ -164,13 +152,13 @@ function App() {
       let currentProjectPath = activeProjectPath;
       if (!currentProjectPath) {
          const emptyBuffer = new TextEncoder().encode('{}');
-         const tempResult = await window.electronAPI.projectSave(emptyBuffer, undefined);
+         const tempResult = await api.projectSave(emptyBuffer, undefined);
          if (!tempResult.success || !tempResult.filePath) return;
          currentProjectPath = tempResult.filePath;
          setActiveProjectPath(currentProjectPath);
       }
       
-      const projectDir = window.electronAPI.pathDirname(currentProjectPath);
+      const projectDir = api.pathDirname(currentProjectPath);
       
       let currentIndex = 0;
       
@@ -197,7 +185,7 @@ function App() {
 
           if (cleanNode.type === 'image' && cleanNode.assetId) {
              const absPath = cleanNode.assetId;
-             const relPath = window.electronAPI.pathRelative(projectDir, absPath);
+             const relPath = api.pathRelative(projectDir, absPath);
              const manifestId = `asset-${id}`;
              newManifest[manifestId] = { relativePath: relPath, mimeType: 'image/png' };
              cleanNode.assetId = manifestId;
@@ -244,7 +232,7 @@ function App() {
         const encoder = new TextEncoder();
         const uint8Array = encoder.encode(jsonStr);
 
-        await window.electronAPI.projectSave(uint8Array, currentProjectPath);
+        await api.projectSave(uint8Array, currentProjectPath!);
       };
       
       if ('requestIdleCallback' in window) {
@@ -258,11 +246,12 @@ function App() {
   };
 
   const handleExportSvg = async () => {
-    if (window.electronAPI) {
+    const api = window.electronAPI;
+    if (api && api.exportSvg) {
       const state = store.getState().nodes;
       const serializer = new SvgSerializer();
       const svgString = serializer.serialize(state);
-      await window.electronAPI.exportSvg(svgString);
+      await api.exportSvg(svgString);
     } else {
       alert("Electron API not available");
     }
@@ -276,15 +265,15 @@ function App() {
       engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: {
-          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
-          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
-        }
+        keyframes: [
+          { id: 'a', time: 0, value: 0, easing: 'linear' },
+          { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        ]
       });
       engine.play();
     } else {
-      store.getState().commitHistory();
+      store.getState().commitHistory?.();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',
@@ -333,12 +322,12 @@ function App() {
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0 && window.electronAPI) {
+    const api = window.electronAPI;
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
       const filePath = (file as any).path;
-      if (filePath && (file.type.startsWith('image/') || file.name.endsWith('.png') || file.name.endsWith('.jpg') || file.name.endsWith('.jpeg'))) {
-        
-        await window.electronAPI.authorizeDir(window.electronAPI.pathDirname(filePath));
+      if (api && filePath && (file.type.startsWith('image/') || file.name.endsWith('.png') || file.name.endsWith('.jpg') || file.name.endsWith('.jpeg'))) {
+        await api.authorizeDir(api.pathDirname(filePath));
 
         // Let's create an image node. 
         // Note: the node.assetId needs to be absolute for the renderer to load it via asset://<absolutePath>
@@ -359,15 +348,7 @@ function App() {
           assetId: filePath
         } as any);
         store.getState().recalculateMatrices();
-      }
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      if (file.type === 'image/png' || file.type === 'image/jpeg') {
+      } else if (file.type === 'image/png' || file.type === 'image/jpeg') {
         const reader = new FileReader();
         reader.onload = (ev) => {
           const base64Src = ev.target?.result as string;
@@ -391,10 +372,6 @@ function App() {
         reader.readAsDataURL(file);
       }
     }
-  };
-
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
   };
 
   return (

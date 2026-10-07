@@ -1,20 +1,6 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
-
-export interface Keyframe {
-  id: string;
-  time: number; // in milliseconds
-  value: number | string;
-  easing?: EasingType;
-}
-
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
-}
+import { EasingType, Keyframe, Track, NetworkRole, Heartbeat } from './types';
 
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
@@ -111,6 +97,22 @@ export class AnimationEngine {
   private heartbeatRate = 100;
   public driftThreshold = 150;
 
+  private uiListeners: Set<(state: { isPlaying: boolean; playhead: number }) => void> = new Set();
+
+  public subscribeUI(listener: (state: { isPlaying: boolean; playhead: number }) => void) {
+    this.uiListeners.add(listener);
+    listener({ isPlaying: this.isPlaying, playhead: this.playhead });
+    return () => {
+      this.uiListeners.delete(listener);
+    };
+  }
+
+  private notifyUI() {
+    for (const listener of this.uiListeners) {
+      listener({ isPlaying: this.isPlaying, playhead: this.playhead });
+    }
+  }
+
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
   public getIsPlaying() { return this.isPlaying; }
@@ -131,6 +133,7 @@ export class AnimationEngine {
     this.isPlaying = true;
     this.lastTime = performance.now();
     this.drift = 0;
+    this.notifyUI();
     this.tick();
 
     if (this.role === 'leader') {
@@ -145,6 +148,7 @@ export class AnimationEngine {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+    this.notifyUI();
 
     if (this.role === 'leader') {
       this.stopHeartbeat();
@@ -156,6 +160,7 @@ export class AnimationEngine {
     this.drift = 0;
     this.playhead = Math.round(time / 16.67) * 16.67;
     this.updateNodes();
+    this.notifyUI();
 
     if (this.role === 'leader') {
       this.broadcastHeartbeat();
@@ -280,7 +285,7 @@ export class AnimationEngine {
 
     for (const track of this.tracks) {
       const keyframesArray = Object.values(track.keyframes).sort((a, b) => {
-        if (a.time === b.time) return a.id.localeCompare(b.id);
+        if (a.time === b.time) return (a.id || '').localeCompare(b.id || '');
         return a.time - b.time;
       });
       const [start, end] = this.binarySearchKeyframes(keyframesArray, this.playhead);
@@ -305,11 +310,9 @@ export class AnimationEngine {
     let requiresMatrixUpdate = false;
 
     if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
       for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
+        storeState.updateNode(nodeId, nodeUpdates);
       }
-      storeState.updateNodesBatch(batchUpdates);
       requiresMatrixUpdate = true;
     }
 
