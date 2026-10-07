@@ -9,11 +9,16 @@ async function run() {
     stdio: 'pipe',
   });
 
+  let serverPort = '4173';
   await new Promise((resolve) => {
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/http:\/\/localhost:(\d+)/);
+      if (match) {
+        serverPort = match[1];
+      }
+      if (output.includes('localhost:') || output.includes('ready in')) {
         resolve();
       }
     });
@@ -38,8 +43,8 @@ async function run() {
     const page = await browser.newPage();
     page.on('console', (msg) => console.log('BROWSER:', msg.text()));
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    console.log(`Navigating to http://localhost:${serverPort} ...`);
+    await page.goto(`http://localhost:${serverPort}`, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
     

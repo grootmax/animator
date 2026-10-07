@@ -17,6 +17,7 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src", "electron"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts", "electron/__tests__/**/*", "electron/**/*.test.ts"],
   "references": [
     { "path": "../../packages/math" },
     { "path": "../../packages/scene-graph" },
