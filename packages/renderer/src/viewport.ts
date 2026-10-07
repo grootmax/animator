@@ -71,8 +71,8 @@ export class Viewport {
 
   private drawGrid() {
     this.grid.clear();
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const width = typeof window !== 'undefined' ? window.innerWidth : (this.app.renderer ? this.app.renderer.width : 800);
+    const height = typeof window !== 'undefined' ? window.innerHeight : (this.app.renderer ? this.app.renderer.height : 600);
 
     const gridSize = 50 * this.container.scale.x;
     const offsetX = this.container.x % gridSize;
@@ -96,7 +96,11 @@ export class Viewport {
 
     canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
     canvas.addEventListener('pointermove', this.onPointerMove.bind(this));
-    window.addEventListener('pointerup', this.onPointerUp.bind(this));
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pointerup', this.onPointerUp.bind(this));
+    } else if (typeof self !== 'undefined') {
+      self.addEventListener('pointerup', this.onPointerUp.bind(this));
+    }
     canvas.addEventListener('wheel', this.onWheel.bind(this), { passive: false });
   }
 

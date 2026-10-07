@@ -9,11 +9,14 @@ async function run() {
     stdio: 'pipe',
   });
 
+  let serverPort = '4173';
   await new Promise((resolve) => {
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/Local:\s+http:\/\/localhost:(\d+)\//);
+      if (match) {
+        serverPort = match[1];
         resolve();
       }
     });
@@ -22,7 +25,7 @@ async function run() {
     });
   });
 
-  console.log('Server started. Launching Puppeteer...');
+  console.log(`Server started on port ${serverPort}. Launching Puppeteer...`);
   
   // Create an explicit build before starting if we use `preview`, but let's actually just spawn `vite` (dev server) for simplicity.
   // Wait, I spawned `vite preview`. Let me kill it and spawn `vite` (dev server) instead to avoid needing a build step.
@@ -36,10 +39,47 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    const formatArg = async (arg) => {
+      try {
+        const val = await arg.jsonValue();
+        if (val && typeof val === 'object' && Object.keys(val).length === 0) {
+          return await page.evaluate(el => el && el.stack ? el.stack : String(el), arg);
+        }
+        return val;
+      } catch (e) {
+        try {
+          return await page.evaluate(el => el && el.stack ? el.stack : String(el), arg);
+        } catch (e2) {
+          return arg.toString();
+        }
+      }
+    };
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    page.on('console', async (msg) => {
+      const args = await Promise.all(msg.args().map(formatArg));
+      console.log('BROWSER:', msg.text(), args.length > 1 ? args : '');
+    });
+    page.on('response', (res) => {
+      if (res.status() >= 400) {
+        console.log('HTTP ERROR:', res.status(), res.url());
+      }
+    });
+    page.on('pageerror', (err) => {
+      console.error('BROWSER PAGE ERROR:', err);
+    });
+    page.on('workercreated', (worker) => {
+      console.log('WORKER CREATED:', worker.url());
+      worker.on('console', async (msg) => {
+        const args = await Promise.all(msg.args().map(formatArg));
+        console.log('WORKER LOG:', msg.text(), args.length > 1 ? args : '');
+      });
+      worker.on('error', (err) => {
+        console.error('WORKER ERROR:', err);
+      });
+    });
+
+    console.log(`Navigating to http://localhost:${serverPort} ...`);
+    await page.goto(`http://localhost:${serverPort}`, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
     

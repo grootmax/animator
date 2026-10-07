@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "types": "tsc -b",
+    "assets": "vite build",
     "serve": "vite preview --port 4173",
     "test": "node runner.js"
   },

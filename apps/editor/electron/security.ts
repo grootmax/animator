@@ -1,4 +1,4 @@
-import { app, session } from 'electron';
+import { app } from 'electron';
 import { URL } from 'url';
 
 const ALLOWED_EXTERNAL_ORIGINS: string[] = [];
@@ -25,7 +25,7 @@ export function setupSecurity() {
   });
 
   // 2. Navigation Guards & Window Creation Guards
-  app.on('web-contents-created', (event, contents) => {
+  app.on('web-contents-created', (_, contents) => {
     // Navigation guard
     contents.on('will-navigate', (event, navigationUrl) => {
       try {
