@@ -1,10 +1,10 @@
 import * as PIXI from 'pixi.js';
 import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
-import { Viewport } from './viewport';
-import { TransformHandles } from './handles';
+import { Viewport } from './viewport.js';
+import { TransformHandles } from './handles.js';
 import { Matrix3 } from '@monorepo/math';
 import { tokenizePath, PathToken } from '@monorepo/serialization';
-import { NodeRegistry } from './registry';
+import { NodeRegistry } from './registry.js';
 
 export class PixiBridge {
   private app: PIXI.Application;
@@ -13,6 +13,7 @@ export class PixiBridge {
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics | any> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
+  private remoteSelectionsContainer: PIXI.Container;
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
@@ -26,7 +27,7 @@ export class PixiBridge {
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app, store);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id: string) => this.pixiNodes.get(id));
 
     this.remoteSelectionsContainer = new PIXI.Container();
     this.remoteSelectionsContainer.zIndex = 999;
@@ -96,6 +97,7 @@ export class PixiBridge {
       tokens = tokenizePath(pathData);
       this.pathCache.set(pathData, tokens);
     }
+    if (!tokens) return;
     let x = 0, y = 0;
 
     for (const t of tokens) {

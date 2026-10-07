@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { NodeRegistry } from './registry';
+import { NodeRegistry } from './registry.js';
 import { SceneNode, createSceneGraphStore } from '@monorepo/scene-graph';
 
 NodeRegistry.register({

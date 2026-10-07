@@ -1,12 +1,15 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert';
-import { createSceneGraphStore } from '../packages/scene-graph/src/store';
-import { NodeRegistry } from '../packages/renderer/src/registry';
-import { SyncEngine } from '../packages/animation-engine/src/sync';
-import { AnimationEngine } from '../packages/animation-engine/src/engine';
+import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { NodeRegistry } from '@monorepo/renderer';
+import { SyncEngine, AnimationEngine } from '@monorepo/animation-engine';
 
 if (typeof globalThis.requestAnimationFrame === 'undefined') {
-  globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 16) as unknown as number;
+  globalThis.requestAnimationFrame = (cb) => {
+    const timer = setTimeout(cb, 16);
+    if (typeof timer.unref === 'function') timer.unref();
+    return timer as unknown as number;
+  };
   globalThis.cancelAnimationFrame = (id) => clearTimeout(id as unknown as NodeJS.Timeout);
 }
 

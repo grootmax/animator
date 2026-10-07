@@ -13,7 +13,7 @@ export class SyncEngine {
 
   public update() {
     const isPlaying = this.engine.getIsPlaying();
-    const playheadSec = this.engine.getPlayhead() / 1000;
+    const playheadSec = Number((this.engine.getPlayhead() / 1000).toFixed(6));
     
     const state = this.store.getState();
     const assets = state.assets;

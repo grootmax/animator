@@ -1,7 +1,9 @@
 import { generateKeyBetween } from '@monorepo/math';
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
-import { Asset } from './assets';
+import { Asset } from './assets.js';
+
+export const transientState: Record<string, any> = {};
 
 export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image' | string;
 
@@ -52,6 +54,7 @@ export interface SceneGraphState {
   selectedNodeId: string | null;
   remoteSelections: Record<string, { nodeId: string; color: string; userName?: string }>;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
+  addNodesBulk: (nodes: Array<Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }>) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
@@ -82,7 +85,7 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
   isDirty: true
 });
 
-import { syncMiddleware, SyncMessage } from './sync';
+import { syncMiddleware, SyncMessage } from './sync.js';
 
 export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) => {
   const config = (set: any, get: any) => ({
@@ -124,6 +127,7 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => {
     set((state: SceneGraphState) => {
       const newNode = getDefaultNode(node);
+      transientState[node.id] = newNode;
       
       const siblings = Object.values(state.nodes).filter((n: any) => n.parentId === (node.parentId || null));
       siblings.sort((a: any, b: any) => (a.order || '').localeCompare(b.order || ''));
@@ -137,6 +141,28 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
         rootId: state.rootId || (node.parentId === null ? node.id : state.rootId)
       };
     }, false, { type: 'addNode', payload: node });
+  },
+
+  addNodesBulk: (nodesToAdd: Array<Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }>) => {
+    set((state: SceneGraphState) => {
+      const newNodes = { ...state.nodes };
+      let newRootId = state.rootId;
+
+      for (const node of nodesToAdd) {
+        const newNode = getDefaultNode(node);
+        transientState[node.id] = newNode;
+        newNodes[node.id] = newNode;
+
+        if (node.parentId === null && !newRootId) {
+          newRootId = node.id;
+        }
+      }
+
+      return {
+        nodes: newNodes,
+        rootId: newRootId
+      };
+    });
   },
 
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => {
@@ -217,13 +243,14 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
           if (node.isDirty) {
             localMatrix = getTransformMatrix(
+              createMatrix(),
               node.x, node.y, 
               node.rotation, 
               node.scaleX, node.scaleY,
               node.skewX || 0, node.skewY || 0
             );
           }
-          currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
+          currentWorldMatrix = multiplyMatrix(createMatrix(), parentWorldMatrix, localMatrix);
 
           newNodes[nodeId] = {
             ...node,
@@ -234,7 +261,7 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
             currentWorldMatrix = node.worldMatrix;
         }
 
-        for (const childId of node.children) {
+        for (const childId of (childrenMap[nodeId] || [])) {
           traverse(childId, currentWorldMatrix, isWorldDirty);
         }
       };
