@@ -6,15 +6,17 @@ const { execSync } = require('child_process');
 // Mocks for File System
 const mockFsFiles = {};
 const mockFs = {
+  ...realFs,
   promises: {
-    readFile: async (filePath) => {
+    ...realFs.promises,
+    readFile: async (filePath, options) => {
       const normalized = path.normalize(filePath);
-      if (!(normalized in mockFsFiles) && !(filePath in mockFsFiles)) {
-        throw new Error(`ENOENT: no such file or directory, open '${filePath}'`);
+      if (normalized in mockFsFiles || filePath in mockFsFiles) {
+        return mockFsFiles[normalized] !== undefined ? mockFsFiles[normalized] : mockFsFiles[filePath];
       }
-      return mockFsFiles[normalized] !== undefined ? mockFsFiles[normalized] : mockFsFiles[filePath];
+      return realFs.promises.readFile(filePath, options);
     },
-    writeFile: async (filePath, content) => {
+    writeFile: async (filePath, content, options) => {
       const normalized = path.normalize(filePath);
       mockFsFiles[normalized] = content;
       mockFsFiles[filePath] = content;
