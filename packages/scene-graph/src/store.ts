@@ -49,7 +49,12 @@ export interface SceneGraphState {
   viewport: { x: number; y: number; zoom: number };
   selectedNodeId: string | null;
   remoteSelections: Record<string, { nodeId: string; color: string; userName?: string }>;
+  version?: number;
+  undo?: () => void;
+  redo?: () => void;
+  commitHistory?: () => void;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty' | 'isChanged'>> & { id: string, type: NodeType }) => void;
+  addNodesBulk: (nodes: Array<Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty' | 'isChanged'>> & { id: string, type: NodeType }>) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty' | 'isChanged'>>) => void;
   updateNodesBatch: (updates: Record<string, Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty' | 'isChanged'>>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
@@ -91,11 +96,11 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
   selectedNodeId: null,
   remoteSelections: {},
 
-  setViewport: (viewport) => set({ viewport }),
+  setViewport: (viewport: { x: number; y: number; zoom: number }) => set({ viewport }),
   
-  setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+  setSelectedNodeId: (selectedNodeId: string | null) => set({ selectedNodeId }),
   
-  setRemoteSelection: (userId, nodeId, color, userName) => set((state) => {
+  setRemoteSelection: (userId: string, nodeId: string | null, color?: string, userName?: string) => set((state: SceneGraphState) => {
     const newRemoteSelections = { ...state.remoteSelections };
     if (nodeId === null) {
       delete newRemoteSelections[userId];
@@ -121,6 +126,27 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
         rootId: state.rootId || (node.parentId === null ? node.id : state.rootId)
       };
     }, false, { type: 'addNode', payload: node });
+  },
+
+  addNodesBulk: (nodesToAdd: Array<Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty' | 'isChanged'>> & { id: string, type: NodeType }>) => {
+    set((state: SceneGraphState) => {
+      const newNodes = { ...state.nodes };
+      let newRootId = state.rootId;
+
+      for (const node of nodesToAdd) {
+        const newNode = getDefaultNode(node);
+        newNodes[node.id] = newNode;
+
+        if (node.parentId === null && !newRootId) {
+          newRootId = node.id;
+        }
+      }
+
+      return {
+        nodes: newNodes,
+        rootId: newRootId
+      };
+    }, false, { type: 'addNodesBulk', payload: nodesToAdd });
   },
 
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => {
@@ -227,14 +253,15 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
           let localMatrix = node.localMatrix;
 
           if (node.isDirty) {
-            localMatrix = getTransformMatrix(
+            getTransformMatrix(
+              localMatrix,
               node.x, node.y, 
               node.rotation, 
               node.scaleX, node.scaleY,
               node.skewX || 0, node.skewY || 0
             );
           }
-          currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
+          currentWorldMatrix = multiplyMatrix(node.worldMatrix, parentWorldMatrix, localMatrix);
 
           newNodes[nodeId] = {
             ...node,
@@ -259,7 +286,7 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
   },
 
   resetChangeFlags: () => {
-    set((state) => {
+    set((state: SceneGraphState) => {
       let newNodes: Record<string, SceneNode> | null = null;
       for (const [id, node] of Object.entries(state.nodes)) {
         if (node.isChanged) {

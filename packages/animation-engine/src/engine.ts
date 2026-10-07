@@ -1,20 +1,6 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
-
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
-
-export interface Keyframe {
-  id: string;
-  time: number; // in milliseconds
-  value: number | string;
-  easing?: EasingType;
-}
-
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
-}
+import { EasingType, Keyframe, Track, NetworkRole, Heartbeat } from './types';
 
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
@@ -126,11 +112,29 @@ export class AnimationEngine {
     this.tracks.push(track);
   }
 
+  private uiSubscribers: Array<(state: { isPlaying: boolean; playhead: number }) => void> = [];
+
+  public subscribeUI(cb: (state: { isPlaying: boolean; playhead: number }) => void): () => void {
+    this.uiSubscribers.push(cb);
+    cb({ isPlaying: this.isPlaying, playhead: this.playhead });
+    return () => {
+      this.uiSubscribers = this.uiSubscribers.filter(s => s !== cb);
+    };
+  }
+
+  private notifyUI() {
+    const state = { isPlaying: this.isPlaying, playhead: this.playhead };
+    for (const cb of this.uiSubscribers) {
+      cb(state);
+    }
+  }
+
   public play() {
     if (this.isPlaying) return;
     this.isPlaying = true;
     this.lastTime = performance.now();
     this.drift = 0;
+    this.notifyUI();
     this.tick();
 
     if (this.role === 'leader') {
@@ -145,6 +149,7 @@ export class AnimationEngine {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+    this.notifyUI();
 
     if (this.role === 'leader') {
       this.stopHeartbeat();
@@ -156,6 +161,7 @@ export class AnimationEngine {
     this.drift = 0;
     this.playhead = Math.round(time / 16.67) * 16.67;
     this.updateNodes();
+    this.notifyUI();
 
     if (this.role === 'leader') {
       this.broadcastHeartbeat();
@@ -279,7 +285,8 @@ export class AnimationEngine {
     const updates = new Map<string, any>();
 
     for (const track of this.tracks) {
-      const keyframesArray = Object.values(track.keyframes).sort((a, b) => {
+      const rawKf = Array.isArray(track.keyframes) ? track.keyframes : Object.values(track.keyframes);
+      const keyframesArray = [...rawKf].sort((a, b) => {
         if (a.time === b.time) return a.id.localeCompare(b.id);
         return a.time - b.time;
       });
