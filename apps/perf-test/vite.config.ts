@@ -14,6 +14,9 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
   },
+  optimizeDeps: {
+    include: ['pixi.js', 'zustand', 'zustand/vanilla', 'zod', 'fractional-indexing'],
+  },
   resolve: {
     alias: [
       { find: '@monorepo/math', replacement: path.resolve(__dirname, '../../packages/math/src/index.ts') },

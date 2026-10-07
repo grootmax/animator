@@ -9,17 +9,24 @@ async function run() {
     stdio: 'pipe',
   });
 
-  let serverPort = 4173;
+  let serverPort = 5173;
 
-  await new Promise((resolve) => {
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      if (serverPort) {
+        resolve();
+      } else {
+        reject(new Error('Vite server startup timed out'));
+      }
+    }, 30000);
+
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      const match = output.match(/http:\/\/localhost:(\d+)/);
+      const match = output.match(/http:\/\/(?:localhost|127\.0\.0\.1):(\d+)/);
       if (match) {
         serverPort = parseInt(match[1], 10);
-        resolve();
-      } else if (output.includes('ready in')) {
+        clearTimeout(timeout);
         resolve();
       }
     });
