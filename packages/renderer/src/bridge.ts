@@ -12,20 +12,21 @@ export class PixiBridge {
   private store: ReturnType<typeof createSceneGraphStore>;
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
+  private remoteSelectionsContainer: PIXI.Container;
 
-  constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
-      view: canvas,
-      resizeTo: window,
+      view: canvas as any,
+      resizeTo: typeof window !== 'undefined' ? window : undefined,
       backgroundColor: 0x1a1a1a,
-      resolution: window.devicePixelRatio || 1,
+      resolution: (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1,
       autoDensity: true,
     });
 
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app, store);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id) => this.pixiNodes.get(id));
 
     this.remoteSelectionsContainer = new PIXI.Container();
     this.remoteSelectionsContainer.zIndex = 999;
@@ -49,12 +50,20 @@ export class PixiBridge {
         updateQueued = true;
         queueMicrotask(() => {
           updateQueued = false;
-          const state = this.store.getState();
-          this.syncNodes(state.nodes);
           this.handles.update();
         });
       }
     });
+
+    // Initial sync of all nodes
+    this.syncNodes(this.store.getState().nodes);
+
+    if (typeof this.store.getState().subscribeToChanges === 'function') {
+      this.store.getState().subscribeToChanges((changedNodes) => {
+        this.syncChangedNodes(changedNodes, this.store.getState().nodes);
+        this.handles.update();
+      });
+    }
 
     this.app.ticker.add(() => {
         this.handles.update();
@@ -66,7 +75,7 @@ export class PixiBridge {
     return `${node.fill || 'none'}_${node.stroke || 'none'}_${node.strokeWidth || 0}`;
   }
 
-  private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3) {
+  private applyMatrix(displayObject: PIXI.Container, matrix: Matrix3 | Float32Array) {
     const a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4], tx = matrix[6], ty = matrix[7];
     
     const scaleX = Math.sqrt(a * a + b * b);
@@ -123,10 +132,30 @@ export class PixiBridge {
     }
   }
 
+  private syncChangedNodes(changedNodes: Set<string>, nodes: Record<string, SceneNode>) {
+    for (const id of changedNodes) {
+      const node = nodes[id];
+      if (node) {
+        this.syncSingleNode(id, node);
+      }
+    }
+  }
+
   private syncNodes(nodes: Record<string, SceneNode>) {
     const usedPaths = new Set<string>();
 
     for (const [id, node] of Object.entries(nodes)) {
+      this.syncSingleNode(id, node, usedPaths);
+    }
+
+    for (const path of this.pathCache.keys()) {
+      if (!usedPaths.has(path)) {
+        this.pathCache.delete(path);
+      }
+    }
+  }
+
+  private syncSingleNode(id: string, node: SceneNode, usedPaths?: Set<string>) {
       let pixiNode = this.pixiNodes.get(id);
 
       if (!pixiNode) {
@@ -209,7 +238,7 @@ export class PixiBridge {
             }
           }
         } else if (node.type === 'path' && node.pathData) {
-          usedPaths.add(node.pathData);
+          if (usedPaths) usedPaths.add(node.pathData);
           this.drawPath(pixiNode, node.pathData);
         }
 
@@ -250,12 +279,5 @@ export class PixiBridge {
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);
-    }
-
-    for (const path of this.pathCache.keys()) {
-      if (!usedPaths.has(path)) {
-        this.pathCache.delete(path);
-      }
-    }
   }
 }

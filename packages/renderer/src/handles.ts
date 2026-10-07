@@ -47,8 +47,10 @@ export class TransformHandles {
     }
 
     // Add global pointer move/up
-    window.addEventListener('pointermove', this.onDragMove.bind(this));
-    window.addEventListener('pointerup', this.onDragEnd.bind(this));
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pointermove', this.onDragMove.bind(this));
+      window.addEventListener('pointerup', this.onDragEnd.bind(this));
+    }
   }
 
   public setSelectedNode(id: string | null) {
@@ -90,7 +92,7 @@ export class TransformHandles {
     let maxY = h / 2;
 
     if (node.type === 'group' || node.type === 'container') {
-      const pixiNode = this.getPixiNode(this.selectedNodeId);
+      const pixiNode = this.getPixiNode(selectedNodeId);
       if (pixiNode && pixiNode.children.length > 0) {
         const bounds = pixiNode.getLocalBounds();
         if (bounds.width > 0 || bounds.height > 0) {
@@ -142,7 +144,17 @@ export class TransformHandles {
     this.hasMoved = false;
     this.dragType = type;
     this.dragStartPos = { x: e.globalX, y: e.globalY };
-    this.startNodeState = { ...this.store.getState().nodes[selectedNodeId] } as SceneNode;
+    const node = this.store.getState().nodes[selectedNodeId];
+    if (node) {
+      this.startNodeState = {
+        ...node,
+        x: node.x,
+        y: node.y,
+        rotation: node.rotation,
+        scaleX: node.scaleX,
+        scaleY: node.scaleY
+      } as any;
+    }
   }
 
   private onDragMove(e: PointerEvent) {
@@ -150,7 +162,7 @@ export class TransformHandles {
     if (!this.isDragging || !selectedNodeId || !this.startNodeState) return;
 
     if (!this.hasMoved) {
-      this.store.getState().commitHistory();
+      (this.store.getState() as any).commitHistory?.();
       this.hasMoved = true;
     }
 
@@ -179,6 +191,9 @@ export class TransformHandles {
 
     this.store.getState().updateNode(selectedNodeId, updates);
     this.store.getState().recalculateMatrices();
+    if (this.store.getState().flushChanges) {
+      this.store.getState().flushChanges();
+    }
   }
 
   private onDragEnd() {

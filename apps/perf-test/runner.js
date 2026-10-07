@@ -4,6 +4,7 @@ const path = require('path');
 
 async function run() {
   console.log('Starting Vite server...');
+  let serverUrl = 'http://localhost:4173';
   const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
     cwd: __dirname,
     stdio: 'pipe',
@@ -13,7 +14,11 @@ async function run() {
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/http:\/\/localhost:(\d+)/);
+      if (match) {
+        serverUrl = match[0];
+      }
+      if (output.includes('ready in')) {
         resolve();
       }
     });
@@ -23,10 +28,6 @@ async function run() {
   });
 
   console.log('Server started. Launching Puppeteer...');
-  
-  // Create an explicit build before starting if we use `preview`, but let's actually just spawn `vite` (dev server) for simplicity.
-  // Wait, I spawned `vite preview`. Let me kill it and spawn `vite` (dev server) instead to avoid needing a build step.
-  // Let me just fix the command in the spawned process later if needed. For now, it's just 'vite'.
 
   let browser;
   try {
@@ -36,10 +37,15 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('console', async (msg) => {
+      const args = await Promise.all(msg.args().map(arg => arg.jsonValue().catch(() => arg.toString())));
+      console.log('BROWSER:', msg.text(), ...args);
+    });
+    page.on('pageerror', (err) => console.error('BROWSER PAGE ERROR:', err));
+    page.on('error', (err) => console.error('BROWSER ERROR:', err));
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    console.log(`Navigating to ${serverUrl} ...`);
+    await page.goto(serverUrl, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
     
