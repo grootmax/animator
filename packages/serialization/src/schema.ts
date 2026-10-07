@@ -52,14 +52,15 @@ const EasingTypeSchema = z.enum([
 ]);
 
 export const KeyframeSchema = z.object({
+  id: z.string().optional(),
   time: z.number().nonnegative(),
-  value: z.number(),
+  value: z.union([z.number(), z.string()]),
   easing: EasingTypeSchema.optional()
 });
 
 export const TrackSchema = z.object({
   nodeId: z.string(),
-  property: z.enum(['x', 'y', 'rotation', 'scaleX', 'scaleY', 'opacity']),
+  property: z.enum(['x', 'y', 'rotation', 'scaleX', 'scaleY', 'opacity', 'fill', 'stroke', 'pathData']),
   keyframes: z.array(KeyframeSchema)
 });
 
