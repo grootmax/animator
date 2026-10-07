@@ -1,4 +1,4 @@
-import { SceneNode, transientState } from '@monorepo/scene-graph';
+import { SceneNode } from '@monorepo/scene-graph';
 
 export class SvgSerializer {
   public serialize(nodes: Record<string, SceneNode>): string {
@@ -17,8 +17,8 @@ export class SvgSerializer {
 
   private serializeNode(id: string, nodes: Record<string, SceneNode>, indentLevel: number): string {
     const node = nodes[id];
-    const tNode = transientState[id];
-    if (!node || node.visible === false || !tNode) return '';
+    const tNode = node;
+    if (!node || node.visible === false) return '';
 
     const indent = '  '.repeat(indentLevel);
     let elementStr = '';
