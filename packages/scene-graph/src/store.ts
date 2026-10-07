@@ -52,6 +52,7 @@ export interface SceneGraphState {
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   addNodesBulk: (nodes: Array<Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }>) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  updateNodesBatch: (updates: Record<string, Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
@@ -198,6 +199,24 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
           return { nodes: newNodes };
         }, false, { type: 'updateNode', payload: { id, updates } });
+      },
+
+      updateNodesBatch: (updates: Record<string, Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>>) => {
+        customSet((state: SceneGraphState) => {
+          const SPATIAL_PROPERTIES = ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'skewX', 'skewY'];
+          let changed = false;
+          const newNodes = { ...state.nodes };
+          for (const id in updates) {
+            const node = state.nodes[id];
+            if (!node) continue;
+            const nodeUpdates = updates[id];
+            const hasSpatialUpdate = Object.keys(nodeUpdates).some(key => SPATIAL_PROPERTIES.includes(key));
+            const isDirty = node.isDirty || hasSpatialUpdate;
+            newNodes[id] = { ...node, ...nodeUpdates, isDirty };
+            changed = true;
+          }
+          return changed ? { nodes: newNodes } : state;
+        }, false, { type: 'updateNodesBatch', payload: updates });
       },
 
       reorderNode: (id: string, newParentId: string | null, index: number) => {
