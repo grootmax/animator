@@ -1,5 +1,5 @@
 import React from 'react';
-import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download, Loader2 } from 'lucide-react';
+import { MousePointer2, Hand, Square, Circle, Play, Pause, ZoomIn, ZoomOut, Upload, Download } from 'lucide-react';
 
 interface ToolbarProps {
   tool: string;
@@ -27,8 +27,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onExportSvg,
   onZoomIn,
   onZoomOut,
-  isSaving = false,
-  saveProgress = 0
+  isSaving: _isSaving = false,
+  saveProgress: _saveProgress = 0
 }) => {
   const ToolButton = ({ name, icon: Icon }: { name: string, icon: any }) => (
     <button

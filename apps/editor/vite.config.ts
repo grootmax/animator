@@ -4,6 +4,9 @@ import electron from 'vite-plugin-electron';
 import path from 'path';
 
 export default defineConfig({
+  test: {
+    exclude: ['**/node_modules/**', '**/dist/**', '**/tests/**'],
+  },
   base: './',
   resolve: {
     alias: {

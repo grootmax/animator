@@ -1,5 +1,7 @@
 import { SceneNode, NodeType } from '@monorepo/scene-graph';
-import { Matrix3, createMatrix, multiplyMatrix } from '@monorepo/math';
+import { Matrix3, createMatrix, multiplyMatrix as multiplyMatrix3 } from '@monorepo/math';
+
+const multiplyMatrix = (a: Matrix3, b: Matrix3): Matrix3 => multiplyMatrix3(createMatrix(), a, b);
 
 let idCounter = 0;
 const generateId = () => `node_${idCounter++}`;
@@ -193,8 +195,6 @@ export class SvgParser {
       case 'line': type = 'line'; break;
       case 'polyline': type = 'polyline'; break;
       case 'path': type = 'path'; break;
-      case 'ellipse': type = 'path'; break;
-      case 'line': type = 'path'; break;
       default: return; // Ignore unsupported
     }
 
@@ -294,7 +294,7 @@ export class SvgParser {
     nodesList.push(sceneNode);
 
     Array.from(element.children).forEach(child => {
-      this.processElement(child, id, nodesList, finalMatrix);
+      this.processElement(child, id, nodesList, combinedMatrix);
     });
   }
 }
