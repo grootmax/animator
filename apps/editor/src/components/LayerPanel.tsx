@@ -27,25 +27,25 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
     const [isEditing, setIsEditing] = useState(false);
     const [editName, setEditName] = useState(node.name);
 
-    const childNodes = Object.values(nodes).filter(n => n.parentId === id).sort((a,b) => (a.order || '').localeCompare(b.order || ''));
-    const childrenIds = childNodes.map(n => n.id);
+    const childNodes = Object.values(nodes).filter((n: any) => n.parentId === id).sort((a: any, b: any) => (a.order || '').localeCompare(b.order || ''));
+    const childrenIds = childNodes.map((n: any) => n.id);
     const hasChildren = childrenIds.length > 0;
 
     const toggleVisible = (e: React.MouseEvent) => {
       e.stopPropagation();
-      store.getState().commitHistory();
+      (store.getState() as any).commitHistory?.();
       store.getState().updateNode(id, { visible: !node.visible });
     };
 
     const toggleLock = (e: React.MouseEvent) => {
       e.stopPropagation();
-      store.getState().commitHistory();
+      (store.getState() as any).commitHistory?.();
       store.getState().updateNode(id, { locked: !node.locked });
     };
 
     const handleRename = () => {
       if (editName.trim() && editName !== node.name) {
-        store.getState().commitHistory();
+        (store.getState() as any).commitHistory?.();
         store.getState().updateNode(id, { name: editName });
       }
       setIsEditing(false);
@@ -95,7 +95,7 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
              siblingsNodes.sort((a,b) => (a.order || '').localeCompare(b.order || ''));
              const siblings = siblingsNodes.map(n => n.id);
              const dropIndex = siblings.indexOf(id);
-             store.getState().commitHistory();
+             (store.getState() as any).commitHistory?.();
              store.getState().reorderNode(item.id, parentId, dropIndex + 1);
          }
       }

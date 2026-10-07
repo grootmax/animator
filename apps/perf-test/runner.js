@@ -36,7 +36,26 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('response', res => {
+      if (res.status() >= 400) console.log('HTTP ERROR:', res.status(), res.url());
+    });
+    page.on('requestfailed', (req) => console.log('REQUEST FAILED:', req.url(), req.failure()?.errorText));
+    page.on('pageerror', (err) => console.error('PAGE ERROR:', err));
+    page.on('workercreated', (worker) => {
+      console.log('WORKER CREATED:', worker.url());
+      worker.on('error', (err) => console.error('WORKER ERROR:', err));
+      worker.on('console', (msg) => console.log('WORKER CONSOLE:', msg.text()));
+    });
+    page.on('console', async (msg) => {
+      const args = await Promise.all(msg.args().map(async (arg) => {
+        try {
+          return await arg.jsonValue();
+        } catch (e) {
+          return arg.toString();
+        }
+      }));
+      console.log(`BROWSER [${msg.type()}]:`, msg.text(), args);
+    });
 
     console.log('Navigating to http://localhost:4173 ...');
     await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
