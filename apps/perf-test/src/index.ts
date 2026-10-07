@@ -19,7 +19,7 @@ async function runBenchmark() {
   let m2 = createMatrix();
   m1[0] = 1.1; m2[1] = 0.5;
   for (let i = 0; i < 1000000; i++) {
-    m1 = multiplyMatrix(m1, m2);
+    multiplyMatrix(m1, m1, m2);
   }
   const baselineEnd = performance.now();
   results.baselineMatrixTime = baselineEnd - baselineStart;
@@ -36,11 +36,16 @@ async function runBenchmark() {
   const canvas = document.getElementById('stage') as HTMLCanvasElement;
   const player = new RuntimePlayer(canvas);
 
-  const loadStart = performance.now();
-  player.load(project);
-  const loadEnd = performance.now();
-  results.loadTime = loadEnd - loadStart;
-  console.log('Load & Init Recalculate Time:', results.loadTime);
+  try {
+    const loadStart = performance.now();
+    player.load(project);
+    const loadEnd = performance.now();
+    results.loadTime = loadEnd - loadStart;
+    console.log('Load & Init Recalculate Time:', results.loadTime);
+  } catch (err: any) {
+    console.error('ERROR in player.load:', err?.message, err?.stack);
+    throw err;
+  }
 
   // Playback Phase
   player.play();
@@ -116,4 +121,4 @@ async function runBenchmark() {
   });
 }
 
-runBenchmark().catch(console.error);
+runBenchmark().catch((err) => console.error(err?.stack || err?.toString() || err));

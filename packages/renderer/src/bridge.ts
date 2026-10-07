@@ -25,7 +25,7 @@ export class PixiBridge {
     const stateNodes = nodes || this.store.getState().nodes;
     this.syncNodes(stateNodes);
     this.handles.update();
-  }
+  };
 
   public scheduleUpdate = (priority: boolean = false) => {
     const nodes = this.store.getState().nodes;
@@ -44,7 +44,7 @@ export class PixiBridge {
         });
       }
     }
-  }
+  };
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
