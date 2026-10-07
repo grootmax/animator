@@ -53,7 +53,7 @@ self.onmessage = (e) => {
         engine.setDuration(data.metadata.duration);
       }
       if (data.animations) {
-        data.animations.forEach((track: Track) => {
+        data.animations.forEach((track: any) => {
           engine.addTrack(track);
         });
       }

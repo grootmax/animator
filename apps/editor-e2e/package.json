@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test": "playwright test",
+    "test": "if [ -z \"$DISPLAY\" ] && command -v xvfb-run > /dev/null; then xvfb-run --auto-servernum playwright test; else playwright test; fi",
     "test:ui": "playwright test --ui"
   },
   "devDependencies": {

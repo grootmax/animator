@@ -3,6 +3,15 @@ import { createSceneGraphStore } from '@monorepo/scene-graph';
 
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
 
+export type NetworkRole = 'leader' | 'follower' | 'standalone';
+
+export interface Heartbeat {
+  senderId?: string;
+  playhead: number;
+  isPlaying: boolean;
+  timestamp?: number;
+}
+
 export interface Keyframe {
   id: string;
   time: number; // in milliseconds
@@ -309,7 +318,13 @@ export class AnimationEngine {
       for (const [nodeId, nodeUpdates] of updates.entries()) {
         batchUpdates[nodeId] = nodeUpdates;
       }
-      storeState.updateNodesBatch(batchUpdates);
+      if ((storeState as any).updateNodesBatch) {
+        (storeState as any).updateNodesBatch(batchUpdates);
+      } else {
+        for (const [nodeId, nodeUpdates] of updates.entries()) {
+          storeState.updateNode(nodeId, nodeUpdates);
+        }
+      }
       requiresMatrixUpdate = true;
     }
 
