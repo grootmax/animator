@@ -53,7 +53,7 @@ function App() {
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
-        setStoreVersion(state.version);
+        setStoreVersion((state as any).version || 0);
       });
 
       return () => unsubscribe();
@@ -61,9 +61,9 @@ function App() {
   }, []);
 
   useEffect(() => {
-    return engine.subscribeUI((state) => {
+    return (engine as any).subscribeUI ? (engine as any).subscribeUI((state: any) => {
       setIsPlaying(state.isPlaying);
-    });
+    }) : undefined;
   }, []);
 
   useEffect(() => {

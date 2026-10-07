@@ -9,6 +9,10 @@
   },
   "dependencies": {
     "@monorepo/math": "*",
-    "@monorepo/scene-graph": "*"
+    "@monorepo/scene-graph": "*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "vitest": "^1.2.0"
   }
 }
