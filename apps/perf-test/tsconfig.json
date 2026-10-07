@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "module": "ESNext",
+    "moduleResolution": "node"
+  },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../../packages/math" },
+    { "path": "../../packages/scene-graph" },
+    { "path": "../../packages/animation-engine" },
+    { "path": "../../packages/renderer" },
+    { "path": "../runtime-player" }
+  ]
+}

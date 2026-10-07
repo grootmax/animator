@@ -210,8 +210,7 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
           newNodes[nodeId] = {
             ...node,
             localMatrix,
-            worldMatrix: currentWorldMatrix,
-            isDirty: false
+            worldMatrix: currentWorldMatrix
           };
         } else {
             currentWorldMatrix = node.worldMatrix;

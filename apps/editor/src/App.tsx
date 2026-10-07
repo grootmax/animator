@@ -6,7 +6,9 @@ import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
+// @ts-ignore
 import { DndProvider } from 'react-dnd';
+// @ts-ignore
 import { HTML5Backend } from 'react-dnd-html5-backend';
 
 // Create singletons for the app
@@ -27,6 +29,7 @@ declare global {
     electronAPI?: {
       openFile: () => Promise<string | null>;
       saveFile: (content: string) => Promise<boolean>;
+      exportSvg: (content: string) => Promise<boolean>;
     }
   }
 }
@@ -34,6 +37,7 @@ declare global {
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [nodesCount, setNodesCount] = useState(0);
+  const [storeVersion, setStoreVersion] = useState(0);
   const [tool, setTool] = useState('select');
   const [isPlaying, setIsPlaying] = useState(false);
   const [saveProgress, setSaveProgress] = useState<number | null>(null);
@@ -49,6 +53,7 @@ function App() {
       // Subscribe to node count for UI
       const unsubscribe = store.subscribe((state) => {
         setNodesCount(Object.keys(state.nodes).length);
+        setStoreVersion(state.version);
       });
 
       return () => unsubscribe();
@@ -56,13 +61,9 @@ function App() {
   }, []);
 
   useEffect(() => {
-    let frame: number;
-    const checkPlayState = () => {
-      setIsPlaying(engine.getIsPlaying());
-      frame = requestAnimationFrame(checkPlayState);
-    };
-    frame = requestAnimationFrame(checkPlayState);
-    return () => cancelAnimationFrame(frame);
+    return engine.subscribeUI((state) => {
+      setIsPlaying(state.isPlaying);
+    });
   }, []);
 
   useEffect(() => {
@@ -178,7 +179,7 @@ function App() {
       const state = store.getState().nodes;
       const serializer = new SvgSerializer();
       const svgString = serializer.serialize(state);
-      await window.electronAPI.saveFile(svgString);
+      await window.electronAPI.exportSvg(svgString);
     } else {
       alert("Electron API not available");
     }
@@ -243,6 +244,40 @@ function App() {
     }
   };
 
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      if (file.type === 'image/png' || file.type === 'image/jpeg') {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const base64Src = ev.target?.result as string;
+          const img = new Image();
+          img.onload = () => {
+            const state = store.getState();
+            state.addNode({
+              id: `image_${Date.now()}`,
+              type: 'image',
+              src: base64Src,
+              x: e.clientX,
+              y: e.clientY,
+              width: img.width,
+              height: img.height,
+              parentId: null
+            });
+            state.recalculateMatrices();
+          };
+          img.src = base64Src;
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="flex flex-col h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden relative">
@@ -259,9 +294,13 @@ function App() {
         />
 
         <div className="flex flex-1 overflow-hidden">
-          <LayerPanel store={store} nodesCount={nodesCount} />
+          <LayerPanel store={store} nodesCount={nodesCount} version={storeVersion} />
 
-          <div className="flex-1 relative bg-[#1a1a1a]">
+          <div 
+            className="flex-1 relative bg-[#1a1a1a]"
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+          >
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
             {/* Overlay a subtle test animation button for quick testing */}
             <button

@@ -1,0 +1,72 @@
+name: 100K Node Scalability Suite
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install Dependencies
+        run: npm ci || npm install
+
+      - name: Run 100K Node Performance Tests
+        id: run-perf
+        run: npm run test -w @monorepo/perf-test
+        continue-on-error: true
+
+      - name: Post Performance Summary
+        if: always()
+        run: |
+          if [ -f apps/perf-test/perf-results.json ]; then
+            cat apps/perf-test/perf-results.json | jq .
+            
+            # Generate GitHub Step Summary
+            echo "## 📊 100K Node Performance Test Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+            
+            # Extract values
+            GEN_TIME=$(cat apps/perf-test/perf-results.json | jq -r '.generationTime | floor')
+            LOAD_TIME=$(cat apps/perf-test/perf-results.json | jq -r '.loadTime | floor')
+            BASELINE=$(cat apps/perf-test/perf-results.json | jq -r '.baselineMatrixTime | floor')
+            FRAMES=$(cat apps/perf-test/perf-results.json | jq -r '.frameMetrics.totalFrames')
+            AVG_FRAME=$(cat apps/perf-test/perf-results.json | jq -r '.frameMetrics.avgFrameTime // 0 | floor')
+            STD_DEV=$(cat apps/perf-test/perf-results.json | jq -r '.frameMetrics.stdDev // 0 | floor')
+            VIOLATIONS=$(cat apps/perf-test/perf-results.json | jq -r '.frameMetrics.violations')
+            PASSED=$(cat apps/perf-test/perf-results.json | jq -r '.passed')
+            REASON=$(cat apps/perf-test/perf-results.json | jq -r '.reason')
+            
+            echo "| ⚙️ Generation Time | ${GEN_TIME} ms |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🚀 Load & Recalculate Time | ${LOAD_TIME} ms |" >> $GITHUB_STEP_SUMMARY
+            echo "| 💻 Baseline Hardware Factor | ${BASELINE} ms (1M ops) |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🎞️ Total Frames Rendered | ${FRAMES} |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⏱️ Average Frame Time | ${AVG_FRAME} ms |" >> $GITHUB_STEP_SUMMARY
+            echo "| 📈 Frame Time StdDev (Jank) | ${STD_DEV} ms |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⚠️ Budget Violations (>16ms) | ${VIOLATIONS} frames |" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "$PASSED" == "false" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "❌ **FAILED:** $REASON" >> $GITHUB_STEP_SUMMARY
+              exit 1
+            else
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "✅ **PASSED:** Performance is within acceptable bounds." >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ **ERROR:** Performance results file not found. The test runner crashed or failed to start." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
