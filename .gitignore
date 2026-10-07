@@ -6,4 +6,5 @@ dist
 dist-electron
 *.tsbuildinfo
 .turbo/
+perf-results.json
 

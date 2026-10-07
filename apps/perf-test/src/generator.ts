@@ -7,11 +7,18 @@ export function generate100kProject(): ExportedProject {
   // Create root node
   scene['root'] = {
     id: 'root',
+    name: 'Root Container',
     type: 'container',
     parentId: null,
     children: [],
     x: 400,
-    y: 300
+    y: 300,
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    opacity: 1,
+    visible: true,
+    locked: false
   };
 
   const GROUP_COUNT = 10;
@@ -26,12 +33,18 @@ export function generate100kProject(): ExportedProject {
     const groupId = genId();
     scene[groupId] = {
       id: groupId,
+      name: `Group ${i}`,
       type: 'group',
       parentId: 'root',
       children: [],
       x: (i - GROUP_COUNT / 2) * 10,
       y: 0,
-      rotation: 0
+      rotation: 0,
+      scaleX: 1,
+      scaleY: 1,
+      opacity: 1,
+      visible: true,
+      locked: false
     };
     scene['root'].children.push(groupId);
 
@@ -49,13 +62,18 @@ export function generate100kProject(): ExportedProject {
       const subgroupId = genId();
       scene[subgroupId] = {
         id: subgroupId,
+        name: `Subgroup ${j}`,
         type: 'group',
         parentId: groupId,
         children: [],
         x: (j - SUBGROUP_COUNT / 2) * 2,
         y: 0,
+        rotation: 0,
         scaleX: 1,
-        scaleY: 1
+        scaleY: 1,
+        opacity: 1,
+        visible: true,
+        locked: false
       };
       scene[groupId].children.push(subgroupId);
 
@@ -76,15 +94,21 @@ export function generate100kProject(): ExportedProject {
         const leafId = genId();
         scene[leafId] = {
           id: leafId,
+          name: `Leaf ${k}`,
           type: 'rect',
           parentId: subgroupId,
           children: [],
           x: (Math.random() - 0.5) * 800,
           y: (Math.random() - 0.5) * 600,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
           width: 2,
           height: 2,
           fill: '#ff0000',
-          opacity: Math.random()
+          opacity: Math.random(),
+          visible: true,
+          locked: false
         };
         scene[subgroupId].children.push(leafId);
       }
@@ -95,6 +119,7 @@ export function generate100kProject(): ExportedProject {
     scene,
     animations,
     metadata: {
+      version: '1.0.0',
       duration: 5000
     }
   };

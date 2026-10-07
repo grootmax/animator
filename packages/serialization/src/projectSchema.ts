@@ -6,20 +6,20 @@ export const nodeTypeSchema = z.enum(['container', 'rect', 'circle', 'path', 'gr
 // By default, z.object() will strip out any extra properties (like localMatrix, worldMatrix, isDirty).
 export const sceneNodeSchema = z.object({
   id: z.string(),
-  name: z.string(),
+  name: z.string().optional().default('Node'),
   type: nodeTypeSchema,
   parentId: z.string().nullable(),
   children: z.array(z.string()),
-  x: z.number(),
-  y: z.number(),
-  rotation: z.number(),
-  scaleX: z.number(),
-  scaleY: z.number(),
+  x: z.number().optional().default(0),
+  y: z.number().optional().default(0),
+  rotation: z.number().optional().default(0),
+  scaleX: z.number().optional().default(1),
+  scaleY: z.number().optional().default(1),
   skewX: z.number().optional(),
   skewY: z.number().optional(),
-  opacity: z.number(),
-  visible: z.boolean(),
-  locked: z.boolean(),
+  opacity: z.number().optional().default(1),
+  visible: z.boolean().optional().default(true),
+  locked: z.boolean().optional().default(false),
   width: z.number().optional(),
   height: z.number().optional(),
   radius: z.number().optional(),
@@ -40,19 +40,19 @@ export const easingTypeSchema = z.enum(['linear', 'easeInQuad', 'easeOutQuad', '
 
 export const keyframeSchema = z.object({
   time: z.number(),
-  value: z.number(),
+  value: z.union([z.number(), z.string()]),
   easing: easingTypeSchema.optional(),
 });
 
 export const trackSchema = z.object({
   nodeId: z.string(),
-  property: z.enum(['x', 'y', 'rotation', 'scaleX', 'scaleY', 'opacity']),
+  property: z.enum(['x', 'y', 'rotation', 'scaleX', 'scaleY', 'opacity', 'fill', 'stroke', 'pathData']),
   keyframes: z.array(keyframeSchema),
 });
 
 export const projectMetadataSchema = z.object({
-  version: z.string(),
-  duration: z.number(),
+  version: z.string().optional().default('1.0.0'),
+  duration: z.number().optional().default(0),
 });
 
 export const projectDataSchema = z.object({

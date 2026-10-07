@@ -13,20 +13,20 @@ const NodeTypeSchema = z.enum([
 
 export const SceneNodeSchema = z.object({
   id: z.string(),
-  name: z.string(),
+  name: z.string().optional().default('Node'),
   type: NodeTypeSchema,
   parentId: z.string().nullable(),
   children: z.array(z.string()),
-  x: z.number(),
-  y: z.number(),
-  rotation: z.number(),
-  scaleX: z.number(),
-  scaleY: z.number(),
+  x: z.number().optional().default(0),
+  y: z.number().optional().default(0),
+  rotation: z.number().optional().default(0),
+  scaleX: z.number().optional().default(1),
+  scaleY: z.number().optional().default(1),
   skewX: z.number().optional(),
   skewY: z.number().optional(),
-  opacity: z.number(),
-  visible: z.boolean(),
-  locked: z.boolean(),
+  opacity: z.number().optional().default(1),
+  visible: z.boolean().optional().default(true),
+  locked: z.boolean().optional().default(false),
   
   width: z.number().optional(),
   height: z.number().optional(),
@@ -65,8 +65,8 @@ export const TrackSchema = z.object({
 });
 
 export const MetadataSchema = z.object({
-  version: z.string(),
-  duration: z.number().nonnegative()
+  version: z.string().optional().default('1.0.0'),
+  duration: z.number().nonnegative().optional().default(0)
 });
 
 export const ExportedProjectSchema = z.object({
