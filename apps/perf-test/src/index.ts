@@ -18,8 +18,9 @@ async function runBenchmark() {
   let m1 = createMatrix();
   let m2 = createMatrix();
   m1[0] = 1.1; m2[1] = 0.5;
+  let out = createMatrix();
   for (let i = 0; i < 1000000; i++) {
-    m1 = multiplyMatrix(m1, m2);
+    multiplyMatrix(out, m1, m2);
   }
   const baselineEnd = performance.now();
   results.baselineMatrixTime = baselineEnd - baselineStart;

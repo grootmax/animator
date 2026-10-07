@@ -9,7 +9,7 @@ export class PixiBridge {
     this.store = store;
 
     // Use Vite's worker syntax or fallback
-    this.worker = new Worker(new URL('./renderer.worker.js', import.meta.url), { type: 'module' });
+    this.worker = new Worker(new URL('./renderer.worker.ts', import.meta.url), { type: 'module' });
 
     const offscreen = canvas.transferControlToOffscreen();
     
