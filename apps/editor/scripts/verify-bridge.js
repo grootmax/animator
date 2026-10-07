@@ -8,12 +8,15 @@ const mockFsFiles = {};
 const mockFs = {
   promises: {
     readFile: async (filePath) => {
-      if (!(filePath in mockFsFiles)) {
+      const normalized = path.normalize(filePath);
+      if (!(normalized in mockFsFiles) && !(filePath in mockFsFiles)) {
         throw new Error(`ENOENT: no such file or directory, open '${filePath}'`);
       }
-      return mockFsFiles[filePath];
+      return mockFsFiles[normalized] !== undefined ? mockFsFiles[normalized] : mockFsFiles[filePath];
     },
     writeFile: async (filePath, content) => {
+      const normalized = path.normalize(filePath);
+      mockFsFiles[normalized] = content;
       mockFsFiles[filePath] = content;
     }
   }
@@ -72,11 +75,14 @@ const mockElectron = {
 const Module = require('module');
 const originalLoad = Module._load;
 Module._load = function (request, parent, isMain) {
-  if (request === 'electron') {
+  if (request === 'electron' || request === 'node:electron') {
     return mockElectron;
   }
-  if (request === 'fs') {
+  if (request === 'fs' || request === 'node:fs') {
     return mockFs;
+  }
+  if (request === 'fs/promises' || request === 'node:fs/promises') {
+    return mockFs.promises;
   }
   return originalLoad(request, parent, isMain);
 };
@@ -91,7 +97,7 @@ async function runTests() {
   if (!realFs.existsSync(distMain) || !realFs.existsSync(distPreload)) {
     console.log('`dist-electron/` outputs not found. Compiling Electron scripts via vite build...');
     try {
-      execSync('npx vite build', { cwd: path.join(__dirname, '..'), stdio: 'inherit' });
+      execSync('npx vite build', { cwd: path.join(__dirname, '..'), stdio: 'inherit', shell: true });
     } catch (buildErr) {
       console.error('Failed to compile Electron scripts prior to bridge verification.');
       process.exit(1);
@@ -100,8 +106,8 @@ async function runTests() {
 
   // Load the compiled bridge components
   try {
-    require('../dist-electron/main.js');
-    require('../dist-electron/preload.js');
+    require(distMain);
+    require(distPreload);
   } catch (err) {
     console.error('Failed to load bridge components. Ensure they are compiled.');
     console.error(err);
