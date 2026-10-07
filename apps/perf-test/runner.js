@@ -9,12 +9,20 @@ async function run() {
     stdio: 'pipe',
   });
 
+  let serverPort = 4173;
   await new Promise((resolve) => {
+    let resolved = false;
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
-        resolve();
+      const clean = output.replace(/\u001b\[[0-9;]*m/g, '');
+      const match = clean.match(/http:\/\/localhost:(\d+)/);
+      if (match) {
+        serverPort = parseInt(match[1], 10);
+        if (!resolved) {
+          resolved = true;
+          resolve();
+        }
       }
     });
     viteProcess.stderr.on('data', (data) => {
@@ -22,7 +30,7 @@ async function run() {
     });
   });
 
-  console.log('Server started. Launching Puppeteer...');
+  console.log(`Server started on port ${serverPort}. Launching Puppeteer...`);
   
   // Create an explicit build before starting if we use `preview`, but let's actually just spawn `vite` (dev server) for simplicity.
   // Wait, I spawned `vite preview`. Let me kill it and spawn `vite` (dev server) instead to avoid needing a build step.
@@ -37,9 +45,23 @@ async function run() {
 
     const page = await browser.newPage();
     page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('pageerror', (err) => console.error('PAGE ERROR:', err.message, err.stack));
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    console.log(`Navigating to http://localhost:${serverPort} ...`);
+    let connected = false;
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      try {
+        await page.goto(`http://localhost:${serverPort}`, { waitUntil: 'domcontentloaded', timeout: 10000 });
+        connected = true;
+        break;
+      } catch (err) {
+        console.log(`Connection attempt ${attempt} failed (${err.message}), retrying in 500ms...`);
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+    if (!connected) {
+      throw new Error(`Failed to connect to Vite server at http://localhost:${serverPort}`);
+    }
 
     console.log('Waiting for benchmark to complete...');
     
