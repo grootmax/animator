@@ -1,6 +1,6 @@
 import { generateKeyBetween } from '@monorepo/math';
 import { createStore } from 'zustand/vanilla';
-import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
+import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix, copyMatrix } from '@monorepo/math';
 
 export const transientState: Record<string, any> = {};
 
@@ -162,7 +162,11 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
       const newNodes = { ...state.nodes };
 
       const siblings = Object.values(state.nodes).filter((n: any) => n.parentId === newParentId && n.id !== id);
-      siblings.sort((a, b) => (a.order || '').localeCompare(b.order || ''));
+      siblings.sort((a, b) => {
+        const oa = a.order || '';
+        const ob = b.order || '';
+        return oa < ob ? -1 : (oa > ob ? 1 : 0);
+      });
 
       const prev = index > 0 ? siblings[index - 1] : null;
       const next = index < siblings.length ? siblings[index] : null;
@@ -189,60 +193,128 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
   recalculateMatrices: () => {
     set((state: SceneGraphState) => {
-      const newNodes = { ...state.nodes };
+      const nodes = state.nodes;
       const { rootId } = state;
+      if (!rootId || !nodes[rootId]) return state;
+
       const childrenMap: Record<string, string[]> = {};
-      Object.values(newNodes).forEach((n: any) => {
-        const p = n.parentId || 'root';
-        if (!childrenMap[p]) childrenMap[p] = [];
-        childrenMap[p].push(n.id);
-      });
-      for (const k in childrenMap) {
-        childrenMap[k].sort((a: any, b: any) => ((newNodes as any)[a].order || '').localeCompare((newNodes as any)[b].order || ''));
+      for (const id in nodes) {
+        if (id === rootId) continue;
+        const n = nodes[id];
+        const p = n.parentId || rootId;
+        let arr = childrenMap[p];
+        if (!arr) {
+          arr = childrenMap[p] = [];
+        }
+        arr.push(id);
       }
 
-      if (!rootId || !newNodes[rootId]) return state;
+      for (const k in childrenMap) {
+        const list = childrenMap[k];
+        if (list.length > 1) {
+          list.sort((a, b) => {
+            const oa = nodes[a].order;
+            const ob = nodes[b].order;
+            if (!oa && !ob) return 0;
+            if (!oa) return -1;
+            if (!ob) return 1;
+            return oa < ob ? -1 : (oa > ob ? 1 : 0);
+          });
+        }
+      }
 
-      const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
-        const node = newNodes[nodeId];
-        if (!node) return;
+      const rootNode = nodes[rootId];
+      if (!rootNode) return state;
 
-        const isWorldDirty = node.isDirty || parentWasDirty;
-        let currentWorldMatrix = parentWorldMatrix;
+      interface Frame {
+        children: string[];
+        index: number;
+        parentWorldMatrix: Matrix3;
+        parentWasDirty: boolean;
+      }
+
+      let rootWorldMatrix = rootNode.worldMatrix;
+      if (!rootWorldMatrix) {
+        rootWorldMatrix = rootNode.worldMatrix = createMatrix();
+      }
+      if (rootNode.isDirty) {
+        let rootLocalMatrix = rootNode.localMatrix;
+        if (!rootLocalMatrix) {
+          rootLocalMatrix = rootNode.localMatrix = createMatrix();
+        }
+        getTransformMatrix(
+          rootLocalMatrix,
+          rootNode.x, rootNode.y,
+          rootNode.rotation,
+          rootNode.scaleX, rootNode.scaleY,
+          rootNode.skewX || 0, rootNode.skewY || 0
+        );
+        copyMatrix(rootWorldMatrix, rootLocalMatrix);
+        rootNode.isDirty = false;
+      }
+
+      const stack: Frame[] = [{
+        children: childrenMap[rootId] || [],
+        index: 0,
+        parentWorldMatrix: rootWorldMatrix,
+        parentWasDirty: false
+      }];
+
+      while (stack.length > 0) {
+        const frame = stack[stack.length - 1];
+        if (frame.index >= frame.children.length) {
+          stack.pop();
+          continue;
+        }
+
+        const nodeId = frame.children[frame.index++];
+        const node = nodes[nodeId];
+        if (!node) continue;
+
+        const isWorldDirty = node.isDirty || frame.parentWasDirty;
+
+        let localMatrix = node.localMatrix;
+        if (!localMatrix) {
+          localMatrix = node.localMatrix = createMatrix();
+        }
+
+        if (node.isDirty) {
+          getTransformMatrix(
+            localMatrix,
+            node.x, node.y,
+            node.rotation,
+            node.scaleX, node.scaleY,
+            node.skewX || 0, node.skewY || 0
+          );
+        }
+
+        let currentWorldMatrix = node.worldMatrix;
+        if (!currentWorldMatrix) {
+          currentWorldMatrix = node.worldMatrix = createMatrix();
+        }
 
         if (isWorldDirty) {
-          let localMatrix = node.localMatrix;
-
-          if (node.isDirty) {
-            localMatrix = getTransformMatrix(
-              createMatrix(),
-              node.x, node.y, 
-              node.rotation, 
-              node.scaleX, node.scaleY,
-              node.skewX || 0, node.skewY || 0
-            );
-          }
-          currentWorldMatrix = multiplyMatrix(createMatrix(), parentWorldMatrix, localMatrix);
-
-          newNodes[nodeId] = {
-            ...node,
-            localMatrix,
-            worldMatrix: currentWorldMatrix,
-            isDirty: false
-          };
-        } else {
-            currentWorldMatrix = node.worldMatrix;
+          multiplyMatrix(
+            currentWorldMatrix,
+            frame.parentWorldMatrix,
+            localMatrix
+          );
         }
 
-        const children = childrenMap[nodeId] || [];
-        for (const childId of children) {
-          traverse(childId, currentWorldMatrix, isWorldDirty);
+        node.isDirty = false;
+
+        const children = childrenMap[nodeId];
+        if (children && children.length > 0) {
+          stack.push({
+            children,
+            index: 0,
+            parentWorldMatrix: currentWorldMatrix,
+            parentWasDirty: isWorldDirty
+          });
         }
-      };
+      }
 
-      traverse(rootId, createMatrix(), false);
-
-      return { nodes: newNodes };
+      return { nodes };
     });
   }
   });

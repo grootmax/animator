@@ -4,16 +4,25 @@ const path = require('path');
 
 async function run() {
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  let port = 4173;
+  const viteProcess = spawn('npx', ['vite', '--port', '4173', '--strictPort'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
 
-  await new Promise((resolve) => {
+  await new Promise((resolve, reject) => {
+    viteProcess.on('error', reject);
+    viteProcess.on('exit', (code) => {
+      if (code !== 0 && code !== null) reject(new Error(`Vite exited with code ${code}`));
+    });
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/http:\/\/localhost:(\d+)/);
+      if (match) {
+        port = parseInt(match[1], 10);
+      }
+      if (output.includes('ready in')) {
         resolve();
       }
     });
@@ -36,10 +45,30 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('console', async (msg) => {
+      const args = await Promise.all(msg.args().map(async (arg) => {
+        try {
+          const val = await page.evaluate(obj => {
+            if (obj instanceof Error) return `${obj.message}\n${obj.stack}`;
+            return obj;
+          }, arg);
+          return val;
+        } catch {
+          return arg.toString();
+        }
+      }));
+      console.log('BROWSER:', msg.text(), ...args);
+    });
+    page.on('pageerror', (err) => console.log('BROWSER PAGE ERROR:', err.message, err.stack));
+    page.on('requestfailed', (req) => console.log('REQUEST FAILED:', req.url(), req.failure()));
+    page.on('response', (res) => {
+      if (res.status() >= 400) {
+        console.log('HTTP ERROR:', res.status(), res.url());
+      }
+    });
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    console.log(`Navigating to http://localhost:${port} ...`);
+    await page.goto(`http://localhost:${port}`, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
     
@@ -99,7 +128,7 @@ async function run() {
     process.exitCode = 1;
   } finally {
     if (browser) await browser.close();
-    viteProcess.kill();
+    viteProcess.kill('SIGKILL');
     process.exit();
   }
 }
