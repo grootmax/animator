@@ -1,27 +1,14 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2022",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "skipLibCheck": true,
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "jsx": "react-jsx",
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "outDir": "./dist",
+    "rootDir": "./src"
   },
-  "include": ["src", "electron"],
-  "references": [
-    { "path": "../../packages/math" },
-    { "path": "../../packages/scene-graph" },
-    { "path": "../../packages/renderer" },
-    { "path": "../../packages/animation-engine" },
-    { "path": "../../packages/serialization" }
-  ]
+  "include": ["src/**/*"]
 }

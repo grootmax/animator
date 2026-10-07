@@ -1,22 +1,27 @@
 {
-  "name": "high-performance-monorepo",
-  "version": "1.0.0",
+  "name": "animator",
   "private": true,
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "packageManager": "pnpm@10.5.2",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "build": "turbo run build",
-    "dev": "turbo run dev",
-    "test": "turbo run test",
-    "test:e2e": "turbo run test:e2e",
-    "package": "turbo run package"
+    "typecheck": "tsc -b",
+    "lint": "biome check .",
+    "test": "vitest run",
+    "build": "tsc -b",
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {
-    "electron": "^25.3.0",
-    "turbo": "^1.10.0",
-    "typescript": "^5.0.0"
-  },
-  "packageManager": "npm@9.8.1"
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.13.4",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.1",
+    "vitest": "^3.0.6"
+  }
 }
