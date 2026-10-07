@@ -4,7 +4,7 @@ const path = require('path');
 
 async function run() {
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  const viteProcess = spawn('npx', ['vite', '--port', '4173', '--strictPort'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
@@ -36,7 +36,15 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('console', async (msg) => {
+      try {
+        const args = await Promise.all(msg.args().map(arg => arg.jsonValue().catch(() => arg.toString())));
+        console.log('BROWSER:', msg.text(), args);
+      } catch (e) {
+        console.log('BROWSER:', msg.text());
+      }
+    });
+    page.on('pageerror', (err) => console.log('BROWSER ERROR:', err.stack || err));
 
     console.log('Navigating to http://localhost:4173 ...');
     await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });

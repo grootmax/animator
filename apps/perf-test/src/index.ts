@@ -9,8 +9,11 @@ declare global {
   }
 }
 
+window.addEventListener('error', (e) => console.log('UNCAUGHT ERROR:', e.error?.stack || e.message));
+
 async function runBenchmark() {
-  console.log('Starting benchmark...');
+  try {
+    console.log('Starting benchmark...');
   const results: any = {};
 
   // Relative Baseline Check
@@ -19,7 +22,7 @@ async function runBenchmark() {
   let m2 = createMatrix();
   m1[0] = 1.1; m2[1] = 0.5;
   for (let i = 0; i < 1000000; i++) {
-    m1 = multiplyMatrix(m1, m2);
+    multiplyMatrix(m1, m1, m2);
   }
   const baselineEnd = performance.now();
   results.baselineMatrixTime = baselineEnd - baselineStart;
@@ -114,6 +117,9 @@ async function runBenchmark() {
       resolve();
     }
   });
+  } catch (err: any) {
+    console.log('BENCHMARK ERROR:', err.stack || err);
+  }
 }
 
 runBenchmark().catch(console.error);

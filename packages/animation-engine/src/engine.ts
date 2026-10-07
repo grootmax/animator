@@ -312,11 +312,13 @@ export class AnimationEngine {
     let requiresMatrixUpdate = false;
 
     if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
-      for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
+      if ((storeState as any).updateNodesBatch) {
+        (storeState as any).updateNodesBatch(Object.fromEntries(updates.entries()));
+      } else {
+        for (const [nodeId, nodeUpdates] of updates.entries()) {
+          storeState.updateNode(nodeId, nodeUpdates);
+        }
       }
-      storeState.updateNodesBatch(batchUpdates);
       requiresMatrixUpdate = true;
     }
 
