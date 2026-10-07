@@ -6,6 +6,7 @@ import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
+import { getCanvasRelativeCoords } from './utils/dropCoordinates';
 // @ts-ignore
 import { DndProvider } from 'react-dnd';
 // @ts-ignore
@@ -246,21 +247,26 @@ function App() {
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clientX = e.clientX;
+    const clientY = e.clientY;
+
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
-      if (file.type === 'image/png' || file.type === 'image/jpeg') {
+      if (file.type.startsWith('image/')) {
         const reader = new FileReader();
         reader.onload = (ev) => {
           const base64Src = ev.target?.result as string;
           const img = new Image();
           img.onload = () => {
             const state = store.getState();
+            const { x, y } = getCanvasRelativeCoords(clientX, clientY, rect, state.viewport);
             state.addNode({
               id: `image_${Date.now()}`,
               type: 'image',
               src: base64Src,
-              x: e.clientX,
-              y: e.clientY,
+              x,
+              y,
               width: img.width,
               height: img.height,
               parentId: null

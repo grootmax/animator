@@ -120,4 +120,40 @@ describe('validateAndSerializeProject', () => {
 
     expect(() => validateAndSerializeProject(invalidProject)).toThrow();
   });
+
+  it('should successfully validate and serialize an image node with base64 src', () => {
+    const projectWithImage = {
+      scene: {
+        img1: {
+          id: 'img1',
+          name: 'Base64 Image',
+          type: 'image',
+          src: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          parentId: null,
+          children: [],
+          x: 100,
+          y: 200,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          opacity: 1,
+          visible: true,
+          locked: false,
+          width: 50,
+          height: 50,
+        }
+      },
+      animations: [],
+      metadata: {
+        version: '1.0.0',
+        duration: 3000
+      }
+    };
+
+    const serialized = validateAndSerializeProject(projectWithImage);
+    expect(typeof serialized).toBe('string');
+    const parsed = JSON.parse(serialized);
+    expect(parsed.scene.img1.type).toBe('image');
+    expect(parsed.scene.img1.src).toContain('data:image/png;base64,');
+  });
 });

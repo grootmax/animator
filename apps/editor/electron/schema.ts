@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const nodeTypeSchema = z.enum([
-  'container', 'rect', 'circle', 'path', 'group', 'ellipse', 'line', 'polyline'
+  'container', 'rect', 'circle', 'path', 'group', 'ellipse', 'line', 'polyline', 'image'
 ]);
 
 export const sceneNodeSchema = z.object({
@@ -33,7 +33,8 @@ export const sceneNodeSchema = z.object({
   y1: z.number().optional(),
   x2: z.number().optional(),
   y2: z.number().optional(),
-  points: z.string().optional()
+  points: z.string().optional(),
+  src: z.string().optional()
 });
 
 export const easingTypeSchema = z.enum([
