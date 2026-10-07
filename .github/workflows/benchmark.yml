@@ -36,9 +36,7 @@ jobs:
 
       - name: Build (Main)
         working-directory: ./main
-        run: |
-          find . -name "*.tsbuildinfo" -type f -delete
-          npm run build -- --force
+        run: npx turbo run build --filter=@monorepo/benchmarks...
 
       - name: Run Benchmark (Main)
         working-directory: ./main/packages/benchmarks
@@ -50,9 +48,7 @@ jobs:
 
       - name: Build (PR)
         working-directory: ./pr
-        run: |
-          find . -name "*.tsbuildinfo" -type f -delete
-          npm run build -- --force
+        run: npx turbo run build --filter=@monorepo/benchmarks...
 
       - name: Run Benchmark (PR)
         working-directory: ./pr/packages/benchmarks

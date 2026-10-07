@@ -2,6 +2,8 @@ import { generateKeyBetween } from '@monorepo/math';
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
 
+const ROOT_IDENTITY_MATRIX = createMatrix();
+
 export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image';
 
 export interface SceneNode {
@@ -80,6 +82,45 @@ const getDefaultNode = (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatr
 });
 
 import { syncMiddleware, SyncMessage } from './sync';
+
+function traverseGraph(
+  nodeId: string,
+  parentWorldMatrix: Matrix3,
+  parentWasDirty: boolean,
+  nodes: Record<string, SceneNode>,
+  childrenMap: Record<string, string[]>
+) {
+  const node = nodes[nodeId];
+  if (!node) return;
+
+  const isWorldDirty = node.isDirty || parentWasDirty;
+  let currentWorldMatrix = parentWorldMatrix;
+
+  if (isWorldDirty) {
+    const localMatrix = node.localMatrix;
+
+    if (node.isDirty) {
+      getTransformMatrix(
+        localMatrix,
+        node.x, node.y, 
+        node.rotation, 
+        node.scaleX, node.scaleY,
+        node.skewX || 0, node.skewY || 0
+      );
+    }
+    currentWorldMatrix = multiplyMatrix(node.worldMatrix, parentWorldMatrix, localMatrix);
+    node.isDirty = false;
+  } else {
+    currentWorldMatrix = node.worldMatrix;
+  }
+
+  const children = childrenMap[nodeId];
+  if (children) {
+    for (let i = 0; i < children.length; i++) {
+      traverseGraph(children[i], currentWorldMatrix, isWorldDirty, nodes, childrenMap);
+    }
+  }
+}
 
 export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) => {
   const config = (set: any, get: any) => ({
@@ -237,38 +278,7 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
       if (!rootId || !newNodes[rootId]) return state;
 
-      const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
-        const node = newNodes[nodeId];
-        if (!node) return;
-
-        const isWorldDirty = node.isDirty || parentWasDirty;
-        let currentWorldMatrix = parentWorldMatrix;
-
-        if (isWorldDirty) {
-          const localMatrix = node.localMatrix;
-
-          if (node.isDirty) {
-            getTransformMatrix(
-              localMatrix,
-              node.x, node.y, 
-              node.rotation, 
-              node.scaleX, node.scaleY,
-              node.skewX || 0, node.skewY || 0
-            );
-          }
-          currentWorldMatrix = multiplyMatrix(node.worldMatrix, parentWorldMatrix, localMatrix);
-          node.isDirty = false;
-        } else {
-            currentWorldMatrix = node.worldMatrix;
-        }
-
-        const children = childrenMap[nodeId] || [];
-        for (let i = 0; i < children.length; i++) {
-          traverse(children[i], currentWorldMatrix, isWorldDirty);
-        }
-      };
-
-      traverse(rootId, createMatrix(), false);
+      traverseGraph(rootId, ROOT_IDENTITY_MATRIX, false, newNodes, childrenMap);
 
       return { nodes: newNodes };
     });

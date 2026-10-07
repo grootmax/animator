@@ -7,7 +7,7 @@ const DEFAULT_ITERATIONS = 10000;
 
 function measure(name: string, fn: () => void, iterations: number = DEFAULT_ITERATIONS): number {
   // Warmup
-  for (let i = 0; i < iterations / 10; i++) fn();
+  for (let i = 0; i < iterations; i++) fn();
 
   const times: number[] = [];
   for (let r = 0; r < RUNS; r++) {
