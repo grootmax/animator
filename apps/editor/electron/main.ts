@@ -35,7 +35,7 @@ function setupSecurity() {
     });
   });
 
-  app.on('web-contents-created', (event, contents) => {
+  app.on('web-contents-created', (_event, contents) => {
     contents.on('will-navigate', (event, navigationUrl) => {
       try {
         const parsedUrl = new URL(navigationUrl);

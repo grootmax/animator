@@ -90,7 +90,8 @@ export class TransformHandles {
     let maxY = h / 2;
 
     if (node.type === 'group' || node.type === 'container') {
-      const pixiNode = this.getPixiNode(this.selectedNodeId);
+      const selectedNodeId = this.store.getState().selectedNodeId;
+      const pixiNode = selectedNodeId ? this.getPixiNode(selectedNodeId) : undefined;
       if (pixiNode && pixiNode.children.length > 0) {
         const bounds = pixiNode.getLocalBounds();
         if (bounds.width > 0 || bounds.height > 0) {
@@ -150,7 +151,10 @@ export class TransformHandles {
     if (!this.isDragging || !selectedNodeId || !this.startNodeState) return;
 
     if (!this.hasMoved) {
-      this.store.getState().commitHistory();
+      const state = this.store.getState() as any;
+      if (typeof state.commitHistory === 'function') {
+        state.commitHistory();
+      }
       this.hasMoved = true;
     }
 

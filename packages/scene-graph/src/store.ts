@@ -49,7 +49,9 @@ export interface SceneGraphState {
   selectedNodeId: string | null;
   remoteSelections: Record<string, { nodeId: string; color: string; userName?: string }>;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
+  addNodesBulk: (nodes: Array<Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }>) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  updateNodesBatch: (batch: Record<string, Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
@@ -119,6 +121,27 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
     }, false, { type: 'addNode', payload: node });
   },
 
+  addNodesBulk: (nodesToAdd: Array<Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }>) => {
+    set((state: SceneGraphState) => {
+      const newNodes = { ...state.nodes };
+      let newRootId = state.rootId;
+
+      for (const node of nodesToAdd) {
+        const newNode = getDefaultNode(node);
+        newNodes[node.id] = newNode;
+
+        if (node.parentId === null && !newRootId) {
+          newRootId = node.id;
+        }
+      }
+
+      return {
+        nodes: newNodes,
+        rootId: newRootId
+      };
+    }, false, { type: 'addNodesBulk', payload: nodesToAdd });
+  },
+
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => {
     set((state: SceneGraphState) => {
       const node = state.nodes[id];
@@ -134,6 +157,22 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
       return { nodes: newNodes };
     }, false, { type: 'updateNode', payload: { id, updates } });
+  },
+
+  updateNodesBatch: (batch: Record<string, any>) => {
+    set((state: SceneGraphState) => {
+      const SPATIAL_PROPERTIES = ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'skewX', 'skewY'];
+      const newNodes = { ...state.nodes };
+      for (const [id, updates] of Object.entries(batch)) {
+        const node = newNodes[id];
+        if (node) {
+          const hasSpatialUpdate = Object.keys(updates).some(key => SPATIAL_PROPERTIES.includes(key));
+          const isDirty = node.isDirty || hasSpatialUpdate;
+          newNodes[id] = { ...node, ...updates, isDirty };
+        }
+      }
+      return { nodes: newNodes };
+    }, false, { type: 'updateNodesBatch', payload: batch });
   },
 
   reorderNode: (id: string, newParentId: string | null, index: number) => {

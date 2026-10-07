@@ -4,16 +4,21 @@ const path = require('path');
 
 async function run() {
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  const viteProcess = spawn('npx', ['vite'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
 
+  let serverUrl = 'http://localhost:5173';
   await new Promise((resolve) => {
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/Local:\s+(http:\/\/localhost:\d+\/)/);
+      if (match) {
+        serverUrl = match[1];
+      }
+      if (output.includes('Local:') || output.includes('ready in')) {
         resolve();
       }
     });
@@ -37,9 +42,10 @@ async function run() {
 
     const page = await browser.newPage();
     page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('pageerror', (err) => console.error('PAGE ERROR:', err));
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    console.log(`Navigating to ${serverUrl} ...`);
+    await page.goto(serverUrl, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
     

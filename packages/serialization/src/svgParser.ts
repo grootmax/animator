@@ -195,8 +195,6 @@ export class SvgParser {
       case 'line': type = 'line'; break;
       case 'polyline': type = 'polyline'; break;
       case 'path': type = 'path'; break;
-      case 'ellipse': type = 'path'; break;
-      case 'line': type = 'path'; break;
       default: return; // Ignore unsupported
     }
 
