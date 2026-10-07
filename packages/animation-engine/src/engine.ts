@@ -1,6 +1,14 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 
+export type NetworkRole = 'standalone' | 'leader' | 'follower';
+export interface Heartbeat {
+  role?: NetworkRole;
+  playhead: number;
+  isPlaying: boolean;
+  timestamp?: number;
+}
+
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
 
 export interface Keyframe {

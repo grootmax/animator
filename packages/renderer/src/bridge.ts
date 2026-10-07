@@ -29,7 +29,7 @@ export class PixiBridge {
     this.cache = new AsyncTextureCache(this.app);
 
     this.viewport = new Viewport(this.app, store);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id) => this.pixiNodes.get(id));
 
     this.remoteSelectionsContainer = new PIXI.Container();
     this.remoteSelectionsContainer.zIndex = 999;
@@ -99,6 +99,7 @@ export class PixiBridge {
       tokens = tokenizePath(pathData);
       this.pathCache.set(pathData, tokens);
     }
+    if (!tokens) return;
     let x = 0, y = 0;
 
     for (const t of tokens) {
