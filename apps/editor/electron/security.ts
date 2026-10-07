@@ -68,7 +68,7 @@ export function setupSecurity() {
   }
 
   // 2. Navigation & Window Open Guards
-  app.on('web-contents-created', (event, webContents: WebContents) => {
+  app.on('web-contents-created', (_event, webContents: WebContents) => {
     webContents.on('will-attach-webview', (e) => {
       e.preventDefault();
       logSecurityEvent('BLOCKED_WEBVIEW', 'webview', { reason: 'Webviews are disabled' });
@@ -113,7 +113,7 @@ export function setupSecurity() {
     });
 
     // 3. Catch CSP violations and log them
-    webContents.on('console-message', (event, level, message, line, sourceId) => {
+    webContents.on('console-message', (_event, _level, message, line, sourceId) => {
       const lowerMessage = message.toLowerCase();
       if (lowerMessage.includes('content security policy') || lowerMessage.includes('csp')) {
         let blockedUrl = 'unknown';
