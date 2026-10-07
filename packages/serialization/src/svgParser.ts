@@ -71,7 +71,8 @@ export class SvgParser {
     const parser = new DOMParser();
     const doc = parser.parseFromString(svgString, 'image/svg+xml');
 
-    if (doc.querySelector('parsererror')) {
+    const parserError = doc.querySelector ? doc.querySelector('parsererror') : doc.getElementsByTagName('parsererror')[0];
+    if (parserError) {
       throw new Error('Invalid SVG string');
     }
 
@@ -80,7 +81,8 @@ export class SvgParser {
     const viewportMatrix = this.calculateViewBoxTransform(svgElement);
 
     let lastOrder = null;
-    Array.from(svgElement.children).forEach(child => {
+    const children = svgElement.children ? Array.from(svgElement.children) : Array.from(svgElement.childNodes).filter((n: any) => n.nodeType === 1);
+    children.forEach((child: any) => {
       this.processElement(child, null, rootNodes, viewportMatrix);
     });
 
@@ -108,7 +110,7 @@ export class SvgParser {
           c, d, 0,
           e, f, 1
         ];
-        matrix = multiplyMatrix(matrix, localMatrix);
+        matrix = multiplyMatrix(createMatrix(), matrix, localMatrix);
       } else if (type === 'translate' && args.length >= 1) {
         const tx = args[0];
         const ty = args.length > 1 ? args[1] : 0;
@@ -117,7 +119,7 @@ export class SvgParser {
           0, 1, 0,
           tx, ty, 1
         ];
-        matrix = multiplyMatrix(matrix, translateMatrix);
+        matrix = multiplyMatrix(createMatrix(), matrix, translateMatrix);
       } else if (type === 'scale' && args.length >= 1) {
         const sx = args[0];
         const sy = args.length > 1 ? args[1] : sx;
@@ -126,7 +128,7 @@ export class SvgParser {
           0, sy, 0,
           0, 0, 1
         ];
-        matrix = multiplyMatrix(matrix, scaleMatrix);
+        matrix = multiplyMatrix(createMatrix(), matrix, scaleMatrix);
       } else if (type === 'rotate' && args.length >= 1) {
         const angle = args[0] * Math.PI / 180;
         const cx = args.length === 3 ? args[1] : 0;
@@ -139,9 +141,9 @@ export class SvgParser {
         if (cx !== 0 || cy !== 0) {
           const tToCenter: Matrix3 = [1, 0, 0, 0, 1, 0, cx, cy, 1];
           const tBack: Matrix3 = [1, 0, 0, 0, 1, 0, -cx, -cy, 1];
-          rotateMatrix = multiplyMatrix(tToCenter, multiplyMatrix(rotateMatrix, tBack));
+          rotateMatrix = multiplyMatrix(createMatrix(), tToCenter, multiplyMatrix(createMatrix(), rotateMatrix, tBack));
         }
-        matrix = multiplyMatrix(matrix, rotateMatrix);
+        matrix = multiplyMatrix(createMatrix(), matrix, rotateMatrix);
       }
     }
 
@@ -172,10 +174,11 @@ export class SvgParser {
     const id = element.id || generateId();
     let type: NodeType = 'group';
 
-    const tagName = element.tagName.toLowerCase();
-    if (!['g', 'svg', 'symbol', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'path'].includes(tagName)) {
+    const tagName = (element.tagName || element.localName || '').toLowerCase();
+    if (!['g', 'svg', 'symbol', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'path', 'image'].includes(tagName)) {
       // Recurse into unsupported tags like <defs> without creating a SceneNode for them
-      Array.from(element.children).forEach(child => {
+      const children = element.children ? Array.from(element.children) : Array.from(element.childNodes).filter((n: any) => n.nodeType === 1);
+      children.forEach((child: any) => {
         this.processElement(child, parentId, nodesList, parentMatrix);
       });
       return;
@@ -193,8 +196,6 @@ export class SvgParser {
       case 'line': type = 'line'; break;
       case 'polyline': type = 'polyline'; break;
       case 'path': type = 'path'; break;
-      case 'ellipse': type = 'path'; break;
-      case 'line': type = 'path'; break;
       case 'image': type = 'image'; break;
       default: return; // Ignore unsupported
     }
@@ -229,9 +230,9 @@ export class SvgParser {
       xAttr, yAttr, 1
     ];
 
-    const localMatrix = multiplyMatrix(localTransformMatrix, baseMatrix);
+    const localMatrix = multiplyMatrix(createMatrix(), localTransformMatrix, baseMatrix);
     const combinedMatrix = parentId === null 
-      ? multiplyMatrix(parentMatrix, localMatrix) 
+      ? multiplyMatrix(createMatrix(), parentMatrix, localMatrix) 
       : localMatrix;
 
     const { x, y, scaleX, scaleY, rotation, skewX, skewY } = this.extractTransformProperties(combinedMatrix);
@@ -298,8 +299,9 @@ export class SvgParser {
     const sceneNode = node as SceneNode;
     nodesList.push(sceneNode);
 
-    Array.from(element.children).forEach(child => {
-      this.processElement(child, id, nodesList, finalMatrix);
+    const childElements = element.children ? Array.from(element.children) : Array.from(element.childNodes).filter((n: any) => n.nodeType === 1);
+    childElements.forEach((child: any) => {
+      this.processElement(child, id, nodesList, combinedMatrix);
     });
   }
 }
