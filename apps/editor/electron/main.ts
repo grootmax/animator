@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { setupSecurity } from './security';
@@ -6,70 +6,87 @@ import { setupSecurity } from './security';
 setupSecurity();
 
 let mainWindow: BrowserWindow | null = null;
+let activeWorkspace: string | null = null;
+let workspaceWatcher: fs.FSWatcher | null = null;
 
-const DOMAIN_WHITELIST = [
-  'https://fonts.googleapis.com',
-  'https://fonts.gstatic.com'
-];
+const HISTORY_FILE = path.join(app.getPath('userData'), 'workspace-history.json');
+const ALLOWED_EXTS = new Set(['.svg', '.png', '.jpg', '.jpeg', '.mp4']);
 
-function setupSecurity() {
-  const isDev = !!process.env.VITE_DEV_SERVER_URL;
-  const devUrl = isDev ? new URL(process.env.VITE_DEV_SERVER_URL!).origin : '';
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'asset', privileges: { bypassCSP: true, supportFetchAPI: true, secure: true, standard: true } }
+]);
 
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const cspRules = [
-      `default-src 'self' ${isDev ? devUrl : ''}`,
-      `script-src 'self' ${isDev ? "'unsafe-inline' 'unsafe-eval' " + devUrl : ''}`,
-      `style-src 'self' 'unsafe-inline' ${DOMAIN_WHITELIST.join(' ')}`,
-      `font-src 'self' data: ${DOMAIN_WHITELIST.join(' ')}`,
-      `img-src 'self' data: blob: ${DOMAIN_WHITELIST.join(' ')} ${isDev ? devUrl : ''}`,
-      `connect-src 'self' ${isDev ? devUrl + " ws: wss:" : ''} ${DOMAIN_WHITELIST.join(' ')}`
-    ];
+function getHistory() {
+  try {
+    return JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8'));
+  } catch {
+    return { recentWorkspaces: [], lastActive: null };
+  }
+}
 
-    const csp = cspRules.map(rule => rule.trim()).filter(Boolean).join('; ');
+function saveHistory(history: any) {
+  fs.writeFileSync(HISTORY_FILE, JSON.stringify(history), 'utf-8');
+}
 
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [csp]
+function isAllowedAsset(file: string) {
+  const ext = path.extname(file).toLowerCase();
+  return ALLOWED_EXTS.has(ext);
+}
+
+async function indexWorkspace(workspacePath: string) {
+  try {
+    const files = await fs.promises.readdir(workspacePath);
+    return files
+      .filter(f => isAllowedAsset(f))
+      .map(f => ({
+        name: f,
+        path: path.join(workspacePath, f),
+        url: `asset://${encodeURIComponent(f)}`
+      }));
+  } catch (e) {
+    return [];
+  }
+}
+
+async function updateManifest(workspacePath: string) {
+  const manifestPath = path.join(workspacePath, 'workspace-manifest.json');
+  const assets = await indexWorkspace(workspacePath);
+  let manifest: any = { assets, scene: null };
+  try {
+    const existing = JSON.parse(await fs.promises.readFile(manifestPath, 'utf-8'));
+    manifest = { ...existing, assets };
+  } catch (e) {}
+  await fs.promises.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+  return manifest;
+}
+
+async function setActiveWorkspace(workspacePath: string) {
+  if (workspaceWatcher) {
+    workspaceWatcher.close();
+    workspaceWatcher = null;
+  }
+  activeWorkspace = workspacePath;
+  const history = getHistory();
+  if (!history.recentWorkspaces.includes(workspacePath)) {
+    history.recentWorkspaces.unshift(workspacePath);
+    if (history.recentWorkspaces.length > 10) history.recentWorkspaces.pop();
+  }
+  history.lastActive = workspacePath;
+  saveHistory(history);
+
+  const manifest = await updateManifest(workspacePath);
+
+  // Watch for changes asynchronously
+  workspaceWatcher = fs.watch(workspacePath, async (_eventType, filename) => {
+    if (filename && filename !== 'workspace-manifest.json' && isAllowedAsset(filename)) {
+      const newManifest = await updateManifest(workspacePath);
+      if (mainWindow) {
+        mainWindow.webContents.send('workspace-updated', newManifest);
       }
-    });
+    }
   });
 
-  app.on('web-contents-created', (event, contents) => {
-    contents.on('will-navigate', (event, navigationUrl) => {
-      try {
-        const parsedUrl = new URL(navigationUrl);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
-          event.preventDefault();
-          shell.openExternal(navigationUrl);
-        }
-      } catch (err) {
-        event.preventDefault();
-      }
-    });
-
-    contents.setWindowOpenHandler(({ url }) => {
-      try {
-        const parsedUrl = new URL(url);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
-          shell.openExternal(url);
-          return { action: 'deny' };
-        }
-        return { action: 'allow' };
-      } catch (err) {
-        return { action: 'deny' };
-      }
-    });
-  });
+  return { workspacePath, manifest };
 }
 
 function createWindow() {
@@ -143,6 +160,18 @@ function createWindow() {
 
 app.whenReady().then(() => {
   setupSecurity();
+  protocol.registerFileProtocol('asset', (request, callback) => {
+    const urlPath = decodeURIComponent(request.url.replace('asset://', ''));
+    if (!activeWorkspace) {
+      return callback({ error: -6 }); // net::ERR_FILE_NOT_FOUND
+    }
+    const resolvedPath = path.resolve(activeWorkspace, urlPath);
+    // Security check: ensure path is within the workspace
+    if (!resolvedPath.startsWith(activeWorkspace)) {
+      return callback({ error: -2 }); // net::ERR_FAILED
+    }
+    callback({ path: resolvedPath });
+  });
   createWindow();
 
   app.on('activate', () => {
@@ -211,5 +240,43 @@ ipcMain.handle('dialog:saveFile', async (_, content: string) => {
     return true;
   } catch (error) {
     return false;
+  }
+});
+
+ipcMain.handle('workspace:open', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openDirectory']
+  });
+  if (canceled || filePaths.length === 0) return null;
+  return await setActiveWorkspace(filePaths[0]);
+});
+
+ipcMain.handle('workspace:getLastActive', async () => {
+  const history = getHistory();
+  if (history.lastActive && fs.existsSync(history.lastActive)) {
+    return await setActiveWorkspace(history.lastActive);
+  }
+  return null;
+});
+
+ipcMain.handle('workspace:saveScene', async (_, sceneData: any) => {
+  if (!activeWorkspace) return false;
+  const manifestPath = path.join(activeWorkspace, 'workspace-manifest.json');
+  try {
+    const existing = JSON.parse(await fs.promises.readFile(manifestPath, 'utf-8'));
+    existing.scene = sceneData;
+    await fs.promises.writeFile(manifestPath, JSON.stringify(existing, null, 2), 'utf-8');
+    return true;
+  } catch (e) {
+    return false;
+  }
+});
+
+// Use binary buffer for IPC large file transfers if needed for some specific file operations
+ipcMain.handle('fs:readFileBinary', async (_, filePath: string) => {
+  try {
+    return await fs.promises.readFile(filePath);
+  } catch {
+    return null;
   }
 });

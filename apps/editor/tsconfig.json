@@ -17,6 +17,7 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src", "electron"],
+  "exclude": ["**/*.test.ts", "**/__tests__/**", "tests", "playwright.config.ts"],
   "references": [
     { "path": "../../packages/math" },
     { "path": "../../packages/scene-graph" },

@@ -9,11 +9,16 @@ async function run() {
     stdio: 'pipe',
   });
 
+  let serverPort = 4173;
   await new Promise((resolve) => {
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/Local:\s+http:\/\/localhost:(\d+)/);
+      if (match) {
+        serverPort = parseInt(match[1], 10);
+        resolve();
+      } else if (output.includes('ready in')) {
         resolve();
       }
     });
@@ -22,7 +27,7 @@ async function run() {
     });
   });
 
-  console.log('Server started. Launching Puppeteer...');
+  console.log(`Server started on port ${serverPort}. Launching Puppeteer...`);
   
   // Create an explicit build before starting if we use `preview`, but let's actually just spawn `vite` (dev server) for simplicity.
   // Wait, I spawned `vite preview`. Let me kill it and spawn `vite` (dev server) instead to avoid needing a build step.
@@ -36,10 +41,20 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('console', async (msg) => {
+      const args = await Promise.all(msg.args().map(arg => arg.jsonValue().catch(() => arg.toString())));
+      console.log('BROWSER:', msg.text(), ...args);
+    });
+    page.on('pageerror', (err) => console.error('PAGE ERROR:', err));
+    page.on('requestfailed', request => console.log('REQ FAIL:', request.url(), request.failure()?.errorText));
+    page.on('response', response => {
+      if (response.status() >= 400) {
+        console.log('HTTP ERROR:', response.status(), response.url());
+      }
+    });
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    console.log(`Navigating to http://localhost:${serverPort} ...`);
+    await page.goto(`http://localhost:${serverPort}`, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
     
