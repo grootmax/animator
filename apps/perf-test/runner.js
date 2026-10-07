@@ -4,25 +4,36 @@ const path = require('path');
 
 async function run() {
   console.log('Starting Vite server...');
-  const viteProcess = spawn('npx', ['vite', '--port', '4173'], {
+  let serverUrl = 'http://localhost:4173';
+  const viteProcess = spawn('npx', ['vite', '--port', '0'], {
     cwd: __dirname,
     stdio: 'pipe',
   });
 
-  await new Promise((resolve) => {
+  await new Promise((resolve, reject) => {
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/http:\/\/localhost:\d+/);
+      if (match) {
+        serverUrl = match[0];
+      }
+      if (output.includes('ready in') || output.includes('Local:')) {
         resolve();
       }
     });
     viteProcess.stderr.on('data', (data) => {
       console.error('VITE ERR:', data.toString());
     });
+    viteProcess.on('error', reject);
+    viteProcess.on('exit', (code) => {
+      if (code !== 0 && code !== null) {
+        reject(new Error(`Vite process exited with code ${code}`));
+      }
+    });
   });
 
-  console.log('Server started. Launching Puppeteer...');
+  console.log(`Server started at ${serverUrl}. Launching Puppeteer...`);
   
   // Create an explicit build before starting if we use `preview`, but let's actually just spawn `vite` (dev server) for simplicity.
   // Wait, I spawned `vite preview`. Let me kill it and spawn `vite` (dev server) instead to avoid needing a build step.
@@ -36,10 +47,14 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('pageerror', (err) => console.error('BROWSER PAGE ERROR:', err));
+    page.on('console', async (msg) => {
+      const args = await Promise.all(msg.args().map(a => a.jsonValue().catch(() => a.toString())));
+      console.log('BROWSER:', ...args);
+    });
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    console.log(`Navigating to ${serverUrl} ...`);
+    await page.goto(serverUrl, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
     
