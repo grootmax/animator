@@ -125,13 +125,24 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
     set((state: SceneGraphState) => {
       const newNodes = { ...state.nodes };
       let newRootId = state.rootId;
+      const lastOrderPerParent: Record<string, string | null> = {};
 
       for (const node of nodesToAdd) {
         const newNode = getDefaultNode(node);
-        const siblings = Object.values(newNodes).filter((n: any) => n.parentId === (node.parentId || null));
-        siblings.sort((a: any, b: any) => (a.order || '').localeCompare(b.order || ''));
-        const lastSibling = siblings[siblings.length - 1];
-        newNode.order = generateKeyBetween(lastSibling?.order || null, null);
+        const parentKey = node.parentId ?? 'root';
+        if (!(parentKey in lastOrderPerParent)) {
+          const siblings = Object.values(newNodes).filter((n: any) => n.parentId === (node.parentId || null));
+          if (siblings.length > 0) {
+            siblings.sort((a: any, b: any) => (a.order || '').localeCompare(b.order || ''));
+            lastOrderPerParent[parentKey] = siblings[siblings.length - 1].order || null;
+          } else {
+            lastOrderPerParent[parentKey] = null;
+          }
+        }
+        const lastOrder = lastOrderPerParent[parentKey];
+        const newOrder = node.order || generateKeyBetween(lastOrder, null);
+        lastOrderPerParent[parentKey] = newOrder;
+        newNode.order = newOrder;
         newNodes[node.id] = newNode;
 
         if (node.parentId === null && !newRootId) {
@@ -217,19 +228,28 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
       const { rootId } = state;
       const childrenMap: Record<string, string[]> = {};
       Object.values(newNodes).forEach((n: any) => {
-        const p = n.parentId || 'root';
-        if (!childrenMap[p]) childrenMap[p] = [];
-        childrenMap[p].push(n.id);
+        if (n.parentId !== null && n.parentId !== undefined) {
+          if (!childrenMap[n.parentId]) childrenMap[n.parentId] = [];
+          childrenMap[n.parentId].push(n.id);
+        }
       });
       for (const k in childrenMap) {
-        childrenMap[k].sort((a: any, b: any) => ((newNodes as any)[a].order || '').localeCompare((newNodes as any)[b].order || ''));
+        childrenMap[k].sort((a, b) => {
+          const oa = newNodes[a]?.order || '';
+          const ob = newNodes[b]?.order || '';
+          return oa < ob ? -1 : oa > ob ? 1 : 0;
+        });
       }
 
       if (!rootId || !newNodes[rootId]) return state;
 
-      const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
+      type StackItem = { nodeId: string; parentWorldMatrix: Matrix3; parentWasDirty: boolean };
+      const stack: StackItem[] = [{ nodeId: rootId, parentWorldMatrix: createMatrix(), parentWasDirty: false }];
+
+      while (stack.length > 0) {
+        const { nodeId, parentWorldMatrix, parentWasDirty } = stack.pop()!;
         const node = newNodes[nodeId];
-        if (!node) return;
+        if (!node) continue;
 
         const isWorldDirty = node.isDirty || parentWasDirty;
         let currentWorldMatrix = parentWorldMatrix;
@@ -251,18 +271,24 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
           newNodes[nodeId] = {
             ...node,
             localMatrix,
-            worldMatrix: currentWorldMatrix
+            worldMatrix: currentWorldMatrix,
+            isDirty: false
           };
         } else {
-            currentWorldMatrix = node.worldMatrix;
+          currentWorldMatrix = node.worldMatrix;
         }
 
-        for (const childId of (childrenMap[nodeId] || [])) {
-          traverse(childId, currentWorldMatrix, isWorldDirty);
+        const children = childrenMap[nodeId];
+        if (children && children.length > 0) {
+          for (let i = children.length - 1; i >= 0; i--) {
+            stack.push({
+              nodeId: children[i],
+              parentWorldMatrix: currentWorldMatrix,
+              parentWasDirty: isWorldDirty
+            });
+          }
         }
-      };
-
-      traverse(rootId, createMatrix(), false);
+      }
 
       return { nodes: newNodes };
     });
