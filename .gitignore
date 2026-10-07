@@ -8,3 +8,4 @@ dist-electron
 *.tsbuildinfo
 test-results/
 perf-results.json
+apps/editor/e2e/temp/
