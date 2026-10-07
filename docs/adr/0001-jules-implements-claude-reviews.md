@@ -24,7 +24,8 @@ an auto-merge bot) was cleaned up on 2026-10-07:
 1. **Build in `grootmax/animator`.** M0 replaces the legacy Electron/PixiJS workspace with the layout
    in PROJECT_CONTEXT §6. The legacy code stays in git history (branch `legacy-electron`, created 2026-10-07 at 4404fa5).
 2. **Jules is the implementer.** Claude Code writes one brief per task in `docs/jules/tasks/`,
-   dispatches it with the Jules CLI (`jules remote new --repo grootmax/animator --session ...`), and
+   dispatches it as a GitHub issue labelled `jules` (the Jules MCP server or CLI on the owner's
+   machine are equivalent alternatives), and
    keeps `docs/jules/BACKLOG.md` as the single prioritized queue.
 3. **Claude Code reviews and merges Jules PRs** — after CI is green and the PR meets the brief's
    acceptance check. This replaces CLAUDE.md rule 8 for Jules-authored PRs only.

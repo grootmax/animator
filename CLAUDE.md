@@ -21,7 +21,7 @@ You are the **tech lead** on Animator: an MCP-first Lottie animation studio. Age
 
 1. **Backlog.** `docs/jules/BACKLOG.md` is the one prioritized queue. Keep it current: status, PR link, notes.
 2. **Brief.** One task = one file in `docs/jules/tasks/<id>.md`: goal, branch name, files in scope, files out of scope, tests to add, acceptance check, and the exact commands that must pass. Small enough for < 400 changed lines.
-3. **Dispatch.** `scripts/jules-dispatch.sh <id>` → `jules remote new --repo grootmax/animator --session "<brief>"`. One session per brief. Parallel sessions only for briefs that touch disjoint packages.
+3. **Dispatch.** Open a GitHub issue titled `[<id>] <task>` whose body is the brief, and add the `jules` label; Jules comments on the issue and opens a PR. (From a local Claude Code session you can instead use the `jules` MCP tools or `scripts/jules-dispatch.sh <id>`.) One issue per brief. Parallel issues only for briefs that touch disjoint packages.
 4. **Review** every Jules PR against: the brief's acceptance check, CI status, the non-negotiables above, AGENTS.md scope rules (no extra files, no speculative infra, no artifacts), and tests that actually exercise the new code. Pull the branch and run `pnpm check && pnpm build` yourself; for output changes, render and look at a contact sheet.
 5. **Decide.** Request changes on the same PR (comment precisely: file, line, what, why) — or squash-merge. Close duplicates immediately.
 6. **Update** the backlog and dispatch the next brief.
@@ -42,7 +42,7 @@ pnpm test:golden -u              # update golden snapshots — only when intende
 pnpm dev                         # studio on :4747 (MCP at /mcp) + editor
 pnpm render:fixture <name>       # contact sheet PNG of a fixture → renders/  (added in M1)
 pnpm lottie:validate <name>      # compile + Lottie schema check             (added in M1)
-scripts/jules-dispatch.sh <id>   # send docs/jules/tasks/<id>.md to Jules
+scripts/jules-dispatch.sh <id>   # alternative to the labelled issue, from a machine with the Jules CLI
 ```
 
 ## Layout
