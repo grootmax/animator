@@ -4,9 +4,8 @@ import { getTransformMatrix, createMatrix } from '@monorepo/math';
 function runNormalization() {
   let temp;
   const start = performance.now();
-  const out = createMatrix();
   for (let i = 0; i < 1_000_000; i++) {
-    temp = getTransformMatrix(out, 0.1, 0.2, 0.5, 1, 1, 0, 0);
+    temp = getTransformMatrix(createMatrix(), 0.1, 0.2, 0.5, 1, 1, 0, 0);
   }
   const end = performance.now();
   return end - start;
