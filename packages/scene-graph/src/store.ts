@@ -260,56 +260,74 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
   recalculateMatrices: () => {
     set((state: SceneGraphState) => {
-      const newNodes = { ...state.nodes };
+      const newNodes = state.nodes;
       const { rootId } = state;
-      const childrenMap: Record<string, string[]> = {};
-      Object.values(newNodes).forEach((n: any) => {
-        const p = n.parentId || 'root';
-        if (!childrenMap[p]) childrenMap[p] = [];
-        childrenMap[p].push(n.id);
-      });
-      for (const k in childrenMap) {
-        childrenMap[k].sort((a: any, b: any) => ((newNodes as any)[a].order || '').localeCompare((newNodes as any)[b].order || ''));
-      }
-
       if (!rootId || !newNodes[rootId]) return state;
 
-      const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
-        const node = newNodes[nodeId];
-        if (!node) return;
+      const childrenMap = new Map<string, string[]>();
+      for (const id in newNodes) {
+        const n = newNodes[id];
+        if (n.parentId) {
+          let list = childrenMap.get(n.parentId);
+          if (!list) {
+            list = [];
+            childrenMap.set(n.parentId, list);
+          }
+          list.push(id);
+        }
+      }
 
+      for (const [_, children] of childrenMap) {
+        if (children.length > 1) {
+          const hasOrder = children.some((id: string) => Boolean((newNodes as any)[id]?.order));
+          if (hasOrder) {
+            children.sort((a: string, b: string) => ((newNodes as any)[a]?.order || '').localeCompare((newNodes as any)[b]?.order || ''));
+          }
+        }
+      }
+
+      const rootNode = newNodes[rootId];
+
+      const traverse = (node: SceneNode, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
         const isWorldDirty = node.isDirty || parentWasDirty;
         let currentWorldMatrix = parentWorldMatrix;
 
         if (isWorldDirty) {
-          let localMatrix = node.localMatrix;
+          let localMatrix = node.localMatrix || createMatrix();
 
           if (node.isDirty) {
-            localMatrix = getTransformMatrix(
-              createMatrix(),
+            getTransformMatrix(
+              localMatrix,
               node.x, node.y, 
               node.rotation, 
               node.scaleX, node.scaleY,
               node.skewX || 0, node.skewY || 0
             );
           }
-          currentWorldMatrix = multiplyMatrix(createMatrix(), parentWorldMatrix, localMatrix);
 
-          newNodes[nodeId] = {
-            ...node,
-            localMatrix,
-            worldMatrix: currentWorldMatrix
-          };
+          let worldMatrix = node.worldMatrix || createMatrix();
+          multiplyMatrix(worldMatrix, parentWorldMatrix, localMatrix);
+          currentWorldMatrix = worldMatrix;
+
+          node.localMatrix = localMatrix;
+          node.worldMatrix = worldMatrix;
+          node.isDirty = false;
         } else {
-            currentWorldMatrix = node.worldMatrix;
+          currentWorldMatrix = node.worldMatrix;
         }
 
-        for (const childId of (childrenMap[nodeId] || [])) {
-          traverse(childId, currentWorldMatrix, isWorldDirty);
+        const children = childrenMap.get(node.id);
+        if (children) {
+          for (let i = 0; i < children.length; i++) {
+            const child = newNodes[children[i]];
+            if (child) {
+              traverse(child, currentWorldMatrix, isWorldDirty);
+            }
+          }
         }
       };
 
-      traverse(rootId, createMatrix(), false);
+      traverse(rootNode, createMatrix(), false);
 
       return { nodes: newNodes };
     });
