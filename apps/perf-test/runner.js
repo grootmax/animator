@@ -36,7 +36,11 @@ async function run() {
     });
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('pageerror', err => console.error('PAGE ERROR:', err));
+    page.on('console', async (msg) => {
+      const args = await Promise.all(msg.args().map(arg => arg.jsonValue().catch(() => arg.toString())));
+      console.log('BROWSER:', ...args);
+    });
 
     console.log('Navigating to http://localhost:4173 ...');
     await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
