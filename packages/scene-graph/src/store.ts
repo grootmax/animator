@@ -2,6 +2,8 @@ import { generateKeyBetween } from '@monorepo/math';
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
 
+const IDENTITY_MATRIX: Matrix3 = createMatrix();
+
 export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image';
 
 export interface SceneNode {
@@ -44,6 +46,7 @@ export interface SceneNode {
 
 export interface SceneGraphState {
   nodes: Record<string, SceneNode>;
+  childrenMap?: Record<string, string[]> | null;
   rootId: string | null;
   viewport: { x: number; y: number; zoom: number };
   selectedNodeId: string | null;
@@ -52,7 +55,9 @@ export interface SceneGraphState {
   dirtyNodes: Set<string>;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
   bulkAddNodes: (nodes: (Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType })[]) => void;
+  addNodesBulk: (nodes: (Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType })[]) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  updateNodesBatch: (updates: Record<string, Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
@@ -120,6 +125,7 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
       return {
         nodes: newNodes,
+        childrenMap: null,
         rootId: state.rootId || (node.parentId === null ? node.id : state.rootId),
         lastUpdated: [...state.lastUpdated, node.id],
         dirtyNodes
@@ -161,11 +167,16 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
       return {
         nodes: newNodes,
+        childrenMap: null,
         rootId: newRootId,
         lastUpdated: newlyUpdated,
         dirtyNodes
       };
     }, false, { type: 'bulkAddNodes', payload: nodes });
+  },
+
+  addNodesBulk: (nodes: (Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType })[]) => {
+    get().bulkAddNodes(nodes);
   },
 
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => {
@@ -177,12 +188,32 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
       const hasSpatialUpdate = Object.keys(updates).some(key => SPATIAL_PROPERTIES.includes(key));
 
       const isDirty = node.isDirty || hasSpatialUpdate;
-      const newNodes = { ...state.nodes, [id]: { ...node, ...updates, isDirty } };
+      state.nodes[id] = { ...node, ...updates, isDirty };
       const dirtyNodes = new Set(state.dirtyNodes);
       dirtyNodes.add(id);
 
-      return { nodes: newNodes, lastUpdated: [...state.lastUpdated, id], dirtyNodes };
+      return { lastUpdated: [id], dirtyNodes };
     }, false, { type: 'updateNode', payload: { id, updates } });
+  },
+
+  updateNodesBatch: (updates: Record<string, Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>>) => {
+    set((state: SceneGraphState) => {
+      const newlyUpdated: string[] = [];
+      const dirtyNodes = new Set(state.dirtyNodes);
+      const SPATIAL_PROPERTIES = ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'skewX', 'skewY'];
+
+      for (const [id, nodeUpdates] of Object.entries(updates)) {
+        const node = state.nodes[id];
+        if (!node) continue;
+        const hasSpatialUpdate = Object.keys(nodeUpdates).some(key => SPATIAL_PROPERTIES.includes(key));
+        const isDirty = node.isDirty || hasSpatialUpdate;
+        state.nodes[id] = { ...node, ...nodeUpdates, isDirty };
+        newlyUpdated.push(id);
+        dirtyNodes.add(id);
+      }
+
+      return { lastUpdated: newlyUpdated, dirtyNodes };
+    }, false, { type: 'updateNodesBatch', payload: updates });
   },
 
   reorderNode: (id: string, newParentId: string | null, index: number) => {
@@ -204,7 +235,7 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
       const dirtyNodes = new Set(state.dirtyNodes);
       dirtyNodes.add(id);
 
-      return { nodes: newNodes, lastUpdated: [...state.lastUpdated, id], dirtyNodes };
+      return { nodes: newNodes, childrenMap: null, lastUpdated: [...state.lastUpdated, id], dirtyNodes };
     }, false, { type: 'reorderNode', payload: { id, newParentId, index } });
   },
 
@@ -225,21 +256,29 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
     set((state: SceneGraphState) => {
       if (state.dirtyNodes.size === 0) return state;
 
-      let newNodes = state.nodes;
-      let hasChanges = false;
-      const { rootId } = state;
-      const newlyUpdated: string[] = [];
+      const { rootId, nodes } = state;
+      if (!rootId || !nodes[rootId]) return state;
 
-      if (!rootId || !state.nodes[rootId]) return state;
-
-      const childrenMap: Record<string, string[]> = {};
-      Object.values(state.nodes).forEach((n: any) => {
-        const p = n.parentId || 'root';
-        if (!childrenMap[p]) childrenMap[p] = [];
-        childrenMap[p].push(n.id);
-      });
-      for (const k in childrenMap) {
-        childrenMap[k].sort((a: any, b: any) => ((state.nodes as any)[a].order || '').localeCompare((state.nodes as any)[b].order || ''));
+      let childrenMap = state.childrenMap;
+      if (!childrenMap) {
+        childrenMap = {};
+        for (const id in nodes) {
+          const p = nodes[id].parentId;
+          if (p !== null && p !== undefined) {
+            if (!childrenMap[p]) childrenMap[p] = [id];
+            else childrenMap[p].push(id);
+          }
+        }
+        for (const k in childrenMap) {
+          const arr = childrenMap[k];
+          if (arr.length > 1) {
+            arr.sort((a, b) => {
+              const oa = nodes[a]?.order || '';
+              const ob = nodes[b]?.order || '';
+              return oa < ob ? -1 : oa > ob ? 1 : 0;
+            });
+          }
+        }
       }
 
       const nodesToTraverse = new Set<string>();
@@ -247,59 +286,70 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
         let currId: string | null = id;
         while (currId && !nodesToTraverse.has(currId)) {
           nodesToTraverse.add(currId);
-          currId = state.nodes[currId]?.parentId || null;
+          currId = nodes[currId]?.parentId || null;
         }
       }
 
-      const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
-        const node = newNodes[nodeId];
-        if (!node) return;
+      const newlyUpdated: string[] = [];
+      const updatedDirtySet = new Set<string>();
+      const stack: string[] = [rootId];
+      let hasChanges = false;
 
+      while (stack.length > 0) {
+        const nodeId = stack.pop()!;
+        const node = nodes[nodeId];
+        if (!node) continue;
+
+        const parentId = node.parentId;
+        const parentWasDirty = parentId ? updatedDirtySet.has(parentId) : false;
         const isWorldDirty = node.isDirty || parentWasDirty;
-        let currentWorldMatrix = parentWorldMatrix;
 
         if (isWorldDirty) {
-          if (!hasChanges) {
-            newNodes = { ...state.nodes };
-            hasChanges = true;
-          }
+          hasChanges = true;
           newlyUpdated.push(nodeId);
-          let localMatrix = node.localMatrix;
+          updatedDirtySet.add(nodeId);
 
           if (node.isDirty) {
-            localMatrix = getTransformMatrix(
-              node.x, node.y, 
-              node.rotation, 
+            getTransformMatrix(
+              node.localMatrix,
+              node.x, node.y,
+              node.rotation,
               node.scaleX, node.scaleY,
               node.skewX || 0, node.skewY || 0
             );
+            node.isDirty = false;
           }
-          currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
 
-          newNodes[nodeId] = {
-            ...node,
-            localMatrix,
-            worldMatrix: currentWorldMatrix,
-            isDirty: false
-          };
-        } else {
-          currentWorldMatrix = node.worldMatrix;
+          const parentWorldMatrix = (parentId && nodes[parentId]) ? nodes[parentId].worldMatrix : IDENTITY_MATRIX;
+          multiplyMatrix(node.worldMatrix, parentWorldMatrix, node.localMatrix);
         }
 
-        const children = childrenMap[nodeId] || [];
-        for (let i = 0; i < children.length; i++) {
-          const childId = children[i];
-          if (isWorldDirty || nodesToTraverse.has(childId)) {
-            traverse(childId, currentWorldMatrix, isWorldDirty);
+        const children = childrenMap[nodeId];
+        if (children) {
+          if (isWorldDirty) {
+            for (let i = children.length - 1; i >= 0; i--) {
+              stack.push(children[i]);
+            }
+          } else if (children.length > nodesToTraverse.size) {
+            for (const tId of nodesToTraverse) {
+              if (nodes[tId]?.parentId === nodeId) {
+                stack.push(tId);
+              }
+            }
+          } else {
+            for (let i = children.length - 1; i >= 0; i--) {
+              const childId = children[i];
+              if (nodesToTraverse.has(childId)) {
+                stack.push(childId);
+              }
+            }
           }
         }
-      };
-
-      traverse(rootId, createMatrix(), false);
+      }
 
       return hasChanges
-        ? { nodes: newNodes, lastUpdated: newlyUpdated, dirtyNodes: new Set() }
-        : { ...state, dirtyNodes: new Set() };
+        ? { childrenMap, lastUpdated: newlyUpdated, dirtyNodes: new Set() }
+        : { ...state, childrenMap, dirtyNodes: new Set() };
     });
   }
   });

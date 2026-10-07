@@ -9,7 +9,14 @@ vi.mock('pixi.js', () => {
     children: any[] = [];
     x = 0;
     y = 0;
-    scale = { x: 1, y: 1 };
+    scale = {
+      x: 1,
+      y: 1,
+      set(x: number, y?: number) {
+        this.x = x;
+        this.y = y !== undefined ? y : x;
+      }
+    };
     toLocal = () => ({ x: 0, y: 0 });
     addChild(child: any) { this.children.push(child); }
     removeChild() {}
@@ -84,9 +91,6 @@ test('100,000 node benchmark', () => {
   expect(setupTime).toBeLessThan(2000); // Acceptance criteria: under 2 seconds
   
   store.setState({ lastUpdated: [] });
-  // 2. Measure synchronization time / frame time
-  // Wait, bridge subscribes to store. So when we update nodes, it syncs.
-  // Let's manually trigger a frame update to see the sync time.
   const syncStart = performance.now();
   store.getState().updateNode('node-0', { x: 100 });
   const preRecalc = performance.now();
