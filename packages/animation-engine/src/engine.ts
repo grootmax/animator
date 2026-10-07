@@ -1,20 +1,8 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import type { Keyframe, Track, EasingType, NetworkRole, Heartbeat } from './types';
 
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
-
-export interface Keyframe {
-  id: string;
-  time: number; // in milliseconds
-  value: number | string;
-  easing?: EasingType;
-}
-
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
-}
+export type { Keyframe, Track, EasingType, NetworkRole, Heartbeat };
 
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
@@ -305,11 +293,9 @@ export class AnimationEngine {
     let requiresMatrixUpdate = false;
 
     if (updates.size > 0) {
-      const batchUpdates: Record<string, any> = {};
       for (const [nodeId, nodeUpdates] of updates.entries()) {
-        batchUpdates[nodeId] = nodeUpdates;
+        storeState.updateNode(nodeId, nodeUpdates);
       }
-      storeState.updateNodesBatch(batchUpdates);
       requiresMatrixUpdate = true;
     }
 
