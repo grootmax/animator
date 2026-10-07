@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
-import { secureProjectWriter } from './writerUtils';
+import { secureProjectWriter } from '../writerUtils';
 import * as os from 'os';
 
 describe('secureProjectWriter', () => {
