@@ -24,31 +24,41 @@ store.subscribe((state) => {
 });
 
 self.onmessage = (e) => {
-    const { type, payload } = e.data;
+    const msg = e.data;
+    const type = msg.type;
+    const payload = msg.payload || msg;
 
     switch (type) {
-        case 'init':
-            const { canvas, width, height, pixelRatio } = payload;
+        case 'INIT':
+        case 'init': {
+            const { canvas, width = 800, height = 600, pixelRatio = 1 } = payload;
             bridge = new PixiBridge(canvas, store, width, height, pixelRatio);
             break;
+        }
             
-        case 'resize':
+        case 'RESIZE':
+        case 'resize': {
             if (bridge) {
                 bridge.resize(payload.width, payload.height);
             }
             break;
+        }
             
-        case 'event':
+        case 'DOM_EVENT':
+        case 'event': {
             if (bridge) {
-                bridge.handleEvent(payload.eventType, payload.eventData);
+                const eventType = payload.eventType || payload.event?.type;
+                const eventData = payload.eventData || payload.event;
+                bridge.handleEvent(eventType, eventData);
             }
             break;
+        }
             
-        case 'ui-update':
+        case 'ui-update': {
             // Fast delta updates from UI to worker store
             store.setState((state) => {
                 const nodes = { ...state.nodes };
-                for (const [id, updates] of Object.entries(payload.nodes)) {
+                for (const [id, updates] of Object.entries(payload.nodes || {})) {
                     if (nodes[id]) {
                         nodes[id] = { ...nodes[id], ...(updates as any) };
                         nodes[id].isDirty = true;
@@ -60,38 +70,62 @@ self.onmessage = (e) => {
             });
             store.getState().recalculateMatrices();
             break;
+        }
 
-        case 'play':
+        case 'play': {
             engine.play();
             self.postMessage({ type: 'play-state', isPlaying: engine.getIsPlaying() });
             break;
+        }
             
-        case 'pause':
+        case 'pause': {
             engine.pause();
             self.postMessage({ type: 'play-state', isPlaying: engine.getIsPlaying() });
             break;
+        }
 
-        case 'seek':
-            engine.seek(payload.time);
+        case 'seek': {
+            const time = payload.time !== undefined ? payload.time : msg.time;
+            engine.seek(time);
             self.postMessage({ type: 'play-state', playhead: engine.getPlayhead() });
             break;
+        }
 
-        case 'add-track':
-            engine.addTrack(payload.track);
+        case 'add-track': {
+            const track = payload.track || msg.track;
+            engine.addTrack(track);
             break;
+        }
             
-        case 'zoom-in':
+        case 'zoom-in': {
             if (bridge) {
-                const eData = { deltaY: -100, clientX: payload.width / 2, clientY: payload.height / 2 };
+                const eData = { deltaY: -100, clientX: (payload.width || 800) / 2, clientY: (payload.height || 600) / 2 };
                 bridge.handleEvent('wheel', eData);
             }
             break;
+        }
 
-        case 'zoom-out':
+        case 'zoom-out': {
             if (bridge) {
-                const eData = { deltaY: 100, clientX: payload.width / 2, clientY: payload.height / 2 };
+                const eData = { deltaY: 100, clientX: (payload.width || 800) / 2, clientY: (payload.height || 600) / 2 };
                 bridge.handleEvent('wheel', eData);
             }
             break;
+        }
+
+        case 'ENGINE_CMD': {
+            if (msg.cmd === 'play') {
+                engine.play();
+            } else if (msg.cmd === 'pause') {
+                engine.pause();
+            } else if (msg.cmd === 'seek') {
+                engine.seek(msg.time);
+                store.getState().recalculateMatrices();
+            } else if (msg.cmd === 'addTrack') {
+                engine.addTrack(msg.track);
+            }
+            self.postMessage({ type: 'play-state', isPlaying: engine.getIsPlaying(), playhead: engine.getPlayhead() });
+            break;
+        }
     }
 };
