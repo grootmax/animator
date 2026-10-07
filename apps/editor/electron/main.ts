@@ -9,6 +9,26 @@ const DOMAIN_WHITELIST = [
   'https://fonts.gstatic.com'
 ];
 
+function isAllowedUrl(url: string): boolean {
+  const isDev = !!process.env.VITE_DEV_SERVER_URL;
+  if (isDev && process.env.VITE_DEV_SERVER_URL) {
+    try {
+      const devOrigin = new URL(process.env.VITE_DEV_SERVER_URL).origin;
+      if (url.startsWith(devOrigin)) return true;
+    } catch {}
+  }
+  if (url.startsWith('file:') || /^[a-zA-Z]:[\\/]/.test(url)) {
+    return true;
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'file:' || /^[a-zA-Z]:$/.test(parsed.protocol)) {
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
 function setupSecurity() {
   const isDev = !!process.env.VITE_DEV_SERVER_URL;
   const devUrl = isDev ? new URL(process.env.VITE_DEV_SERVER_URL!).origin : '';
@@ -35,36 +55,26 @@ function setupSecurity() {
 
   app.on('web-contents-created', (_event, contents) => {
     contents.on('will-navigate', (event, navigationUrl) => {
-      try {
-        const parsedUrl = new URL(navigationUrl);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
-          event.preventDefault();
-          shell.openExternal(navigationUrl);
-        }
-      } catch (err) {
+      if (!isAllowedUrl(navigationUrl)) {
         event.preventDefault();
+        try {
+          shell.openExternal(navigationUrl);
+        } catch {}
       }
     });
 
     contents.setWindowOpenHandler(({ url }) => {
-      try {
-        const parsedUrl = new URL(url);
-        const isAppUrl = isDev 
-          ? parsedUrl.origin === devUrl 
-          : parsedUrl.protocol === 'file:';
-          
-        if (!isAppUrl) {
+      if (!isAllowedUrl(url)) {
+        try {
           shell.openExternal(url);
-          return { action: 'deny' };
-        }
-        return { action: 'allow' };
-      } catch (err) {
+        } catch {}
         return { action: 'deny' };
       }
+      return { action: 'allow' };
+    });
+
+    contents.on('will-attach-webview', (event) => {
+      event.preventDefault();
     });
   });
 }
@@ -80,62 +90,11 @@ function createWindow() {
     },
   });
 
-  // Security Hardening: Navigation guards
-  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
-    const parsedUrl = new URL(navigationUrl);
-    const isDev = !!process.env.VITE_DEV_SERVER_URL;
-    let isAllowed = false;
-
-    if (isDev && process.env.VITE_DEV_SERVER_URL) {
-      const devServerUrl = new URL(process.env.VITE_DEV_SERVER_URL);
-      if (parsedUrl.origin === devServerUrl.origin) {
-        isAllowed = true;
-      }
-    }
-    
-    if (parsedUrl.protocol === 'file:') {
-      isAllowed = true;
-    }
-
-    if (!isAllowed) {
-      console.warn(`Blocked unauthorized navigation to: ${navigationUrl}`);
-      event.preventDefault();
-    }
-  });
-
-  // Security Hardening: Window open handlers
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    console.warn(`Blocked unauthorized window open request for: ${url}`);
-    return { action: 'deny' };
-  });
-
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
-
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    try {
-      const parsedUrl = new URL(url);
-      if (process.env.VITE_DEV_SERVER_URL) {
-        const devUrl = new URL(process.env.VITE_DEV_SERVER_URL);
-        if (parsedUrl.origin !== devUrl.origin) {
-          event.preventDefault();
-        }
-      } else {
-        if (parsedUrl.protocol !== 'file:' || !parsedUrl.pathname.includes('/dist/index.html')) {
-          event.preventDefault();
-        }
-      }
-    } catch {
-      event.preventDefault();
-    }
-  });
-
-  mainWindow.webContents.setWindowOpenHandler(() => {
-    return { action: 'deny' };
-  });
 }
 
 app.whenReady().then(() => {
@@ -146,27 +105,6 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
-  });
-
-  app.on('web-contents-created', (_, contents) => {
-    contents.on('will-navigate', (event, navigationUrl) => {
-      const parsedUrl = new URL(navigationUrl);
-      const isLocalUrl = 
-        parsedUrl.protocol === 'file:' || 
-        (process.env.VITE_DEV_SERVER_URL && parsedUrl.origin === new URL(process.env.VITE_DEV_SERVER_URL).origin);
-      
-      if (!isLocalUrl) {
-        event.preventDefault();
-      }
-    });
-
-    contents.setWindowOpenHandler(() => {
-      return { action: 'deny' };
-    });
-
-    contents.on('will-attach-webview', (event) => {
-      event.preventDefault();
-    });
   });
 });
 
