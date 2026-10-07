@@ -2,6 +2,12 @@ import { defineConfig } from 'vite';
 import path from 'path';
 
 export default defineConfig({
+  server: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp'
+    }
+  },
   resolve: {
     alias: [
       { find: '@monorepo/math', replacement: path.resolve(__dirname, '../../packages/math/src/index.ts') },

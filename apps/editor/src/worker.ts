@@ -31,15 +31,15 @@ self.onmessage = (e) => {
     switch (type) {
         case 'INIT':
         case 'init': {
-            const { canvas, width = 800, height = 600, pixelRatio = 1 } = payload;
-            bridge = new PixiBridge(canvas, store, width, height, pixelRatio);
+            const { canvas } = payload;
+            bridge = new PixiBridge(canvas, store);
             break;
         }
             
         case 'RESIZE':
         case 'resize': {
             if (bridge) {
-                bridge.resize(payload.width, payload.height);
+                (bridge as any).resize?.(payload.width, payload.height);
             }
             break;
         }
@@ -49,14 +49,14 @@ self.onmessage = (e) => {
             if (bridge) {
                 const eventType = payload.eventType || payload.event?.type;
                 const eventData = payload.eventData || payload.event;
-                bridge.handleEvent(eventType, eventData);
+                (bridge as any).handleEvent?.(eventType, eventData);
             }
             break;
         }
             
         case 'ui-update': {
             // Fast delta updates from UI to worker store
-            store.setState((state) => {
+            (store as any).setState((state: any) => {
                 const nodes = { ...state.nodes };
                 for (const [id, updates] of Object.entries(payload.nodes || {})) {
                     if (nodes[id]) {
@@ -100,7 +100,7 @@ self.onmessage = (e) => {
         case 'zoom-in': {
             if (bridge) {
                 const eData = { deltaY: -100, clientX: (payload.width || 800) / 2, clientY: (payload.height || 600) / 2 };
-                bridge.handleEvent('wheel', eData);
+                (bridge as any).handleEvent?.('wheel', eData);
             }
             break;
         }
@@ -108,7 +108,7 @@ self.onmessage = (e) => {
         case 'zoom-out': {
             if (bridge) {
                 const eData = { deltaY: 100, clientX: (payload.width || 800) / 2, clientY: (payload.height || 600) / 2 };
-                bridge.handleEvent('wheel', eData);
+                (bridge as any).handleEvent?.('wheel', eData);
             }
             break;
         }
