@@ -35,6 +35,9 @@ self.onmessage = (e) => {
     case 'SET_DURATION':
       engine.setDuration(data.duration);
       break;
+    case 'SET_TRACKS':
+      engine.setTracks(data.tracks);
+      break;
     case 'ADD_TRACK':
       engine.addTrack(data.track);
       break;

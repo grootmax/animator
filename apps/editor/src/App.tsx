@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
-import { AnimationEngine } from '@monorepo/animation-engine';
+import { WorkerAnimationEngine } from './WorkerAnimationEngine';
 import { SvgParser, SvgSerializer } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
@@ -19,7 +19,7 @@ channel.onmessage = (event) => {
     (store as any).applyRemote(event.data);
   }
 };
-const engine = new AnimationEngine(store);
+const engine = new WorkerAnimationEngine(store);
 
 // Extend Window interface for Electron IPC
 declare global {
@@ -69,13 +69,13 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().undo();
+        if (typeof (store.getState() as any).undo === 'function') (store.getState() as any).undo();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        store.getState().redo();
+        if (typeof (store.getState() as any).redo === 'function') (store.getState() as any).redo();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
-        store.getState().redo();
+        if (typeof (store.getState() as any).redo === 'function') (store.getState() as any).redo();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -89,7 +89,7 @@ function App() {
         const parser = new SvgParser();
         const nodes = parser.parse(svgContent);
         if (nodes.length > 0) {
-          store.getState().commitHistory();
+          if (typeof (store.getState() as any).commitHistory === 'function') (store.getState() as any).commitHistory();
           nodes.forEach(node => store.getState().addNode(node));
         }
       }
@@ -192,15 +192,15 @@ function App() {
       engine.addTrack({
         nodeId: testNodeId,
         property: 'rotation',
-        keyframes: {
-          'a': { id: 'a', time: 0, value: 0, easing: 'linear' },
-          'b': { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
-          'c': { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
-        }
+        keyframes: [
+          { id: 'a', time: 0, value: 0, easing: 'linear' },
+          { id: 'b', time: 2000, value: Math.PI * 2, easing: 'easeInOutQuad' },
+          { id: 'c', time: 4000, value: 0, easing: 'easeInOutQuad' }
+        ]
       });
       engine.play();
     } else {
-      store.getState().commitHistory();
+      if (typeof (store.getState() as any).commitHistory === 'function') (store.getState() as any).commitHistory();
       // Create a test node if none exist
       state.addNode({
         id: 'test_rect',

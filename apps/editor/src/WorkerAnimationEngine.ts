@@ -60,6 +60,7 @@ export class WorkerAnimationEngine {
   
   public setTracks(tracks: Track[]) {
     this.tracks = tracks;
+    this.worker.postMessage({ type: 'SET_TRACKS', tracks });
   }
 
   public addTrack(track: Track) {

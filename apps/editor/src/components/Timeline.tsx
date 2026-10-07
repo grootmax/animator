@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AnimationEngine, Track } from '@monorepo/animation-engine';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { WorkerAnimationEngine } from '../WorkerAnimationEngine';
 import { Play, Pause, SkipBack } from 'lucide-react';
 
 interface TimelineProps {
-  engine: AnimationEngine;
+  engine: WorkerAnimationEngine | AnimationEngine;
   store: ReturnType<typeof createSceneGraphStore>;
 }
 

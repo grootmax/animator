@@ -1,7 +1,14 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
-import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { createSceneGraphStore, SceneNode } from '@monorepo/scene-graph';
 
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
+
+export type NetworkRole = 'standalone' | 'leader' | 'follower';
+
+export interface Heartbeat {
+  playhead: number;
+  isPlaying: boolean;
+}
 
 export interface Keyframe {
   id: string;
@@ -105,6 +112,7 @@ export class AnimationEngine {
   private duration = 5000; // ms
 
   public role: NetworkRole = 'standalone';
+  public onTick?: (nodes: Record<string, SceneNode>, playhead: number) => void;
   public onHeartbeat?: (heartbeat: Heartbeat) => void;
   private heartbeatTimer: any = null;
   private heartbeatRate = 100;
@@ -304,6 +312,10 @@ export class AnimationEngine {
 
     if (requiresMatrixUpdate) {
       storeState.recalculateMatrices();
+    }
+
+    if (this.onTick) {
+      this.onTick(this.store.getState().nodes, this.playhead);
     }
   }
 }
