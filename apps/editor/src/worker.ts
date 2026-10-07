@@ -22,7 +22,7 @@ self.onmessage = (e) => {
         }
     }, 33);
     
-    bridge = new PixiBridge(msg.canvas, store, true);
+    bridge = new PixiBridge({ canvas: msg.canvas }, store);
   } else if (msg.type === 'RESIZE') {
     if (bridge) bridge['app'].renderer.resize(msg.width, msg.height);
   } else if (msg.type === 'ADD_NODE') {

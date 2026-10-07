@@ -152,7 +152,7 @@ export class TransformHandles {
     if (!this.isDragging || !selectedNodeId || !this.startNodeState) return;
 
     if (!this.hasMoved) {
-      this.store.getState().commitHistory();
+      (this.store.getState() as any).commitHistory?.();
       this.hasMoved = true;
     }
 
