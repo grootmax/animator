@@ -184,14 +184,32 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
     set((state: SceneGraphState) => {
       const newNodes = { ...state.nodes };
       const { rootId } = state;
+      
       const childrenMap: Record<string, string[]> = {};
-      Object.values(newNodes).forEach((n: any) => {
-        const p = n.parentId || 'root';
-        if (!childrenMap[p]) childrenMap[p] = [];
-        childrenMap[p].push(n.id);
-      });
+      for (const id in newNodes) {
+        const n = newNodes[id];
+        if (n.parentId) {
+          if (!childrenMap[n.parentId]) childrenMap[n.parentId] = [];
+          childrenMap[n.parentId].push(n.id);
+        }
+      }
+
       for (const k in childrenMap) {
-        childrenMap[k].sort((a: any, b: any) => ((newNodes as any)[a].order || '').localeCompare((newNodes as any)[b].order || ''));
+        const list = childrenMap[k];
+        let hasOrder = false;
+        for (let i = 0; i < list.length; i++) {
+          if ((newNodes as any)[list[i]].order) {
+            hasOrder = true;
+            break;
+          }
+        }
+        if (hasOrder) {
+          list.sort((a: any, b: any) => {
+            const oa = (newNodes as any)[a].order || '';
+            const ob = (newNodes as any)[b].order || '';
+            return oa < ob ? -1 : oa > ob ? 1 : 0;
+          });
+        }
       }
 
       if (!rootId || !newNodes[rootId]) return state;
@@ -204,26 +222,23 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
         let currentWorldMatrix = parentWorldMatrix;
 
         if (isWorldDirty) {
-          let localMatrix = node.localMatrix;
-
+          if (!node.localMatrix) {
+            node.localMatrix = createMatrix();
+          }
           if (node.isDirty) {
             getTransformMatrix(
-              node.localMatrix || createMatrix(),
+              node.localMatrix,
               node.x, node.y, 
               node.rotation, 
               node.scaleX, node.scaleY,
               node.skewX || 0, node.skewY || 0
             );
-            localMatrix = node.localMatrix;
           }
-          currentWorldMatrix = multiplyMatrix(createMatrix(), parentWorldMatrix, localMatrix);
-
-          newNodes[nodeId] = {
-            ...node,
-            localMatrix,
-            worldMatrix: currentWorldMatrix,
-            isDirty: false
-          };
+          if (!node.worldMatrix) {
+            node.worldMatrix = createMatrix();
+          }
+          currentWorldMatrix = multiplyMatrix(node.worldMatrix, parentWorldMatrix, node.localMatrix);
+          node.isDirty = false;
         } else {
             currentWorldMatrix = node.worldMatrix;
         }
