@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, session, shell, protocol } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { setupSecurity } from './security';
@@ -100,7 +100,7 @@ app.whenReady().then(() => {
     if (!entry) {
       return new Response('Not Found', { status: 404 });
     }
-    return new Response(entry.data, {
+    return new Response(new Uint8Array(entry.data), {
       headers: { 'Content-Type': entry.mimeType }
     });
   });
