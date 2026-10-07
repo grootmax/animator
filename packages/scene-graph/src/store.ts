@@ -49,7 +49,9 @@ export interface SceneGraphState {
   selectedNodeId: string | null;
   remoteSelections: Record<string, { nodeId: string; color: string; userName?: string }>;
   addNode: (node: Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }) => void;
+  addNodesBulk: (nodes: Array<Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }>) => void;
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => void;
+  updateNodesBatch: (batchUpdates: Record<string, any>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
   recalculateMatrices: () => void;
@@ -87,11 +89,11 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
   selectedNodeId: null,
   remoteSelections: {},
 
-  setViewport: (viewport) => set({ viewport }),
+  setViewport: (viewport: { x: number; y: number; zoom: number }) => set({ viewport }),
   
-  setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+  setSelectedNodeId: (selectedNodeId: string | null) => set({ selectedNodeId }),
   
-  setRemoteSelection: (userId, nodeId, color, userName) => set((state) => {
+  setRemoteSelection: (userId: string, nodeId: string | null, color?: string, userName?: string) => set((state: SceneGraphState) => {
     const newRemoteSelections = { ...state.remoteSelections };
     if (nodeId === null) {
       delete newRemoteSelections[userId];
@@ -111,12 +113,37 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
       newNode.order = generateKeyBetween(lastSibling?.order || null, null);
       
       const newNodes = { ...state.nodes, [node.id]: newNode };
+      const newChildrenMap = { ...((state as any)._childrenMap || {}) };
+      if (newNode.parentId) {
+        newChildrenMap[newNode.parentId] = [...(newChildrenMap[newNode.parentId] || []), newNode];
+      }
       
       return {
         nodes: newNodes,
-        rootId: state.rootId || (node.parentId === null ? node.id : state.rootId)
-      };
+        rootId: state.rootId || (node.parentId === null ? node.id : state.rootId),
+        _childrenMap: newChildrenMap
+      } as any;
     }, false, { type: 'addNode', payload: node });
+  },
+
+  addNodesBulk: (nodesToAdd: Array<Partial<Omit<SceneNode, 'localMatrix' | 'worldMatrix' | 'isDirty'>> & { id: string, type: NodeType }>) => {
+    set((state: SceneGraphState) => {
+      const newNodes = { ...state.nodes };
+      const newChildrenMap = { ...((state as any)._childrenMap || {}) };
+      let rootId = state.rootId;
+      for (const node of nodesToAdd) {
+        const newNode = getDefaultNode(node);
+        newNodes[node.id] = newNode;
+        if (!rootId && node.parentId === null) {
+          rootId = node.id;
+        }
+        if (newNode.parentId) {
+          if (!newChildrenMap[newNode.parentId]) newChildrenMap[newNode.parentId] = [];
+          newChildrenMap[newNode.parentId].push(newNode);
+        }
+      }
+      return { nodes: newNodes, rootId, _childrenMap: newChildrenMap } as any;
+    }, false, { type: 'addNodesBulk', payload: nodesToAdd });
   },
 
   updateNode: (id: string, updates: Partial<Omit<SceneNode, 'id' | 'type' | 'parentId' | 'order' | 'localMatrix' | 'worldMatrix' | 'isDirty'>>) => {
@@ -136,6 +163,22 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
     }, false, { type: 'updateNode', payload: { id, updates } });
   },
 
+  updateNodesBatch: (batchUpdates: Record<string, any>) => {
+    set((state: SceneGraphState) => {
+      const SPATIAL_PROPERTIES = ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'skewX', 'skewY'];
+      const newNodes = { ...state.nodes };
+      for (const [id, updates] of Object.entries(batchUpdates)) {
+        const node = newNodes[id];
+        if (node) {
+          const hasSpatialUpdate = Object.keys(updates).some(key => SPATIAL_PROPERTIES.includes(key));
+          const isDirty = node.isDirty || hasSpatialUpdate;
+          newNodes[id] = { ...node, ...updates, isDirty };
+        }
+      }
+      return { nodes: newNodes };
+    }, false, { type: 'updateNodesBatch', payload: batchUpdates });
+  },
+
   reorderNode: (id: string, newParentId: string | null, index: number) => {
     set((state: SceneGraphState) => {
       const node = state.nodes[id];
@@ -153,7 +196,7 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
       newNodes[id] = { ...node, parentId: newParentId, order: newOrder, isDirty: true };
 
-      return { nodes: newNodes };
+      return { nodes: newNodes, _childrenMap: null };
     }, false, { type: 'reorderNode', payload: { id, newParentId, index } });
   },
 
@@ -171,57 +214,51 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
   recalculateMatrices: () => {
     set((state: SceneGraphState) => {
-      const newNodes = { ...state.nodes };
-      const { rootId } = state;
-      const childrenMap: Record<string, string[]> = {};
-      Object.values(newNodes).forEach((n: any) => {
-        const p = n.parentId || 'root';
-        if (!childrenMap[p]) childrenMap[p] = [];
-        childrenMap[p].push(n.id);
-      });
-      for (const k in childrenMap) {
-        childrenMap[k].sort((a: any, b: any) => ((newNodes as any)[a].order || '').localeCompare((newNodes as any)[b].order || ''));
+      const nodes = state.nodes;
+      const rootId = state.rootId;
+
+      if (!rootId || !nodes[rootId]) return state;
+
+      let childrenMap = (state as any)._childrenMap;
+      if (!childrenMap) {
+        childrenMap = {};
+        for (const n of Object.values(nodes)) {
+          if (n.parentId) {
+            if (!childrenMap[n.parentId]) childrenMap[n.parentId] = [];
+            childrenMap[n.parentId].push(n);
+          }
+        }
       }
 
-      if (!rootId || !newNodes[rootId]) return state;
-
-      const traverse = (nodeId: string, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
-        const node = newNodes[nodeId];
-        if (!node) return;
-
+      const traverse = (node: SceneNode, parentWorldMatrix: Matrix3, parentWasDirty: boolean) => {
         const isWorldDirty = node.isDirty || parentWasDirty;
-        let currentWorldMatrix = parentWorldMatrix;
 
         if (isWorldDirty) {
-          let localMatrix = node.localMatrix;
-
           if (node.isDirty) {
-            localMatrix = getTransformMatrix(
+            getTransformMatrix(
+              node.localMatrix,
               node.x, node.y, 
               node.rotation, 
               node.scaleX, node.scaleY,
               node.skewX || 0, node.skewY || 0
             );
           }
-          currentWorldMatrix = multiplyMatrix(parentWorldMatrix, localMatrix);
-
-          newNodes[nodeId] = {
-            ...node,
-            localMatrix,
-            worldMatrix: currentWorldMatrix
-          };
-        } else {
-            currentWorldMatrix = node.worldMatrix;
+          multiplyMatrix(node.worldMatrix, parentWorldMatrix, node.localMatrix);
+          node.isDirty = false;
         }
 
-        for (const childId of node.children) {
-          traverse(childId, currentWorldMatrix, isWorldDirty);
+        const children: SceneNode[] = childrenMap[node.id];
+        if (children) {
+          const len = children.length;
+          for (let i = 0; i < len; i++) {
+            traverse(children[i], node.worldMatrix, isWorldDirty);
+          }
         }
       };
 
-      traverse(rootId, createMatrix(), false);
+      traverse(nodes[rootId], createMatrix(), false);
 
-      return { nodes: newNodes };
+      return { nodes, _childrenMap: childrenMap } as any;
     });
   }
   });
