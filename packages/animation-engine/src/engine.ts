@@ -16,6 +16,13 @@ export interface Track {
   keyframes: Keyframe[];
 }
 
+export type NetworkRole = 'leader' | 'follower' | 'standalone';
+
+export interface Heartbeat {
+  playhead: number;
+  isPlaying: boolean;
+}
+
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
   let c = hex.substring(1).split('');

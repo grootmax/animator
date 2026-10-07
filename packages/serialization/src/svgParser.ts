@@ -293,7 +293,7 @@ export class SvgParser {
     nodesList.push(sceneNode);
 
     Array.from(element.children).forEach(child => {
-      this.processElement(child, id, nodesList, finalMatrix);
+      this.processElement(child, id, nodesList, combinedMatrix);
     });
   }
 }

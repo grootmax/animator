@@ -1,5 +1,7 @@
 const assert = require('assert');
+const realFs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
 // Mocks for File System
 const mockFsFiles = {};
@@ -82,6 +84,19 @@ Module._load = function (request, parent, isMain) {
 // Start tests
 async function runTests() {
   console.log('--- Running Bridge Verification Suite ---');
+
+  const distMain = path.join(__dirname, '../dist-electron/main.js');
+  const distPreload = path.join(__dirname, '../dist-electron/preload.js');
+
+  if (!realFs.existsSync(distMain) || !realFs.existsSync(distPreload)) {
+    console.log('`dist-electron/` outputs not found. Compiling Electron scripts via vite build...');
+    try {
+      execSync('npx vite build', { cwd: path.join(__dirname, '..'), stdio: 'inherit' });
+    } catch (buildErr) {
+      console.error('Failed to compile Electron scripts prior to bridge verification.');
+      process.exit(1);
+    }
+  }
 
   // Load the compiled bridge components
   try {
