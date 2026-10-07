@@ -51,6 +51,7 @@ export interface SceneNode {
   name: string;
   type: NodeType;
   parentId: string | null;
+  children: string[];
   order: string;
   x: number;
   y: number;
@@ -94,6 +95,7 @@ export interface SceneGraphState {
   idToIndex: Map<string, number>;
   nextBufferIndex: number;
   addNode: (node: Partial<SceneNode> & { id: string, type: NodeType }) => void;
+  addNodesBulk: (nodes: Array<Partial<SceneNode> & { id: string, type: NodeType }>) => void;
   updateNode: (id: string, updates: Partial<SceneNode>) => void;
   reorderNode: (id: string, newParentId: string | null, index: number) => void;
   markDirty: (id: string) => void;
@@ -150,7 +152,7 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
 
       const siblings = Object.values(state.nodes).filter((n: any) => n.parentId === (node.parentId || null));
       siblings.sort((a: any, b: any) => (a.order || '').localeCompare(b.order || ''));
-      const lastSibling = siblings[siblings.length - 1];
+      const lastSibling = siblings[siblings.length - 1] as any;
       const order = node.order || generateKeyBetween(lastSibling?.order || null, null);
 
       const newNode: any = {
@@ -183,7 +185,7 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
             children: [...parent.children, node.id]
           };
           
-          const parentIdx = idToIndex.get(node.parentId)!;
+          const parentIdx = idToIndex.get(node.parentId) as number;
           i32[idxOffset + OFF_PARENT] = parentIdx;
           
           let currChild = i32[parentIdx * STRIDE + OFF_FIRST_CHILD];
@@ -219,6 +221,93 @@ export const createSceneGraphStore = (broadcastCb?: (msg: SyncMessage) => void) 
         rootId: state.rootId || (node.parentId === null ? node.id : state.rootId)
       };
     }, false, { type: 'addNode', payload: node });
+  },
+
+  addNodesBulk: (nodesToAdd: any[]) => {
+    set((state: SceneGraphState) => {
+      let idx = state.nextBufferIndex;
+      const idToIndex = new Map(state.idToIndex);
+      const newNodes = { ...state.nodes };
+      let newRootId = state.rootId;
+
+      for (const node of nodesToAdd) {
+        const currentIdx = idx;
+        const idxOffset = currentIdx * STRIDE;
+        idToIndex.set(node.id, currentIdx);
+
+        const newNode: any = {
+          name: node.id,
+          locked: false,
+          order: node.order || '',
+          ...node,
+          parentId: node.parentId || null,
+          children: [],
+          bufferIndex: currentIdx
+        };
+
+        f32[idxOffset + OFF_X] = node.x || 0;
+        f32[idxOffset + OFF_Y] = node.y || 0;
+        f32[idxOffset + OFF_ROT] = node.rotation || 0;
+        f32[idxOffset + OFF_SX] = node.scaleX !== undefined ? node.scaleX : 1;
+        f32[idxOffset + OFF_SY] = node.scaleY !== undefined ? node.scaleY : 1;
+        f32[idxOffset + OFF_SKX] = node.skewX || 0;
+        f32[idxOffset + OFF_SKY] = node.skewY || 0;
+        f32[idxOffset + OFF_OPACITY] = node.opacity !== undefined ? node.opacity : 1;
+        updateBufferFlags(idxOffset, true, node.visible !== false);
+
+        if (node.parentId === null && !newRootId) {
+          newRootId = node.id;
+        }
+
+        Object.defineProperties(newNode, {
+          x: { get: () => f32[idxOffset + OFF_X], enumerable: true },
+          y: { get: () => f32[idxOffset + OFF_Y], enumerable: true },
+          rotation: { get: () => f32[idxOffset + OFF_ROT], enumerable: true },
+          scaleX: { get: () => f32[idxOffset + OFF_SX], enumerable: true },
+          scaleY: { get: () => f32[idxOffset + OFF_SY], enumerable: true },
+          skewX: { get: () => f32[idxOffset + OFF_SKX], enumerable: true },
+          skewY: { get: () => f32[idxOffset + OFF_SKY], enumerable: true },
+          opacity: { get: () => f32[idxOffset + OFF_OPACITY], enumerable: true },
+          visible: { get: () => (i32[idxOffset + OFF_FLAGS] & 2) !== 0, enumerable: true },
+          isDirty: { get: () => (i32[idxOffset + OFF_FLAGS] & 1) !== 0, enumerable: true },
+          localMatrix: { get: () => Array.from(f32.subarray(idxOffset + OFF_LM_START, idxOffset + OFF_LM_START + 9)), enumerable: true },
+          worldMatrix: { get: () => Array.from(f32.subarray(idxOffset + OFF_WM_START, idxOffset + OFF_WM_START + 9)), enumerable: true }
+        });
+
+        newNodes[node.id] = newNode;
+        idx++;
+      }
+
+      for (const node of nodesToAdd) {
+        if (node.parentId) {
+          const parent = newNodes[node.parentId];
+          if (parent) {
+            parent.children.push(node.id);
+            const parentIdx = idToIndex.get(node.parentId)!;
+            const childIdx = idToIndex.get(node.id)!;
+            const childOffset = childIdx * STRIDE;
+            i32[childOffset + OFF_PARENT] = parentIdx;
+
+            let currChild = i32[parentIdx * STRIDE + OFF_FIRST_CHILD];
+            if (currChild === -1) {
+              i32[parentIdx * STRIDE + OFF_FIRST_CHILD] = childIdx;
+            } else {
+              while (i32[currChild * STRIDE + OFF_NEXT_SIBLING] !== -1) {
+                currChild = i32[currChild * STRIDE + OFF_NEXT_SIBLING];
+              }
+              i32[currChild * STRIDE + OFF_NEXT_SIBLING] = childIdx;
+            }
+          }
+        }
+      }
+
+      return {
+        nodes: newNodes,
+        idToIndex,
+        nextBufferIndex: idx,
+        rootId: newRootId
+      };
+    });
   },
 
   updateNode: (id: string, updates: Partial<SceneNode>) => {

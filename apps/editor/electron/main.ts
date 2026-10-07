@@ -1,9 +1,9 @@
 import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { setupSecurity } from './security';
+import { setupSecurity as initSecurity } from './security';
 
-setupSecurity();
+initSecurity();
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -36,7 +36,7 @@ function setupSecurity() {
     });
   });
 
-  app.on('web-contents-created', (event, contents) => {
+  app.on('web-contents-created', (_event, contents) => {
     contents.on('will-navigate', (event, navigationUrl) => {
       try {
         const parsedUrl = new URL(navigationUrl);

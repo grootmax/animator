@@ -5,6 +5,12 @@ import path from 'path';
 
 export default defineConfig({
   base: './',
+  server: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
+  },
   resolve: {
     alias: {
       '@monorepo/math': path.resolve(__dirname, '../../packages/math/src/index.ts'),

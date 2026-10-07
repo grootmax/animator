@@ -1,11 +1,12 @@
 import { createSceneGraphStore, SceneNode, NodeType } from './store.js';
-import { getTransformMatrix } from '@monorepo/math';
+import { getTransformMatrix, createMatrix } from '@monorepo/math';
 
 function runNormalization() {
+  const matrix = createMatrix();
   let temp;
   const start = performance.now();
   for (let i = 0; i < 1_000_000; i++) {
-    temp = getTransformMatrix(0.1, 0.2, 0.5, 1, 1, 0, 0);
+    temp = getTransformMatrix(matrix, 0.1, 0.2, 0.5, 1, 1, 0, 0);
   }
   const end = performance.now();
   return end - start;
