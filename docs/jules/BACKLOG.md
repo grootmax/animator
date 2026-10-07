@@ -6,6 +6,24 @@ The single prioritized queue. Maintained by the tech lead (Claude Code). One bri
 Status: `ready` (brief written) · `queued` (needs a brief) · `in-flight` (Jules session open) ·
 `review` (PR open) · `merged` · `dropped`
 
+## Target: 2026-10-15
+
+The full plan (M0–M6) was estimated at 22–34 working days, so not all of it fits in 8 days. The
+Oct 15 target is the **agent-first core**: an MCP client can create, edit, preview and export a valid
+`.lottie`, and a basic editor shows it live. Text outlines, SVG import, generation and video (M4–M6)
+start after Oct 15 unless review throughput allows earlier.
+
+| Date | Milestone | Done when |
+|---|---|---|
+| Oct 7–8 | M0 Foundation | `pnpm check` green in CI; frame renders to PNG in a test |
+| Oct 8–11 | M1 Core | 10 fixtures compile, validate and match reference frames |
+| Oct 11–13 | M2 MCP v1 | "3 s logo reveal" → valid `.lottie` in ≤ 8 tool calls from Claude Code |
+| Oct 13–15 | M3 Editor (minimal) | player + layer list + live WS updates; inspector/timeline retiming if time allows |
+| after Oct 15 | M4, M5, M6 | per PROJECT_CONTEXT §15 |
+
+To hit this, M1-4/M1-5 and later M1-7/M1-9 run as parallel Jules tasks, and every PR is reviewed
+within a few hours of opening.
+
 ## Now — M0 Foundation
 
 | ID | Task | Depends on | Status | Session / PR |
