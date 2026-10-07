@@ -8,7 +8,7 @@ Read `AGENTS.md` and `docs/PROJECT_CONTEXT.md` (§4 D10, §6, §13, §16) first.
 
 The repo still holds the abandoned Electron/PixiJS/Turborepo code. Replace it with empty, building shells
 for the new architecture, and a CI that actually runs. The legacy code stays in git history
-(tag `legacy-electron`); don't copy anything from it.
+(branch `legacy-electron`); don't copy anything from it.
 
 ## Do
 

@@ -22,7 +22,7 @@ an auto-merge bot) was cleaned up on 2026-10-07:
 ## Decision
 
 1. **Build in `grootmax/animator`.** M0 replaces the legacy Electron/PixiJS workspace with the layout
-   in PROJECT_CONTEXT §6. The legacy code stays in git history (tag `legacy-electron` before M0 merges).
+   in PROJECT_CONTEXT §6. The legacy code stays in git history (branch `legacy-electron`, created 2026-10-07 at 4404fa5).
 2. **Jules is the implementer.** Claude Code writes one brief per task in `docs/jules/tasks/`,
    dispatches it with the Jules CLI (`jules remote new --repo grootmax/animator --session ...`), and
    keeps `docs/jules/BACKLOG.md` as the single prioritized queue.
