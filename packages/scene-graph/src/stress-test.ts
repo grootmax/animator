@@ -1,11 +1,12 @@
 import { createSceneGraphStore, SceneNode, NodeType } from './store.js';
-import { getTransformMatrix } from '@monorepo/math';
+import { getTransformMatrix, createMatrix } from '@monorepo/math';
 
 function runNormalization() {
   let temp;
+  const out = createMatrix();
   const start = performance.now();
   for (let i = 0; i < 1_000_000; i++) {
-    temp = getTransformMatrix(0.1, 0.2, 0.5, 1, 1, 0, 0);
+    temp = getTransformMatrix(out, 0.1, 0.2, 0.5, 1, 1, 0, 0);
   }
   const end = performance.now();
   return end - start;
@@ -17,7 +18,7 @@ function runStressTest() {
   console.log(`Normalization took: ${currentNormMs.toFixed(2)}ms`);
 
   const BASELINE_TARGET_MS = 1300;
-  const BASELINE_NORM_MS = 1280; // Approximate normalization time when target was set
+  const BASELINE_NORM_MS = 30; // Approximate normalization time for in-place getTransformMatrix
   
   // Adjusted baseline based on the current machine's performance
   const adjustedBaselineMs = BASELINE_TARGET_MS * (currentNormMs / BASELINE_NORM_MS);

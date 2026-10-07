@@ -1,6 +1,8 @@
 import { SceneNode, NodeType } from '@monorepo/scene-graph';
 import { Matrix3, createMatrix, multiplyMatrix } from '@monorepo/math';
 
+const mul = (a: Matrix3, b: Matrix3): Matrix3 => multiplyMatrix(createMatrix(), a, b);
+
 let idCounter = 0;
 const generateId = () => `node_${idCounter++}`;
 
@@ -108,7 +110,7 @@ export class SvgParser {
           c, d, 0,
           e, f, 1
         ];
-        matrix = multiplyMatrix(matrix, localMatrix);
+        matrix = mul(matrix, localMatrix);
       } else if (type === 'translate' && args.length >= 1) {
         const tx = args[0];
         const ty = args.length > 1 ? args[1] : 0;
@@ -117,7 +119,7 @@ export class SvgParser {
           0, 1, 0,
           tx, ty, 1
         ];
-        matrix = multiplyMatrix(matrix, translateMatrix);
+        matrix = mul(matrix, translateMatrix);
       } else if (type === 'scale' && args.length >= 1) {
         const sx = args[0];
         const sy = args.length > 1 ? args[1] : sx;
@@ -126,7 +128,7 @@ export class SvgParser {
           0, sy, 0,
           0, 0, 1
         ];
-        matrix = multiplyMatrix(matrix, scaleMatrix);
+        matrix = mul(matrix, scaleMatrix);
       } else if (type === 'rotate' && args.length >= 1) {
         const angle = args[0] * Math.PI / 180;
         const cx = args.length === 3 ? args[1] : 0;
@@ -139,9 +141,9 @@ export class SvgParser {
         if (cx !== 0 || cy !== 0) {
           const tToCenter: Matrix3 = [1, 0, 0, 0, 1, 0, cx, cy, 1];
           const tBack: Matrix3 = [1, 0, 0, 0, 1, 0, -cx, -cy, 1];
-          rotateMatrix = multiplyMatrix(tToCenter, multiplyMatrix(rotateMatrix, tBack));
+          rotateMatrix = mul(tToCenter, mul(rotateMatrix, tBack));
         }
-        matrix = multiplyMatrix(matrix, rotateMatrix);
+        matrix = mul(matrix, rotateMatrix);
       }
     }
 
@@ -193,8 +195,6 @@ export class SvgParser {
       case 'line': type = 'line'; break;
       case 'polyline': type = 'polyline'; break;
       case 'path': type = 'path'; break;
-      case 'ellipse': type = 'path'; break;
-      case 'line': type = 'path'; break;
       default: return; // Ignore unsupported
     }
 
@@ -228,9 +228,9 @@ export class SvgParser {
       xAttr, yAttr, 1
     ];
 
-    const localMatrix = multiplyMatrix(localTransformMatrix, baseMatrix);
+    const localMatrix = mul(localTransformMatrix, baseMatrix);
     const combinedMatrix = parentId === null 
-      ? multiplyMatrix(parentMatrix, localMatrix) 
+      ? mul(parentMatrix, localMatrix) 
       : localMatrix;
 
     const { x, y, scaleX, scaleY, rotation, skewX, skewY } = this.extractTransformProperties(combinedMatrix);
@@ -294,7 +294,7 @@ export class SvgParser {
     nodesList.push(sceneNode);
 
     Array.from(element.children).forEach(child => {
-      this.processElement(child, id, nodesList, finalMatrix);
+      this.processElement(child, id, nodesList, combinedMatrix);
     });
   }
 }

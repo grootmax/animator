@@ -14,6 +14,7 @@ export class PixiBridge {
   private pathCache: Map<string, PathToken[]> = new Map();
   private assetStore: any;
   private textureCache: Map<string, PIXI.Texture> = new Map();
+  private remoteSelectionsContainer: PIXI.Container;
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>, assetStore?: any) {
     this.app = new PIXI.Application({
@@ -27,7 +28,7 @@ export class PixiBridge {
     this.app.stage.sortableChildren = true;
 
     this.viewport = new Viewport(this.app, store);
-    this.handles = new TransformHandles(store, this.viewport);
+    this.handles = new TransformHandles(store, this.viewport, (id) => this.pixiNodes.get(id));
     this.assetStore = assetStore;
 
     this.remoteSelectionsContainer = new PIXI.Container();
@@ -263,7 +264,6 @@ export class PixiBridge {
         } else {
           pixiNode.texture = PIXI.Texture.EMPTY;
           (pixiNode as any)._currentSrc = undefined;
-        }
         }
       }
 
