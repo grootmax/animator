@@ -33,19 +33,19 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
 
     const toggleVisible = (e: React.MouseEvent) => {
       e.stopPropagation();
-      store.getState().commitHistory();
+      store.getState().commitHistory?.();
       store.getState().updateNode(id, { visible: !node.visible });
     };
 
     const toggleLock = (e: React.MouseEvent) => {
       e.stopPropagation();
-      store.getState().commitHistory();
+      store.getState().commitHistory?.();
       store.getState().updateNode(id, { locked: !node.locked });
     };
 
     const handleRename = () => {
       if (editName.trim() && editName !== node.name) {
-        store.getState().commitHistory();
+        store.getState().commitHistory?.();
         store.getState().updateNode(id, { name: editName });
       }
       setIsEditing(false);
@@ -95,7 +95,7 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ store, nodesCount: _node
              siblingsNodes.sort((a,b) => (a.order || '').localeCompare(b.order || ''));
              const siblings = siblingsNodes.map(n => n.id);
              const dropIndex = siblings.indexOf(id);
-             store.getState().commitHistory();
+             store.getState().commitHistory?.();
              store.getState().reorderNode(item.id, parentId, dropIndex + 1);
          }
       }

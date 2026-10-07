@@ -3,6 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock electron before importing anything that uses it
 vi.mock('electron', () => {
   class MockBrowserWindow {
+    webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
     loadURL = vi.fn();
     loadFile = vi.fn();
     static getAllWindows = vi.fn().mockReturnValue([]);
@@ -10,6 +14,7 @@ vi.mock('electron', () => {
 
   return {
     app: {
+      getAppPath: vi.fn().mockReturnValue('/app'),
       whenReady: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
       quit: vi.fn(),

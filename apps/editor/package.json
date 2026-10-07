@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "npx vitest run",
     "package": "electron-builder build --mac --linux"
   },
   "build": {

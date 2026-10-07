@@ -1,3 +1,4 @@
-export * from './viewport';
-export * from './handles';
-export * from './bridge';
+export { Viewport } from './viewport';
+export { TransformHandles } from './handles';
+export { PixiBridge } from './bridge';
+
