@@ -12,7 +12,7 @@ function createWindow() {
     width: 1200,
     height: 800,
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist-electron/preload.js'),
+      preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
     },
@@ -50,7 +50,7 @@ function createWindow() {
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    mainWindow.loadFile(path.join(app.getAppPath(), 'dist/index.html'));
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -62,7 +62,7 @@ function createWindow() {
           event.preventDefault();
         }
       } else {
-        if (parsedUrl.protocol !== 'file:' || !parsedUrl.pathname.includes('/dist/index.html')) {
+        if (parsedUrl.protocol !== 'file:' || !parsedUrl.pathname.replace(/\\/g, '/').includes('dist/index.html')) {
           event.preventDefault();
         }
       }
@@ -116,6 +116,12 @@ app.on('window-all-closed', () => {
 
 // IPC Handlers
 ipcMain.handle('dialog:openFile', async () => {
+  if (process.env.TEST_MODE === 'true') {
+    const testSvgPath = path.join(__dirname, '../test-resources/test.svg');
+    if (fs.existsSync(testSvgPath)) {
+      return fs.promises.readFile(testSvgPath, 'utf-8');
+    }
+  }
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
     filters: [{ name: 'All Supported', extensions: ['svg', 'json', 'bspf'] }]
@@ -125,6 +131,10 @@ ipcMain.handle('dialog:openFile', async () => {
 });
 
 ipcMain.handle('dialog:saveFile', async (_, content: string) => {
+  if (process.env.TEST_MODE === 'true' && process.env.TEST_SAVE_PATH) {
+    await fs.promises.writeFile(process.env.TEST_SAVE_PATH, content, 'utf-8');
+    return true;
+  }
   try {
     const { canceled, filePath } = await dialog.showSaveDialog({
       filters: [
@@ -142,6 +152,10 @@ ipcMain.handle('dialog:saveFile', async (_, content: string) => {
 });
 
 ipcMain.handle('project:saveStart', async () => {
+  if (process.env.TEST_MODE === 'true' && process.env.TEST_SAVE_PATH) {
+    await fs.promises.writeFile(process.env.TEST_SAVE_PATH, new Uint8Array(0));
+    return process.env.TEST_SAVE_PATH;
+  }
   const { canceled, filePath } = await dialog.showSaveDialog({
     filters: [
       { name: 'Binary Project Files', extensions: ['bspf'] },
@@ -160,6 +174,13 @@ ipcMain.handle('project:saveChunk', async (_, filePath: string, chunk: Uint8Arra
 });
 
 ipcMain.handle('project:loadStart', async () => {
+  if (process.env.TEST_MODE === 'true') {
+    const testSvgPath = path.join(__dirname, '../test-resources/test.svg');
+    if (fs.existsSync(testSvgPath)) {
+      const stat = await fs.promises.stat(testSvgPath);
+      return { filePath: testSvgPath, size: stat.size };
+    }
+  }
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
     filters: [
