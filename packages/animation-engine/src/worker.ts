@@ -42,7 +42,8 @@ const calculateUpdates = () => {
   const updates = new Map<string, any>();
 
   for (const track of tracks) {
-    const [start, end] = binarySearchKeyframes(track.keyframes, playhead);
+    const keyframesArray = Array.isArray(track.keyframes) ? track.keyframes : Object.values(track.keyframes);
+    const [start, end] = binarySearchKeyframes(keyframesArray, playhead);
     if (!start || !end) continue;
 
     let value = start.value;
@@ -50,7 +51,7 @@ const calculateUpdates = () => {
       const progress = (playhead - start.time) / (end.time - start.time);
       const easingFn = getEasingFunction(start.easing);
       const easedProgress = easingFn(progress);
-      value = start.value + (end.value - start.value) * easedProgress;
+      value = (start.value as number) + ((end.value as number) - (start.value as number)) * easedProgress;
     }
 
     if (!updates.has(track.nodeId)) {

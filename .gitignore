@@ -4,3 +4,5 @@ dist-electron/
 release
 dist
 dist-electron
+.turbo/
+*.tsbuildinfo

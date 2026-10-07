@@ -116,4 +116,6 @@ async function runBenchmark() {
   });
 }
 
-runBenchmark().catch(console.error);
+runBenchmark().catch((err) => {
+  console.error('BENCHMARK ERROR:', err && err.stack ? err.stack : err);
+});
