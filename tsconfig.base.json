@@ -12,6 +12,12 @@
     "sourceMap": true,
     "composite": true,
     "skipLibCheck": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "paths": {
+      "@monorepo/core": ["./packages/core/src/index.ts"],
+      "@monorepo/core/*": ["./packages/core/src/*"],
+      "@animator/core": ["./packages/core/src/index.ts"],
+      "@animator/core/*": ["./packages/core/src/*"]
+    }
   }
 }

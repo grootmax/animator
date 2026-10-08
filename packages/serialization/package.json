@@ -1,5 +1,5 @@
 {
-  "name": "@monorepo/core",
+  "name": "@monorepo/serialization",
   "version": "0.0.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -8,7 +8,6 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "immer": "^11.1.21",
-    "zod": "^4.6.5"
+    "@monorepo/core": "workspace:*"
   }
 }
