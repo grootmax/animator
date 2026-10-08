@@ -1,15 +1,26 @@
 import { z } from 'zod';
 
-export const nodeTypeSchema = z.enum(['container', 'rect', 'circle', 'path', 'group', 'ellipse', 'line', 'polyline']);
+export const nodeTypeSchema = z.enum([
+  'container',
+  'rect',
+  'circle',
+  'path',
+  'group',
+  'ellipse',
+  'line',
+  'polyline',
+  'image',
+]);
 
 // This schema defines only the properties we want to serialize.
 // By default, z.object() will strip out any extra properties (like localMatrix, worldMatrix, isDirty).
 export const sceneNodeSchema = z.object({
   id: z.string(),
-  name: z.string(),
+  name: z.string().optional(),
   type: nodeTypeSchema,
-  parentId: z.string().nullable(),
-  children: z.array(z.string()),
+  parentId: z.string().nullable().optional(),
+  children: z.array(z.string()).optional(),
+  order: z.string().optional(),
   x: z.number(),
   y: z.number(),
   rotation: z.number(),
@@ -17,9 +28,9 @@ export const sceneNodeSchema = z.object({
   scaleY: z.number(),
   skewX: z.number().optional(),
   skewY: z.number().optional(),
-  opacity: z.number(),
-  visible: z.boolean(),
-  locked: z.boolean(),
+  opacity: z.number().optional(),
+  visible: z.boolean().optional(),
+  locked: z.boolean().optional(),
   width: z.number().optional(),
   height: z.number().optional(),
   radius: z.number().optional(),
@@ -34,6 +45,23 @@ export const sceneNodeSchema = z.object({
   x2: z.number().optional(),
   y2: z.number().optional(),
   points: z.string().optional(),
+  src: z.string().optional(),
+});
+
+export const addNodePayloadSchema = sceneNodeSchema.partial().extend({
+  id: z.string(),
+  type: nodeTypeSchema,
+});
+
+export const updateNodePayloadSchema = z.object({
+  id: z.string(),
+  updates: z.record(z.string(), z.any()),
+});
+
+export const reorderNodePayloadSchema = z.object({
+  id: z.string(),
+  newParentId: z.string().nullable(),
+  index: z.number(),
 });
 
 export const easingTypeSchema = z.enum(['linear', 'easeInQuad', 'easeOutQuad', 'easeInOutQuad']);
@@ -66,3 +94,4 @@ export function validateAndSerializeProject(data: unknown): string {
   const parsed = projectDataSchema.parse(data);
   return JSON.stringify(parsed, null, 2);
 }
+

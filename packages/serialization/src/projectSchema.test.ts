@@ -92,6 +92,37 @@ describe('validateAndSerializeProject', () => {
     expect(() => validateAndSerializeProject(invalidProject)).toThrow();
   });
 
+  it('should successfully validate image nodes with src property', () => {
+    const imageProject = {
+      scene: {
+        img1: {
+          id: 'img1',
+          name: 'Image Layer',
+          type: 'image',
+          src: 'data:image/png;base64,abc...',
+          parentId: null,
+          x: 50,
+          y: 50,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          width: 200,
+          height: 150,
+        }
+      },
+      animations: [],
+      metadata: {
+        version: '1.0.0',
+        duration: 3000
+      }
+    };
+
+    const serialized = validateAndSerializeProject(imageProject);
+    const parsed = JSON.parse(serialized);
+    expect(parsed.scene.img1.type).toBe('image');
+    expect(parsed.scene.img1.src).toBe('data:image/png;base64,abc...');
+  });
+
   it('should reject malformed projects with invalid node types', () => {
     const invalidProject = {
       scene: {
