@@ -2,7 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/core" },
-    { "path": "./packages/render" },
+    { "path": "./packages/renderer" },
     { "path": "./packages/gen" },
     { "path": "./apps/studio" },
     { "path": "./apps/editor" }
