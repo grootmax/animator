@@ -2,7 +2,7 @@ import { generateKeyBetween } from '@monorepo/math';
 import { createStore } from 'zustand/vanilla';
 import { Matrix3, createMatrix, getTransformMatrix, multiplyMatrix } from '@monorepo/math';
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image' | 'media';
+export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image' | 'media' | 'video';
 
 export interface SceneNode {
   id: string;
@@ -34,11 +34,16 @@ export interface SceneNode {
   x2?: number;
   y2?: number;
   points?: string;
-  src?: string; // For image and media nodes
+  src?: string; // For image, media, and video nodes
   mediaType?: 'image' | 'video'; // For media nodes
+  assetId?: string; // For video/media nodes referencing asset registry
+  startTime?: number; // Timeline start time in ms
+  mediaOffset?: number; // Media source offset in ms
+  duration?: number; // Clip duration in ms
   playing?: boolean; // For time-based media
   currentTime?: number; // For time-based media
-  volume?: number; // For time-based media
+  volume?: number; // For time-based media (0.0 to 1.0)
+  muted?: boolean; // For time-based media
   playbackRate?: number; // For time-based media
   loop?: boolean; // For time-based media
 

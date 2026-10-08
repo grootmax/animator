@@ -13,6 +13,10 @@ export class PixiBridge {
   private pixiNodes: Map<string, PIXI.Container | PIXI.Graphics> = new Map();
   private pathCache: Map<string, PathToken[]> = new Map();
   private remoteSelectionsContainer: PIXI.Container;
+  private videoElements: Map<string, HTMLVideoElement> = new Map();
+  private audioCtx?: AudioContext;
+  private audioDestination?: MediaStreamAudioDestinationNode;
+  private videoSourceNodes: Map<HTMLVideoElement, { source: MediaElementAudioSourceNode; gain: GainNode }> = new Map();
 
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>, _isWorker: boolean = false) {
     this.app = new PIXI.Application({
@@ -64,6 +68,155 @@ export class PixiBridge {
     });
   }
 
+  public registerVideoElement(nodeId: string, video: HTMLVideoElement) {
+    this.videoElements.set(nodeId, video);
+  }
+
+  public getVideoElementForNode(node: SceneNode): HTMLVideoElement | null {
+    if (this.videoElements.has(node.id)) {
+      return this.videoElements.get(node.id)!;
+    }
+    const pixiNode = this.pixiNodes.get(node.id);
+    if (!pixiNode) return null;
+    const mediaData = (pixiNode as any).mediaData;
+    if (mediaData && mediaData.texture && mediaData.texture.baseTexture) {
+      const resource = mediaData.texture.baseTexture.resource;
+      if (resource && resource instanceof PIXI.VideoResource && resource.source) {
+        return resource.source as HTMLVideoElement;
+      }
+    }
+    return null;
+  }
+
+  public async syncVideoAssets(timeMs: number): Promise<void> {
+    const nodes = this.store.getState().nodes;
+    const videoPromises: Promise<void>[] = [];
+
+    for (const [id, node] of Object.entries(nodes)) {
+      if (node.type === 'video' || (node.type === 'media' && node.mediaType === 'video')) {
+        const video = this.getVideoElementForNode(node);
+        if (!video) continue;
+
+        const startTime = node.startTime ?? 0;
+        const mediaOffset = node.mediaOffset ?? 0;
+        const duration = node.duration;
+        const loop = node.loop ?? false;
+
+        let targetSeconds = 0;
+        if (timeMs < startTime) {
+          targetSeconds = mediaOffset / 1000;
+        } else if (duration !== undefined && duration > 0 && timeMs >= startTime + duration) {
+          if (loop) {
+            const elapsedMs = (timeMs - startTime) % duration;
+            targetSeconds = (elapsedMs + mediaOffset) / 1000;
+          } else {
+            targetSeconds = (duration + mediaOffset) / 1000;
+          }
+        } else {
+          const elapsedMs = timeMs - startTime;
+          targetSeconds = (elapsedMs + mediaOffset) / 1000;
+        }
+
+        // HTMLVideoElements must remain paused during offline frame export
+        if (!video.paused) {
+          video.pause();
+        }
+
+        const seekPromise = new Promise<void>((resolve) => {
+          if (Math.abs(video.currentTime - targetSeconds) < 0.001 && !video.seeking) {
+            resolve();
+            return;
+          }
+
+          let timeoutId: any = null;
+          const onSeeked = () => {
+            if (timeoutId) clearTimeout(timeoutId);
+            video.removeEventListener('seeked', onSeeked);
+            resolve();
+          };
+
+          // 500ms maximum timeout guard per frame to prevent export hangs
+          timeoutId = setTimeout(() => {
+            video.removeEventListener('seeked', onSeeked);
+            resolve();
+          }, 500);
+
+          video.addEventListener('seeked', onSeeked);
+          try {
+            video.currentTime = targetSeconds;
+          } catch {
+            if (timeoutId) clearTimeout(timeoutId);
+            video.removeEventListener('seeked', onSeeked);
+            resolve();
+          }
+        });
+
+        videoPromises.push(seekPromise);
+      }
+    }
+
+    await Promise.all(videoPromises);
+  }
+
+  public setupExportAudioStream(audioCtx?: AudioContext): MediaStreamAudioDestinationNode {
+    if (audioCtx) {
+      this.audioCtx = audioCtx;
+    } else if (!this.audioCtx) {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        this.audioCtx = new AudioContextClass();
+      }
+    }
+
+    if (!this.audioCtx) {
+      throw new Error('AudioContext is not available');
+    }
+
+    this.audioDestination = this.audioCtx.createMediaStreamDestination();
+
+    const nodes = this.store.getState().nodes;
+    for (const [id, node] of Object.entries(nodes)) {
+      if (node.type === 'video' || (node.type === 'media' && node.mediaType === 'video')) {
+        const video = this.getVideoElementForNode(node);
+        if (!video) continue;
+
+        let entry = this.videoSourceNodes.get(video);
+        if (!entry) {
+          const source = this.audioCtx.createMediaElementSource(video);
+          const gain = this.audioCtx.createGain();
+          source.connect(gain);
+          entry = { source, gain };
+          this.videoSourceNodes.set(video, entry);
+        }
+
+        const isMuted = node.muted ?? false;
+        const volume = node.volume ?? 1;
+        entry.gain.gain.value = isMuted ? 0 : volume;
+
+        entry.gain.disconnect();
+        entry.gain.connect(this.audioDestination);
+      }
+    }
+
+    return this.audioDestination;
+  }
+
+  public getExportMediaStream(audioCtx?: AudioContext): MediaStream {
+    const audioDestination = this.setupExportAudioStream(audioCtx);
+    const canvas = this.app.view as HTMLCanvasElement;
+    const canvasStream = canvas.captureStream ? canvas.captureStream() : (canvas as any).mozCaptureStream?.();
+
+    const combinedStream = new MediaStream();
+    if (canvasStream) {
+      canvasStream.getVideoTracks().forEach((track: MediaStreamTrack) => combinedStream.addTrack(track));
+    }
+    if (audioDestination && audioDestination.stream) {
+      audioDestination.stream.getAudioTracks().forEach((track: MediaStreamTrack) => combinedStream.addTrack(track));
+    }
+
+    return combinedStream;
+  }
+
   private getMaterialHash(node: SceneNode): string {
     if (node.type === 'container' || node.type === 'group') return 'container';
     return `${node.fill || 'none'}_${node.stroke || 'none'}_${node.strokeWidth || 0}`;
@@ -73,7 +226,7 @@ export class PixiBridge {
     const screenBounds = new PIXI.Rectangle(0, 0, this.app.screen.width, this.app.screen.height);
 
     for (const [id, node] of Object.entries(this.store.getState().nodes)) {
-      if (node.type === 'media') {
+      if (node.type === 'media' || node.type === 'video') {
         const pixiNode = this.pixiNodes.get(id) as PIXI.Container;
         if (!pixiNode) continue;
 
@@ -131,7 +284,8 @@ export class PixiBridge {
 
   private syncVideoState(node: SceneNode, texture: PIXI.Texture) {
       if (texture && texture.baseTexture && texture.baseTexture.resource instanceof PIXI.VideoResource) {
-          const video = (texture.baseTexture.resource as PIXI.VideoResource).source;
+          const video = (texture.baseTexture.resource as PIXI.VideoResource).source as HTMLVideoElement;
+          video.muted = node.muted ?? true; // Mute preview video elements on canvas to prevent browser autoplay restrictions
           if (node.playing) {
               video.play().catch(() => {});
           } else {
@@ -145,14 +299,14 @@ export class PixiBridge {
 
   private updateMediaPlayback() {
       for (const [id, node] of Object.entries(this.store.getState().nodes)) {
-          if (node.type === 'media') {
+          if (node.type === 'media' || node.type === 'video') {
               const pixiNode = this.pixiNodes.get(id);
               if (!pixiNode) continue;
               const mediaData = (pixiNode as any).mediaData;
               if (mediaData && mediaData.state === 'loaded' && mediaData.texture) {
                   const texture = mediaData.texture;
                   if (texture.baseTexture && texture.baseTexture.resource instanceof PIXI.VideoResource) {
-                      const video = (texture.baseTexture.resource as PIXI.VideoResource).source;
+                      const video = (texture.baseTexture.resource as PIXI.VideoResource).source as HTMLVideoElement;
                       
                       if (node.playing && video.paused) {
                           video.play().catch(() => {});
@@ -202,6 +356,7 @@ export class PixiBridge {
       tokens = tokenizePath(pathData);
       this.pathCache.set(pathData, tokens);
     }
+    if (!tokens) return;
     let x = 0, y = 0;
 
     for (const t of tokens) {
@@ -246,7 +401,7 @@ export class PixiBridge {
           pixiNode.addChild(sprite);
         } else {
           pixiNode = new PIXI.Container();
-          if (node.type === 'media') {
+          if (node.type === 'media' || node.type === 'video') {
             const sprite = new PIXI.Sprite();
             const placeholder = new PIXI.Graphics();
             sprite.anchor.set(0.5);
@@ -363,7 +518,7 @@ export class PixiBridge {
         } else if (node.width === undefined || node.height === undefined) {
            sprite.scale.set(1);
         }
-      } else if (node.type === 'media') {
+      } else if (node.type === 'media' || node.type === 'video') {
         const placeholder = (pixiNode as any).mediaPlaceholder as PIXI.Graphics;
         placeholder.clear();
         const w = node.width || 100;
