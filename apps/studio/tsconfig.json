@@ -4,5 +4,9 @@
     "outDir": "./dist",
     "rootDir": "./src"
   },
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/render" }
+  ],
   "include": ["src/**/*"]
 }
