@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@monorepo/math": "workspace:*",
-    "@monorepo/scene-graph": "workspace:*"
+    "@monorepo/scene-graph": "workspace:*",
+    "zod": "^3.24.2"
   }
 }
