@@ -6,6 +6,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "preinstall": "npx --yes only-allow pnpm && node -e \"['package-lock.json', 'yarn.lock', 'turbo.json'].forEach(f => { try { require('fs').unlinkSync(f) } catch {} })\"",
     "typecheck": "tsc -b",
     "lint": "biome check .",
     "test": "vitest run",
