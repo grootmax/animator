@@ -5,12 +5,17 @@ vi.mock('electron', () => {
   class MockBrowserWindow {
     loadURL = vi.fn();
     loadFile = vi.fn();
+    webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
     static getAllWindows = vi.fn().mockReturnValue([]);
   }
 
   return {
     app: {
       whenReady: vi.fn().mockResolvedValue(undefined),
+      getAppPath: vi.fn().mockReturnValue('/mock/app/path'),
       on: vi.fn(),
       quit: vi.fn(),
     },
@@ -27,6 +32,13 @@ vi.mock('electron', () => {
     },
     ipcRenderer: {
       invoke: vi.fn(),
+    },
+    session: {
+      defaultSession: {
+        webRequest: {
+          onHeadersReceived: vi.fn(),
+        },
+      },
     },
   };
 });
@@ -75,8 +87,8 @@ describe('IPC Integrity Suite', () => {
     await api.openFile();
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('dialog:openFile');
     
-    await api.saveFile('test content');
-    expect(ipcRenderer.invoke).toHaveBeenCalledWith('dialog:saveFile', 'test content');
+    await api.saveFile({ format: 'json', data: 'test content' });
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('dialog:saveFile', { format: 'json', data: 'test content' });
   });
 
   it('verifies all IPC channels defined for native file dialogs request/response integrity', async () => {
@@ -113,11 +125,11 @@ describe('IPC Integrity Suite', () => {
     openResult = await openFileHandler();
     expect(openResult).toBeNull();
 
-    // Test dialog:saveFile - Success
+    // Test dialog:saveFile - JSON Success
     (dialog.showSaveDialog as any).mockResolvedValue({ canceled: false, filePath: '/test/path.json' });
     (fs.promises.writeFile as any).mockResolvedValue(undefined);
 
-    let saveResult = await saveFileHandler(null, '{"test":true}');
+    let saveResult = await saveFileHandler(null, { format: 'json', data: '{"test":true}' });
     expect(dialog.showSaveDialog).toHaveBeenCalledWith(expect.objectContaining({
       filters: [{ name: 'JSON files', extensions: ['json'] }]
     }));
@@ -126,7 +138,46 @@ describe('IPC Integrity Suite', () => {
 
     // Test dialog:saveFile - Canceled
     (dialog.showSaveDialog as any).mockResolvedValue({ canceled: true, filePath: undefined });
-    saveResult = await saveFileHandler(null, '{"test":false}');
+    saveResult = await saveFileHandler(null, { format: 'json', data: '{"test":false}' });
+    expect(saveResult).toBe(false);
+
+    // Test dialog:saveFile - MP4 Success
+    const mp4Buffer = Buffer.from('mp4-content');
+    (dialog.showSaveDialog as any).mockResolvedValue({ canceled: false, filePath: '/test/video.mp4' });
+    saveResult = await saveFileHandler(null, { format: 'mp4', data: mp4Buffer });
+    expect(dialog.showSaveDialog).toHaveBeenCalledWith(expect.objectContaining({
+      filters: [{ name: 'MP4 Video', extensions: ['mp4'] }]
+    }));
+    expect(fs.promises.writeFile).toHaveBeenCalledWith('/test/video.mp4', mp4Buffer);
+    expect(saveResult).toBe(true);
+
+    // Test dialog:saveFile - WebM Success
+    const webmBuffer = Buffer.from('webm-content');
+    (dialog.showSaveDialog as any).mockResolvedValue({ canceled: false, filePath: '/test/video.webm' });
+    saveResult = await saveFileHandler(null, { format: 'webm', data: webmBuffer });
+    expect(dialog.showSaveDialog).toHaveBeenCalledWith(expect.objectContaining({
+      filters: [{ name: 'WebM Video', extensions: ['webm'] }]
+    }));
+    expect(fs.promises.writeFile).toHaveBeenCalledWith('/test/video.webm', webmBuffer);
+    expect(saveResult).toBe(true);
+
+    // Test dialog:saveFile - String payload supplied for video format triggers validation error before dialog
+    vi.clearAllMocks();
+    saveResult = await saveFileHandler(null, { format: 'mp4', data: 'string content instead of binary' });
+    expect(dialog.showSaveDialog).not.toHaveBeenCalled();
+    expect(saveResult).toBe(false);
+
+    // Test dialog:saveFile - Unrecognized format defaults to denial
+    vi.clearAllMocks();
+    saveResult = await saveFileHandler(null, { format: 'unsupported', data: 'content' });
+    expect(dialog.showSaveDialog).not.toHaveBeenCalled();
+    expect(saveResult).toBe(false);
+
+    // Test dialog:saveFile - Extension mismatch
+    vi.clearAllMocks();
+    (dialog.showSaveDialog as any).mockResolvedValue({ canceled: false, filePath: '/test/path.txt' });
+    saveResult = await saveFileHandler(null, { format: 'json', data: '{"test":true}' });
+    expect(fs.promises.writeFile).not.toHaveBeenCalled();
     expect(saveResult).toBe(false);
   });
 });

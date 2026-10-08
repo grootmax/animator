@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { setupSecurity } from './security';
+import { IpcBridge } from './ipc-bridge';
 
 setupSecurity();
 
@@ -189,25 +190,68 @@ ipcMain.handle('dialog:openFile', async () => {
   return fs.promises.readFile(filePaths[0], 'utf-8');
 });
 
-ipcMain.handle('dialog:saveFile', async (_, content: string) => {
-  try {
-    JSON.parse(content);
-  } catch (error) {
+ipcMain.handle('dialog:saveFile', async (_, options: { format: string; data: any }) => {
+  if (!options || typeof options !== 'object' || typeof options.format !== 'string' || options.data === undefined) {
+    return false;
+  }
+
+  const { format, data } = options;
+
+  let filterName = '';
+  let extension = '';
+  let isBinary = false;
+
+  if (format === 'json') {
+    if (typeof data !== 'string') return false;
+    try {
+      JSON.parse(data);
+    } catch {
+      return false;
+    }
+    filterName = 'JSON files';
+    extension = 'json';
+    isBinary = false;
+  } else if (format === 'mp4') {
+    if (typeof data === 'string' || (!Buffer.isBuffer(data) && !(data instanceof Uint8Array) && !(data instanceof ArrayBuffer))) {
+      return false;
+    }
+    filterName = 'MP4 Video';
+    extension = 'mp4';
+    isBinary = true;
+  } else if (format === 'webm') {
+    if (typeof data === 'string' || (!Buffer.isBuffer(data) && !(data instanceof Uint8Array) && !(data instanceof ArrayBuffer))) {
+      return false;
+    }
+    filterName = 'WebM Video';
+    extension = 'webm';
+    isBinary = true;
+  } else {
+    // Unrecognized format parameter defaults to denial
     return false;
   }
 
   try {
     const { canceled, filePath } = await dialog.showSaveDialog({
-      filters: [{ name: 'JSON files', extensions: ['json'] }]
+      filters: [{ name: filterName, extensions: [extension] }]
     });
 
     if (canceled || !filePath) return false;
 
-    if (path.extname(filePath).toLowerCase() !== '.json') {
+    if (!IpcBridge.isExtensionAllowed(filePath, [extension])) {
       return false;
     }
 
-    await fs.promises.writeFile(filePath, content, 'utf-8');
+    if (isBinary) {
+      const buffer = Buffer.isBuffer(data)
+        ? data
+        : data instanceof Uint8Array
+        ? Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+        : Buffer.from(data);
+      await fs.promises.writeFile(filePath, buffer);
+    } else {
+      await fs.promises.writeFile(filePath, data, 'utf-8');
+    }
+
     return true;
   } catch (error) {
     return false;

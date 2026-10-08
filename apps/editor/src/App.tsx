@@ -28,7 +28,7 @@ declare global {
   interface Window {
     electronAPI?: {
       openFile: () => Promise<string | null>;
-      saveFile: (content: string) => Promise<boolean>;
+      saveFile: (options: { format: string; data: any }) => Promise<boolean>;
       exportSvg: (content: string) => Promise<boolean>;
     }
   }
@@ -161,7 +161,10 @@ function App() {
           }
         };
 
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+        await window.electronAPI!.saveFile({
+          format: 'json',
+          data: JSON.stringify(exportData, null, 2)
+        });
       };
       
       if ('requestIdleCallback' in window) {
