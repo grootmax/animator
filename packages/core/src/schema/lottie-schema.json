@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Lottie Animation Schema",
+  "type": "object",
+  "required": ["v", "fr", "ip", "op", "w", "h", "layers"],
+  "properties": {
+    "v": {
+      "type": "string"
+    },
+    "fr": {
+      "type": "number",
+      "minimum": 0
+    },
+    "ip": {
+      "type": "number"
+    },
+    "op": {
+      "type": "number"
+    },
+    "w": {
+      "type": "number",
+      "minimum": 0
+    },
+    "h": {
+      "type": "number",
+      "minimum": 0
+    },
+    "nm": {
+      "type": "string"
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" },
+          "w": { "type": "number" },
+          "h": { "type": "number" },
+          "u": { "type": "string" },
+          "p": { "type": "string" },
+          "layers": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/layer" }
+          }
+        }
+      }
+    },
+    "layers": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/layer" }
+    }
+  },
+  "definitions": {
+    "layer": {
+      "type": "object",
+      "required": ["ty", "ind", "ks", "ip", "op"],
+      "properties": {
+        "ty": { "type": "integer" },
+        "ind": { "type": "integer" },
+        "parent": { "type": "integer" },
+        "refId": { "type": "string" },
+        "nm": { "type": "string" },
+        "ip": { "type": "number" },
+        "op": { "type": "number" },
+        "ks": { "$ref": "#/definitions/transform" },
+        "shapes": { "type": "array", "items": { "type": "object" } },
+        "t": { "type": "object" }
+      }
+    },
+    "transform": {
+      "type": "object",
+      "properties": {
+        "p": { "$ref": "#/definitions/animatableProperty" },
+        "a": { "$ref": "#/definitions/animatableProperty" },
+        "s": { "$ref": "#/definitions/animatableProperty" },
+        "r": { "$ref": "#/definitions/animatableProperty" },
+        "o": { "$ref": "#/definitions/animatableProperty" }
+      }
+    },
+    "animatableProperty": {
+      "type": "object",
+      "required": ["a", "k"],
+      "properties": { "a": { "type": "integer" }, "k": {} }
+    }
+  }
+}
