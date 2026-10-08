@@ -5,7 +5,9 @@
     "rootDir": "./src"
   },
   "include": ["src/**/*"],
+  "exclude": ["src/**/*.test.ts"],
   "references": [
+    { "path": "../types" },
     { "path": "../scene-graph" },
     { "path": "../math" }
   ]

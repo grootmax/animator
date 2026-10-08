@@ -2,8 +2,15 @@ import { defineConfig } from 'vite';
 import path from 'path';
 
 export default defineConfig({
+  server: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp'
+    }
+  },
   resolve: {
     alias: [
+      { find: '@monorepo/types', replacement: path.resolve(__dirname, '../../packages/types/src/index.ts') },
       { find: '@monorepo/math', replacement: path.resolve(__dirname, '../../packages/math/src/index.ts') },
       { find: '@monorepo/scene-graph', replacement: path.resolve(__dirname, '../../packages/scene-graph/src/index.ts') },
       { find: '@monorepo/animation-engine', replacement: path.resolve(__dirname, '../../packages/animation-engine/src/index.ts') },

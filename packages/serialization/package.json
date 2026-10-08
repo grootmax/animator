@@ -8,6 +8,7 @@
     "dev": "tsc -b -w"
   },
   "dependencies": {
+    "@monorepo/types": "*",
     "@monorepo/math": "*",
     "@monorepo/scene-graph": "*"
   }

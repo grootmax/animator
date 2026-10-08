@@ -5,9 +5,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "serve": "vite preview --port 4173",
+    "pretest": "node install-browser.js",
     "test": "node runner.js"
   },
   "dependencies": {
+    "@monorepo/types": "*",
     "@monorepo/animation-engine": "*",
     "@monorepo/renderer": "*",
     "@monorepo/scene-graph": "*",

@@ -8,6 +8,7 @@
     "dev": "tsc -b -w"
   },
   "dependencies": {
+    "@monorepo/types": "*",
     "pixi.js": "^7.3.2",
     "@monorepo/math": "*",
     "@monorepo/scene-graph": "*",

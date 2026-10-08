@@ -8,6 +8,7 @@
   },
   "include": ["src/**/*"],
   "references": [
+    { "path": "../../packages/types" },
     { "path": "../../packages/math" },
     { "path": "../../packages/scene-graph" },
     { "path": "../../packages/animation-engine" },

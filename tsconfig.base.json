@@ -10,6 +10,16 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "composite": true
+    "composite": true,
+    "baseUrl": ".",
+    "paths": {
+      "@monorepo/types": ["packages/types/src/index.ts"],
+      "@monorepo/math": ["packages/math/src/index.ts"],
+      "@monorepo/scene-graph": ["packages/scene-graph/src/index.ts"],
+      "@monorepo/serialization": ["packages/serialization/src/index.ts"],
+      "@monorepo/renderer": ["packages/renderer/src/index.ts"],
+      "@monorepo/animation-engine": ["packages/animation-engine/src/index.ts"],
+      "@monorepo/runtime-player": ["apps/runtime-player/src/index.ts"]
+    }
   }
 }

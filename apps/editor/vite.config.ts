@@ -7,6 +7,7 @@ export default defineConfig({
   base: './',
   resolve: {
     alias: {
+      '@monorepo/types': path.resolve(__dirname, '../../packages/types/src/index.ts'),
       '@monorepo/math': path.resolve(__dirname, '../../packages/math/src/index.ts'),
       '@monorepo/scene-graph': path.resolve(__dirname, '../../packages/scene-graph/src/index.ts'),
       '@monorepo/renderer': path.resolve(__dirname, '../../packages/renderer/src/index.ts'),

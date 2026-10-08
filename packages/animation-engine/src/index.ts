@@ -1,3 +1,3 @@
 export * from './types';
-export * from './engine';
+export { AnimationEngine } from './engine';
 export * from './interpolators';
