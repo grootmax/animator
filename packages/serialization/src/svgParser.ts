@@ -1,5 +1,6 @@
 import { SceneNode, NodeType } from '@monorepo/scene-graph';
 import { Matrix3, createMatrix, multiplyMatrix } from '@monorepo/math';
+import { convertTextToPath } from './textToPath';
 
 let idCounter = 0;
 const generateId = () => `node_${idCounter++}`;
@@ -68,10 +69,13 @@ export class SvgParser {
   }
 
   public parse(svgString: string): SceneNode[] {
-    const parser = new DOMParser();
+    const ParserClass = typeof DOMParser !== 'undefined'
+      ? DOMParser
+      : require('@xmldom/xmldom').DOMParser;
+    const parser = new ParserClass();
     const doc = parser.parseFromString(svgString, 'image/svg+xml');
 
-    if (doc.querySelector('parsererror')) {
+    if (doc.querySelector && doc.querySelector('parsererror')) {
       throw new Error('Invalid SVG string');
     }
 
@@ -80,8 +84,10 @@ export class SvgParser {
     const viewportMatrix = this.calculateViewBoxTransform(svgElement);
 
     let lastOrder = null;
-    Array.from(svgElement.children).forEach(child => {
-      this.processElement(child, null, rootNodes, viewportMatrix);
+    Array.from(svgElement.children || svgElement.childNodes).forEach((child: any) => {
+      if (child.nodeType === 1) {
+        this.processElement(child as Element, null, rootNodes, viewportMatrix);
+      }
     });
 
     return rootNodes;
@@ -169,14 +175,17 @@ export class SvgParser {
   }
 
   private processElement(element: Element, parentId: string | null, nodesList: SceneNode[], parentMatrix: Matrix3) {
-    const id = element.id || generateId();
+    const elementId = element.getAttribute('id');
+    const id = elementId || (element as any).id || generateId();
     let type: NodeType = 'group';
 
     const tagName = element.tagName.toLowerCase();
-    if (!['g', 'svg', 'symbol', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'path'].includes(tagName)) {
+    if (!['g', 'svg', 'symbol', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'path', 'text'].includes(tagName)) {
       // Recurse into unsupported tags like <defs> without creating a SceneNode for them
-      Array.from(element.children).forEach(child => {
-        this.processElement(child, parentId, nodesList, parentMatrix);
+      Array.from(element.children || element.childNodes).forEach((child: any) => {
+        if (child.nodeType === 1) {
+          this.processElement(child as Element, parentId, nodesList, parentMatrix);
+        }
       });
       return;
     }
@@ -193,8 +202,7 @@ export class SvgParser {
       case 'line': type = 'line'; break;
       case 'polyline': type = 'polyline'; break;
       case 'path': type = 'path'; break;
-      case 'ellipse': type = 'path'; break;
-      case 'line': type = 'path'; break;
+      case 'text': type = 'path'; break;
       default: return; // Ignore unsupported
     }
 
@@ -241,7 +249,7 @@ export class SvgParser {
 
     const node: Partial<SceneNode> = {
       id,
-      name: element.id || type,
+      name: elementId || (element as any).id || type,
       type,
       parentId,
       order: '',
@@ -277,6 +285,27 @@ export class SvgParser {
     } else if (type === 'path') {
       if (tagName === 'path') {
         node.pathData = element.getAttribute('d') || '';
+      } else if (tagName === 'text') {
+        const directD = element.getAttribute('d') || element.getAttribute('pathData');
+        if (directD) {
+          node.pathData = directD;
+        } else {
+          const textContent = (element.textContent || '').trim();
+          const fontSizeAttr = element.getAttribute('font-size') || element.getAttribute('fontSize');
+          let fontSize = 16;
+          if (fontSizeAttr) {
+            fontSize = parseFloat(fontSizeAttr) || 16;
+          } else {
+            const style = element.getAttribute('style') || '';
+            const match = style.match(/font-size:\s*([\d.]+)/i);
+            if (match && match[1]) {
+              fontSize = parseFloat(match[1]) || 16;
+            }
+          }
+          const textX = parseFloat(element.getAttribute('x') || '0');
+          const textY = parseFloat(element.getAttribute('y') || '0');
+          node.pathData = convertTextToPath(textContent, fontSize, textX, textY);
+        }
       } else if (tagName === 'ellipse') {
         const rx = parseFloat(element.getAttribute('rx') || '0');
         const ry = parseFloat(element.getAttribute('ry') || '0');
@@ -293,8 +322,10 @@ export class SvgParser {
     const sceneNode = node as SceneNode;
     nodesList.push(sceneNode);
 
-    Array.from(element.children).forEach(child => {
-      this.processElement(child, id, nodesList, finalMatrix);
+    Array.from(element.children || element.childNodes).forEach((child: any) => {
+      if (child.nodeType === 1) {
+        this.processElement(child as Element, id, nodesList, combinedMatrix);
+      }
     });
   }
 }
