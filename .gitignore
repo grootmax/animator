@@ -1,10 +1,12 @@
 node_modules/
 dist/
 dist-electron/
-release
-dist
-dist-electron
+release/
 *.tsbuildinfo
 .turbo/
+renders/
+coverage/
+.DS_Store
 perf-results.json
 *.log
+

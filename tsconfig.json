@@ -1,13 +1,10 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/math" },
-    { "path": "packages/scene-graph" },
-    { "path": "packages/serialization" },
-    { "path": "packages/animation-engine" },
-    { "path": "packages/renderer" },
-    { "path": "apps/runtime-player" },
-    { "path": "apps/perf-test" },
-    { "path": "apps/editor" }
+    { "path": "./packages/core" },
+    { "path": "./packages/render" },
+    { "path": "./packages/gen" },
+    { "path": "./apps/studio" },
+    { "path": "./apps/editor" }
   ]
 }
