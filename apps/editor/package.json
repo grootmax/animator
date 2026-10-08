@@ -6,5 +6,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
+  },
+  "dependencies": {
+    "@animator/core": "workspace:*"
   }
 }

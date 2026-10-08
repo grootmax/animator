@@ -1,9 +1,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { App } from "./App.js";
+import "./index.css";
 
-export function App() {
-  return <h1>Animator editor</h1>;
-}
+export { App };
 
 if (typeof document !== "undefined") {
   const rootElement = document.getElementById("root");
