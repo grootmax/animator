@@ -3,15 +3,9 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "module": "ESNext",
-    "moduleResolution": "node"
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
   },
   "include": ["src/**/*"],
-  "references": [
-    { "path": "../../packages/math" },
-    { "path": "../../packages/scene-graph" },
-    { "path": "../../packages/animation-engine" },
-    { "path": "../../packages/renderer" },
-    { "path": "../runtime-player" }
-  ]
+  "references": [{ "path": "../../packages/core" }]
 }

@@ -1,6 +1,11 @@
-const puppeteer = require("puppeteer");
-const { spawn } = require("node:child_process");
-const path = require("node:path");
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import puppeteer from "puppeteer";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 async function run() {
   console.log("Starting Vite server...");
@@ -24,10 +29,6 @@ async function run() {
 
   console.log("Server started. Launching Puppeteer...");
 
-  // Create an explicit build before starting if we use `preview`, but let's actually just spawn `vite` (dev server) for simplicity.
-  // Wait, I spawned `vite preview`. Let me kill it and spawn `vite` (dev server) instead to avoid needing a build step.
-  // Let me just fix the command in the spawned process later if needed. For now, it's just 'vite'.
-
   let browser;
   try {
     browser = await puppeteer.launch({
@@ -50,7 +51,6 @@ async function run() {
 
     console.log("Waiting for benchmark to complete...");
 
-    // Increase timeout since generation and 5s playback will take at least 6-10s
     await page.waitForFunction(() => window.__perf_done__ === true, {
       timeout: 60000,
     });
@@ -61,19 +61,8 @@ async function run() {
 
     const { frameMetrics, baselineMatrixTime } = results;
 
-    // Check performance logic
-    // We want to fail if standard deviation is too high, or violation percent is > threshold.
-    // Given the 100K nodes, running in a headless VM might be slow.
-    // The relative baseline approach: check if frame time is proportional to baseline.
-
-    // Baseline check scaling: assume baseline time of 150ms on CI means ~1x factor.
     const baselineFactor = baselineMatrixTime / 150.0;
-
-    // Scale acceptable jank threshold based on baseline factor
     const maxStdDev = Math.max(15, 15 * baselineFactor);
-
-    // Also, we can check that we aren't completely deadlocked.
-    // (Handled below)
 
     console.log(`Baseline Factor: ${baselineFactor.toFixed(2)}x`);
     console.log(
@@ -95,7 +84,6 @@ async function run() {
     results.reason = reason;
     results.maxStdDev = maxStdDev;
 
-    const fs = require("node:fs");
     fs.writeFileSync(
       path.join(__dirname, "perf-results.json"),
       JSON.stringify(results, null, 2),

@@ -6,4 +6,5 @@ renders/
 coverage/
 test-results/
 playwright-report/
+perf-results.json
 .DS_Store

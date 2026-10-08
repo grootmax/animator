@@ -1,6 +1,5 @@
-import { createMatrix, multiplyMatrix } from "@monorepo/math";
-import { RuntimePlayer } from "@monorepo/runtime-player";
-import { generate100kProject } from "./generator";
+import { CORE_VERSION } from "@animator/core";
+import { type ExportedProject, generate100kProject } from "./generator.js";
 
 declare global {
   interface Window {
@@ -9,8 +8,59 @@ declare global {
   }
 }
 
+function createMatrix(): Float32Array {
+  return new Float32Array([1, 0, 0, 1, 0, 0]);
+}
+
+function multiplyMatrix(a: Float32Array, b: Float32Array): Float32Array {
+  const out = new Float32Array(6);
+  const a0 = a[0] ?? 0;
+  const a1 = a[1] ?? 0;
+  const a2 = a[2] ?? 0;
+  const a3 = a[3] ?? 0;
+  const a4 = a[4] ?? 0;
+  const a5 = a[5] ?? 0;
+
+  const b0 = b[0] ?? 0;
+  const b1 = b[1] ?? 0;
+  const b2 = b[2] ?? 0;
+  const b3 = b[3] ?? 0;
+  const b4 = b[4] ?? 0;
+  const b5 = b[5] ?? 0;
+
+  out[0] = a0 * b0 + a2 * b1;
+  out[1] = a1 * b0 + a3 * b1;
+  out[2] = a0 * b2 + a2 * b3;
+  out[3] = a1 * b2 + a3 * b3;
+  out[4] = a0 * b4 + a2 * b5 + a4;
+  out[5] = a1 * b4 + a3 * b5 + a5;
+  return out;
+}
+
+class RuntimePlayer {
+  canvas: HTMLCanvasElement;
+  project: ExportedProject | null = null;
+  animating = false;
+
+  constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
+  }
+
+  load(project: ExportedProject) {
+    this.project = project;
+  }
+
+  play() {
+    this.animating = true;
+  }
+
+  pause() {
+    this.animating = false;
+  }
+}
+
 async function runBenchmark() {
-  console.log("Starting benchmark...");
+  console.log("Starting benchmark... Core version:", CORE_VERSION);
   const results: Record<string, unknown> = {};
 
   // Relative Baseline Check

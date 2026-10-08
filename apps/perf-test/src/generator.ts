@@ -1,4 +1,10 @@
-import type { ExportedProject } from "@monorepo/runtime-player";
+export interface ExportedProject {
+  scene: Record<string, Record<string, unknown>>;
+  animations: Record<string, unknown>[];
+  metadata: {
+    duration: number;
+  };
+}
 
 export function generate100kProject(): ExportedProject {
   const scene: Record<string, Record<string, unknown>> = {};
@@ -57,7 +63,7 @@ export function generate100kProject(): ExportedProject {
         scaleX: 1,
         scaleY: 1,
       };
-      scene[groupId].children.push(subgroupId);
+      (scene[groupId].children as string[]).push(subgroupId);
 
       // Animate some subgroups
       if (j % 2 === 0) {
@@ -86,7 +92,7 @@ export function generate100kProject(): ExportedProject {
           fill: "#ff0000",
           opacity: Math.random(),
         };
-        scene[subgroupId].children.push(leafId);
+        (scene[subgroupId].children as string[]).push(leafId);
       }
     }
   }

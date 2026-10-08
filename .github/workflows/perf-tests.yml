@@ -26,11 +26,11 @@ jobs:
       - name: Install Dependencies
         run: |
           pnpm install --frozen-lockfile
-          npx puppeteer install
+          pnpm --filter @monorepo/perf-test exec puppeteer browsers install chrome
 
       - name: Run 100K Node Performance Tests
         id: run-perf
-        run: pnpm run test --filter @monorepo/perf-test
+        run: pnpm --filter @monorepo/perf-test test
 
       - name: Post Performance Summary
         if: always()
