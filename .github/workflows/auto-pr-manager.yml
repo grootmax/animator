@@ -1,0 +1,240 @@
+name: Auto Jules PR Manager
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+  schedule:
+    - cron: "*/5 * * * *"
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  process-jules-prs:
+    name: Process Jules PRs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Process Jules pull requests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+
+        run: |
+          set -euo pipefail
+
+          echo "=========================================="
+          echo "        Auto Jules PR Manager"
+          echo "=========================================="
+          echo ""
+
+          # ==================================================
+          # 1. GET ALL OPEN PRs
+          # ==================================================
+
+          echo "Checking for open pull requests..."
+
+          gh pr list \
+            --repo "$GH_REPO" \
+            --state open \
+            --json number,title,headRefName,baseRefName,isDraft,createdAt \
+            --limit 100 |
+            jq 'sort_by(.number)' > /tmp/all-prs.json
+
+          TOTAL_PR_COUNT=$(jq 'length' /tmp/all-prs.json)
+
+          if [ "$TOTAL_PR_COUNT" -eq 0 ]; then
+            echo "No open pull requests found."
+            exit 0
+          fi
+
+          echo "Total open PRs: $TOTAL_PR_COUNT"
+
+          # ==================================================
+          # 2. FILTER ONLY JULES PRs (headRefName starts with jules/)
+          # ==================================================
+
+          jq '[.[] | select(.headRefName | startswith("jules/"))]' /tmp/all-prs.json > /tmp/jules-prs.json
+          JULES_PR_COUNT=$(jq 'length' /tmp/jules-prs.json)
+
+          if [ "$JULES_PR_COUNT" -eq 0 ]; then
+            echo "No open Jules PRs found."
+            exit 0
+          fi
+
+          echo "Open Jules PRs: $JULES_PR_COUNT"
+          jq -r '.[] | "#\(.number) - \(.headRefName)"' /tmp/jules-prs.json
+          echo ""
+
+          # ==================================================
+          # 3. PROCESS JULES PRs SEQUENTIALLY
+          # ==================================================
+
+          jq -c '.[]' /tmp/jules-prs.json | while read -r PR; do
+            PR_NUMBER=$(echo "$PR" | jq -r '.number')
+            TITLE=$(echo "$PR" | jq -r '.title')
+            HEAD_BRANCH=$(echo "$PR" | jq -r '.headRefName')
+            BASE_BRANCH=$(echo "$PR" | jq -r '.baseRefName')
+            IS_DRAFT=$(echo "$PR" | jq -r '.isDraft')
+
+            echo "=========================================="
+            echo "Processing PR #$PR_NUMBER ($TITLE)"
+            echo "Head: $HEAD_BRANCH | Base: $BASE_BRANCH | Draft: $IS_DRAFT"
+            echo "=========================================="
+
+            if [[ "$HEAD_BRANCH" != jules/* ]]; then
+              echo "Branch is not a Jules branch. Skipping."
+              continue
+            fi
+
+            if [ "$IS_DRAFT" = "true" ]; then
+              echo "PR #$PR_NUMBER is a draft. Stopping processing to maintain order."
+              break
+            fi
+
+            # Check Mergeability
+            MERGEABLE="UNKNOWN"
+            for ATTEMPT in 1 2 3 4 5; do
+              MERGEABLE=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json mergeable --jq '.mergeable')
+              echo "Attempt $ATTEMPT: mergeable=$MERGEABLE"
+              if [ "$MERGEABLE" != "UNKNOWN" ]; then
+                break
+              fi
+              if [ "$ATTEMPT" -lt 5 ]; then
+                echo "Waiting 15 seconds for mergeability calculation..."
+                sleep 15
+              fi
+            done
+
+            if [ "$MERGEABLE" = "UNKNOWN" ]; then
+              echo "Mergeability status is still UNKNOWN. Stopping processing."
+              break
+            fi
+
+            # Handle Conflicts - Fail Fast without destructive resolution
+            if [ "$MERGEABLE" = "CONFLICTING" ]; then
+              echo "=========================================="
+              echo "ERROR: PR #$PR_NUMBER has merge conflicts!"
+              echo "Automated 'git checkout --theirs' conflict resolution has been disabled."
+              echo "Manual conflict resolution by the author is required."
+              echo "Aborting operations for PR #$PR_NUMBER."
+              echo "=========================================="
+              break
+            fi
+
+            if [ "$MERGEABLE" = "MERGEABLE" ]; then
+              echo "=========================================="
+              echo "PR #$PR_NUMBER is mergeable"
+              echo "Querying Branch Protection policy endpoints..."
+              echo "=========================================="
+
+              # Query REST Branch Protection Policy Endpoint
+              PROTECTION_REST=$(gh api "repos/$GH_REPO/branches/$BASE_BRANCH/protection" 2>/dev/null || echo "")
+
+              # Query GraphQL Branch Protection Policy Endpoint
+              OWNER="${GH_REPO%%/*}"
+              REPO_NAME="${GH_REPO#*/}"
+              PROTECTION_GRAPHQL=$(gh api graphql -f query='
+                query($owner: String!, $repo: String!, $branch: String!) {
+                  repository(owner: $owner, name: $repo) {
+                    ref(qualifiedName: $branch) {
+                      branchProtectionRule {
+                        requiresStatusChecks
+                        requiredStatusCheckContexts
+                        requiredStatusChecks {
+                          context
+                        }
+                      }
+                    }
+                  }
+                }
+              ' -F owner="$OWNER" -F repo="$REPO_NAME" -F branch="refs/heads/$BASE_BRANCH" 2>/dev/null || echo "")
+
+              # Extract required status check contexts from REST and GraphQL responses
+              REQUIRED_CHECKS=$(
+                {
+                  if [ -n "$PROTECTION_REST" ]; then
+                    echo "$PROTECTION_REST" | jq -r '.required_status_checks.contexts[]? // .required_status_checks.checks[].context? // empty'
+                  fi
+                  if [ -n "$PROTECTION_GRAPHQL" ]; then
+                    echo "$PROTECTION_GRAPHQL" | jq -r '.data.repository.ref.branchProtectionRule.requiredStatusChecks[].context? // .data.repository.ref.branchProtectionRule.requiredStatusCheckContexts[]? // empty'
+                  fi
+                } | sort -u
+              )
+
+              echo "Required status checks from branch protection policy:"
+              if [ -z "$REQUIRED_CHECKS" ]; then
+                echo "  (No explicit required check list returned from branch protection API)"
+              else
+                echo "$REQUIRED_CHECKS" | sed 's/^/  - /'
+              fi
+
+              # Fetch PR Status Checks
+              CHECK_OUTPUT=$(gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --json name,state,bucket 2>/dev/null || echo "[]")
+              echo "Current PR check status:"
+              echo "$CHECK_OUTPUT"
+
+              CAN_MERGE=true
+
+              if [ -n "$REQUIRED_CHECKS" ]; then
+                while read -r REQ_CHECK; do
+                  [ -z "$REQ_CHECK" ] && continue
+
+                  CHECK_BUCKET=$(echo "$CHECK_OUTPUT" | jq -r --arg name "$REQ_CHECK" '
+                    .[] | select(.name == $name) | .bucket
+                  ' | head -n 1)
+
+                  if [ -z "$CHECK_BUCKET" ]; then
+                    echo "BLOCKED: Required check '$REQ_CHECK' has not reported any status yet."
+                    CAN_MERGE=false
+                  elif [ "$CHECK_BUCKET" != "pass" ]; then
+                    echo "BLOCKED: Required check '$REQ_CHECK' status is '$CHECK_BUCKET' (required: pass)."
+                    CAN_MERGE=false
+                  else
+                    echo "PASSED: Required check '$REQ_CHECK'."
+                  fi
+                done <<< "$REQUIRED_CHECKS"
+              else
+                FAILED_CHECKS=$(echo "$CHECK_OUTPUT" | jq '[.[] | select(.bucket == "fail" or .bucket == "cancel")] | length')
+                PENDING_CHECKS=$(echo "$CHECK_OUTPUT" | jq '[.[] | select(.bucket == "pending")] | length')
+
+                if [ "$FAILED_CHECKS" -gt 0 ]; then
+                  echo "BLOCKED: Required/configured status checks have failed ($FAILED_CHECKS failed)."
+                  CAN_MERGE=false
+                elif [ "$PENDING_CHECKS" -gt 0 ]; then
+                  echo "BLOCKED: Required/configured status checks are pending ($PENDING_CHECKS pending)."
+                  CAN_MERGE=false
+                fi
+              fi
+
+              if [ "$CAN_MERGE" = "false" ]; then
+                echo "Branch protection policy enforcement blocked merge for PR #$PR_NUMBER."
+                echo "Stopping processing."
+                break
+              fi
+
+              echo "All branch protection checks passed. Merging PR #$PR_NUMBER..."
+              if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --merge --delete-branch; then
+                echo "PR #$PR_NUMBER merged successfully."
+              else
+                echo "gh pr merge failed for PR #$PR_NUMBER. Check branch protection policy or required reviews."
+                break
+              fi
+
+              continue
+            fi
+
+            echo "Unhandled mergeability state: $MERGEABLE"
+            break
+          done
+
+          echo "=========================================="
+          echo "Processing completed."
+          echo "=========================================="
