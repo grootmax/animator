@@ -1,6 +1,9 @@
 {
   "files": [],
   "references": [
+    { "path": "./packages/scene-graph" },
+    { "path": "./packages/serialization" },
+    { "path": "./packages/renderer" },
     { "path": "./packages/core" },
     { "path": "./packages/render" },
     { "path": "./packages/gen" },
