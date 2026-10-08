@@ -17,11 +17,5 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src", "electron"],
-  "references": [
-    { "path": "../../packages/math" },
-    { "path": "../../packages/scene-graph" },
-    { "path": "../../packages/renderer" },
-    { "path": "../../packages/animation-engine" },
-    { "path": "../../packages/serialization" }
-  ]
+  "exclude": ["electron/__tests__"]
 }

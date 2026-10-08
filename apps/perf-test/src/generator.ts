@@ -1,4 +1,4 @@
-import { ExportedProject } from '@monorepo/runtime-player';
+import type { ExportedProject } from '@monorepo/runtime-player';
 
 export function generate100kProject(): ExportedProject {
   const scene: Record<string, any> = {};

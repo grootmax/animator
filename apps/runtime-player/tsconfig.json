@@ -4,10 +4,5 @@
     "outDir": "./dist",
     "rootDir": "./src"
   },
-  "include": ["src/**/*"],
-  "references": [
-    { "path": "../../packages/scene-graph" },
-    { "path": "../../packages/renderer" },
-    { "path": "../../packages/animation-engine" }
-  ]
+  "include": ["src/**/*"]
 }
