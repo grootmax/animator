@@ -6,5 +6,8 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc -b"
+  },
+  "dependencies": {
+    "canvaskit-wasm": "^0.42.0"
   }
 }
