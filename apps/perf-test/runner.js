@@ -108,7 +108,7 @@ async function run() {
 
     console.log("Launching Puppeteer...");
     const launchOptions = {
-      headless: "new",
+      headless: true,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
