@@ -1,6 +1,7 @@
 node_modules/
 dist/
-dist-electron/
-release
-dist
-dist-electron
+*.tsbuildinfo
+.turbo/
+renders/
+coverage/
+.DS_Store
