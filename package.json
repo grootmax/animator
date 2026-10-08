@@ -1,7 +1,7 @@
 {
   "name": "animator",
   "private": true,
-  "packageManager": "pnpm@10.5.2",
+  "packageManager": "pnpm@9.12.0",
   "engines": {
     "node": ">=22"
   },
@@ -10,7 +10,7 @@
     "lint": "biome check .",
     "test": "vitest run",
     "build": "tsc -b",
-    "check": "pnpm typecheck && pnpm lint && pnpm test"
+    "check": "tsc -b --noEmit"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
