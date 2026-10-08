@@ -4,4 +4,6 @@ dist/
 .turbo/
 renders/
 coverage/
+.cache/
+perf-results.json
 .DS_Store

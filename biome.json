@@ -19,6 +19,8 @@
       "**/dist/**",
       "**/node_modules/**",
       "**/*.tsbuildinfo",
+      "**/.cache/**",
+      "**/perf-results.json",
       "pnpm-lock.yaml"
     ]
   }
