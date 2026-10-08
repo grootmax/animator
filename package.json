@@ -9,6 +9,7 @@
     "typecheck": "tsc -b",
     "lint": "biome check .",
     "test": "vitest run",
+    "test:e2e": "pnpm --filter @animator/editor test:e2e",
     "build": "tsc -b",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
