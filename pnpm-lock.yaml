@@ -56,6 +56,12 @@ importers:
 
   packages/render: {}
 
+  packages/serialization:
+    dependencies:
+      '@monorepo/core':
+        specifier: workspace:*
+        version: link:../core
+
 packages:
 
   '@babel/code-frame@7.29.7':
