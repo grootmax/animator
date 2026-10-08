@@ -6,11 +6,11 @@
     "node": ">=22"
   },
   "scripts": {
-    "typecheck": "tsc -b",
-    "lint": "biome check .",
-    "test": "vitest run",
-    "build": "tsc -b",
-    "check": "pnpm typecheck && pnpm lint && pnpm test"
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "build": "turbo run build",
+    "check": "turbo run check"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
@@ -20,6 +20,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "turbo": "^2.11.7",
     "typescript": "^5.7.3",
     "vite": "^6.1.1",
     "vitest": "^3.0.6"
