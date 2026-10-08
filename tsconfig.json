@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/core" },
+    { "path": "./packages/animation-engine" },
     { "path": "./packages/render" },
     { "path": "./packages/gen" },
     { "path": "./apps/studio" },
