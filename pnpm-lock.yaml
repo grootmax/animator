@@ -47,7 +47,11 @@ importers:
 
   packages/gen: {}
 
-  packages/render: {}
+  packages/render:
+    dependencies:
+      '@animator/core':
+        specifier: workspace:*
+        version: link:../core
 
 packages:
 
