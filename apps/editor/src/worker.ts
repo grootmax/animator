@@ -1,13 +1,22 @@
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
+import {
+  addNodePayloadSchema,
+  updateNodePayloadSchema,
+  reorderNodePayloadSchema,
+  sceneNodeSchema,
+} from '@monorepo/serialization';
+import { z } from 'zod';
 
 let store: ReturnType<typeof createSceneGraphStore>;
 let engine: AnimationEngine;
 let bridge: any;
 
-self.onmessage = (e) => {
+export const handleWorkerMessage = (e: { data: any }) => {
   const msg = e.data;
+  if (!msg || typeof msg !== 'object') return;
+
   if (msg.type === 'INIT') {
     store = createSceneGraphStore();
     engine = new AnimationEngine(store);
@@ -15,10 +24,12 @@ self.onmessage = (e) => {
     // We send back playhead info every 30ms
     setInterval(() => {
         if (engine && engine.getIsPlaying()) {
-            self.postMessage({
-                type: 'PLAYHEAD_SYNC',
-                playhead: engine.getPlayhead()
-            });
+            if (typeof self !== 'undefined' && self.postMessage) {
+              self.postMessage({
+                  type: 'PLAYHEAD_SYNC',
+                  playhead: engine.getPlayhead()
+              });
+            }
         }
     }, 33);
     
@@ -26,19 +37,47 @@ self.onmessage = (e) => {
   } else if (msg.type === 'RESIZE') {
     if (bridge) bridge['app'].renderer.resize(msg.width, msg.height);
   } else if (msg.type === 'ADD_NODE') {
-    store.getState().addNode(msg.node);
+    try {
+      const validatedNode = addNodePayloadSchema.parse(msg.node);
+      store.getState().addNode(validatedNode as any);
+    } catch (err) {
+      console.error('Worker message validation failed for ADD_NODE:', err);
+    }
   } else if (msg.type === 'UPDATE_NODE') {
-    store.getState().updateNode(msg.id, msg.updates);
-    store.getState().recalculateMatrices();
+    try {
+      const validated = updateNodePayloadSchema.parse({ id: msg.id, updates: msg.updates });
+      store.getState().updateNode(validated.id, validated.updates as any);
+      store.getState().recalculateMatrices();
+    } catch (err) {
+      console.error('Worker message validation failed for UPDATE_NODE:', err);
+    }
   } else if (msg.type === 'REORDER_NODE') {
-    store.getState().reorderNode(msg.id, msg.newParentId, msg.index);
-    store.getState().recalculateMatrices();
+    try {
+      const validated = reorderNodePayloadSchema.parse({
+        id: msg.id,
+        newParentId: msg.newParentId,
+        index: msg.index,
+      });
+      store.getState().reorderNode(validated.id, validated.newParentId, validated.index);
+      store.getState().recalculateMatrices();
+    } catch (err) {
+      console.error('Worker message validation failed for REORDER_NODE:', err);
+    }
   } else if (msg.type === 'BATCH_UPDATE') {
-    msg.updates.forEach((u: any) => {
-       if (u.type === 'ADD') store.getState().addNode(u.node);
-       if (u.type === 'UPDATE') store.getState().updateNode(u.id, u.updates);
-    });
-    store.getState().recalculateMatrices();
+    try {
+      const batchItemSchema = z.discriminatedUnion('type', [
+        z.object({ type: z.literal('ADD'), node: addNodePayloadSchema }),
+        z.object({ type: z.literal('UPDATE'), id: z.string(), updates: sceneNodeSchema.partial() }),
+      ]);
+      const validatedUpdates = z.array(batchItemSchema).parse(msg.updates);
+      validatedUpdates.forEach((u) => {
+        if (u.type === 'ADD') store.getState().addNode(u.node as any);
+        if (u.type === 'UPDATE') store.getState().updateNode(u.id, u.updates as any);
+      });
+      store.getState().recalculateMatrices();
+    } catch (err) {
+      console.error('Worker message validation failed for BATCH_UPDATE:', err);
+    }
   } else if (msg.type === 'ENGINE_CMD') {
     if (msg.cmd === 'play') engine.play();
     if (msg.cmd === 'pause') engine.pause();
@@ -48,11 +87,15 @@ self.onmessage = (e) => {
     }
     if (msg.cmd === 'addTrack') engine.addTrack(msg.track);
     
-    self.postMessage({ type: 'ENGINE_STATE', isPlaying: engine.getIsPlaying(), playhead: engine.getPlayhead() });
+    if (typeof self !== 'undefined' && self.postMessage) {
+      self.postMessage({ type: 'ENGINE_STATE', isPlaying: engine.getIsPlaying(), playhead: engine.getPlayhead() });
+    }
   } else if (msg.type === 'DOM_EVENT') {
     const rawEvent = msg.event;
-    rawEvent.preventDefault = () => {};
-    rawEvent.stopPropagation = () => {};
+    if (rawEvent) {
+      rawEvent.preventDefault = () => {};
+      rawEvent.stopPropagation = () => {};
+    }
     
     if (bridge && bridge['app']) {
         const events = bridge['app'].renderer.events;
@@ -60,11 +103,7 @@ self.onmessage = (e) => {
         else if (rawEvent.type === 'pointermove') events.onPointerMove(rawEvent);
         else if (rawEvent.type === 'pointerup' || rawEvent.type === 'pointerleave') events.onPointerUp(rawEvent);
         else if (rawEvent.type === 'wheel') {
-           // PIXI 7 EventSystem doesn't have onWheel natively exposed easily in the same way, 
-           // but we can emit it directly to the stage!
-           // Wait, mapEvent maps it. Let's just emit to stage.
            const mapped = new (bridge as any).app.renderer.events.EventConstructor();
-           // populate mapped event
            Object.assign(mapped, rawEvent);
            mapped.globalX = rawEvent.clientX;
            mapped.globalY = rawEvent.clientY;
@@ -79,3 +118,7 @@ self.onmessage = (e) => {
     }
   }
 };
+
+if (typeof self !== 'undefined') {
+  self.onmessage = handleWorkerMessage;
+}

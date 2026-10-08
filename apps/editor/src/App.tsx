@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
 import { PixiBridge } from '@monorepo/renderer';
 import { AnimationEngine } from '@monorepo/animation-engine';
-import { SvgParser, SvgSerializer } from '@monorepo/serialization';
+import { SvgParser, SvgSerializer, validateAndSerializeProject } from '@monorepo/serialization';
 import { Toolbar } from './components/Toolbar';
 import { LayerPanel } from './components/LayerPanel';
 import { Timeline } from './components/Timeline';
@@ -152,16 +152,28 @@ function App() {
         setShowSaveProgress(false);
         setSaveProgress(null);
         
+        const rawTracks = engine.getTracks();
         const exportData = {
           scene: cleanScene,
-          animations: engine.getTracks(),
+          animations: rawTracks.map(track => ({
+            ...track,
+            keyframes: Array.isArray(track.keyframes) 
+              ? track.keyframes 
+              : Object.values(track.keyframes)
+          })),
           metadata: {
             version: "1.0.0",
             duration: engine.getDuration()
           }
         };
 
-        await window.electronAPI!.saveFile(JSON.stringify(exportData, null, 2));
+        try {
+          const serialized = validateAndSerializeProject(exportData);
+          await window.electronAPI!.saveFile(serialized);
+        } catch (err) {
+          console.error("Failed to save project: validation error", err);
+          alert("Failed to save project due to invalid project state.");
+        }
       };
       
       if ('requestIdleCallback' in window) {

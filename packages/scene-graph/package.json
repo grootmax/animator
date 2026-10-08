@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "zustand": "^4.4.1",
-    "@monorepo/math": "*"
+    "@monorepo/math": "*",
+    "zod": "^4.4.3"
   }
 }
