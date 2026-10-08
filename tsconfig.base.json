@@ -12,6 +12,12 @@
     "sourceMap": true,
     "composite": true,
     "skipLibCheck": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "@animator/core": ["./packages/core/src/index.ts"],
+      "@animator/render": ["./packages/render/src/index.ts"],
+      "@animator/gen": ["./packages/gen/src/index.ts"]
+    }
   }
 }
