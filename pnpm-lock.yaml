@@ -49,6 +49,8 @@ importers:
 
   packages/render: {}
 
+  packages/types: {}
+
 packages:
 
   '@babel/code-frame@7.29.7':

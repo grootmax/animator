@@ -5,3 +5,4 @@ dist/
 renders/
 coverage/
 .DS_Store
+perf-results.json
