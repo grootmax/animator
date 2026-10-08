@@ -1,7 +1,6 @@
 {
-  "name": "@monorepo/types",
-  "version": "1.0.0",
-  "private": true,
+  "name": "@animator/core",
+  "version": "0.0.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

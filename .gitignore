@@ -1,7 +1,8 @@
 node_modules/
 dist/
-dist-electron/
-release
-.turbo/
 *.tsbuildinfo
+.turbo/
+renders/
+coverage/
+.DS_Store
 perf-results.json

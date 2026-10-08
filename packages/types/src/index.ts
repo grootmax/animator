@@ -1,4 +1,8 @@
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
+export type EasingType =
+  | "linear"
+  | "easeInQuad"
+  | "easeOutQuad"
+  | "easeInOutQuad";
 
 export interface Keyframe {
   id?: string;
@@ -9,13 +13,42 @@ export interface Keyframe {
 
 export interface Track {
   nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData' | string;
+  property:
+    | "x"
+    | "y"
+    | "rotation"
+    | "scaleX"
+    | "scaleY"
+    | "opacity"
+    | "fill"
+    | "stroke"
+    | "pathData"
+    | string;
   keyframes: Keyframe[];
 }
 
-export type NodeType = 'container' | 'rect' | 'circle' | 'path' | 'group' | 'ellipse' | 'line' | 'polyline' | 'image';
+export type NodeType =
+  | "container"
+  | "rect"
+  | "circle"
+  | "path"
+  | "group"
+  | "ellipse"
+  | "line"
+  | "polyline"
+  | "image";
 
-export type Matrix3 = [number, number, number, number, number, number, number, number, number];
+export type Matrix3 = [
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+];
 
 export interface SceneNode {
   id: string;
@@ -55,7 +88,7 @@ export interface SceneNode {
   isDirty: boolean;
 }
 
-export type NetworkRole = 'standalone' | 'leader' | 'follower';
+export type NetworkRole = "standalone" | "leader" | "follower";
 
 export interface Heartbeat {
   playhead: number;
