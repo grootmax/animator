@@ -1,5 +1,6 @@
 {
   "files": [],
+  "exclude": ["legacy"],
   "references": [
     { "path": "./packages/core" },
     { "path": "./packages/render" },
