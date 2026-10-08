@@ -5,6 +5,10 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "check": "tsc -b"
+  },
+  "dependencies": {
+    "@animator/core": "workspace:*"
   }
 }

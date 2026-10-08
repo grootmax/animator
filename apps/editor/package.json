@@ -5,6 +5,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "check": "tsc -b",
     "preview": "vite preview"
+  },
+  "dependencies": {
+    "@animator/core": "workspace:*",
+    "@animator/gen": "workspace:*",
+    "@animator/render": "workspace:*"
   }
 }

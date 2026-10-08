@@ -1,5 +1,5 @@
 {
-  "name": "@animator/render",
+  "name": "@animator/perf-test",
   "version": "0.0.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -9,6 +9,8 @@
     "check": "tsc -b"
   },
   "dependencies": {
-    "@animator/core": "workspace:*"
+    "@animator/core": "workspace:*",
+    "@animator/gen": "workspace:*",
+    "@animator/render": "workspace:*"
   }
 }
