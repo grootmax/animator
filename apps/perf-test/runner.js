@@ -60,9 +60,11 @@ async function ensureChromeBrowser() {
 
 async function startViteServer() {
   console.log("Starting Vite server on dynamic port (port 0)...");
-  const viteProcess = spawn("npx", ["vite", "--port", "0"], {
+  const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
+  const viteProcess = spawn(npxCmd, ["vite", "--port", "0"], {
     cwd: __dirname,
     stdio: "pipe",
+    shell: process.platform === "win32",
   });
 
   let serverUrl = "";
