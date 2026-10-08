@@ -1,6 +1,9 @@
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { App } from "./main.js";
 
-test("App function component exists", () => {
-  expect(App).toBeDefined();
+describe("Editor Application", () => {
+  test("App function component exists", () => {
+    expect(App).toBeDefined();
+    expect(typeof App).toBe("function");
+  });
 });

@@ -39,7 +39,11 @@ importers:
         specifier: ^3.0.6
         version: 3.2.7(@types/node@22.20.5)
 
-  apps/editor: {}
+  apps/editor:
+    dependencies:
+      '@animator/core':
+        specifier: workspace:*
+        version: link:../../packages/core
 
   apps/studio: {}
 
