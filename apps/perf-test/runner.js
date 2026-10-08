@@ -1,5 +1,5 @@
-const { spawn } = require("node:child_process");
 const fs = require("node:fs");
+const net = require("node:net");
 const path = require("node:path");
 const {
   Browser,
@@ -58,78 +58,47 @@ async function ensureChromeBrowser() {
   return installed.executablePath;
 }
 
+async function getRandomPort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const port = server.address().port;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
 async function startViteServer() {
-  console.log("Starting Vite server on dynamic port (port 0)...");
-  const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
-  const viteProcess = spawn(npxCmd, ["vite", "--port", "0"], {
-    cwd: __dirname,
-    stdio: "pipe",
-    shell: process.platform === "win32",
+  const port = await getRandomPort();
+  console.log(
+    `Starting Vite server programmatically on dynamic port ${port}...`,
+  );
+
+  const { createServer } = await import("vite");
+  const viteServer = await createServer({
+    configFile: path.join(__dirname, "vite.config.ts"),
+    root: __dirname,
+    server: {
+      port,
+      strictPort: true,
+      host: "127.0.0.1",
+    },
   });
 
-  let serverUrl = "";
-
-  await new Promise((resolve, reject) => {
-    let resolved = false;
-
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        reject(new Error("Timed out waiting for Vite server to start"));
-      }
-    }, 30000);
-
-    const parseOutput = (data) => {
-      const output = data.toString();
-      console.log("VITE:", output);
-
-      // Strip ANSI escape sequences
-      // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape codes filtering
-      const clean = output.replace(/\u001b\[[0-9;]*m/g, "");
-      // Match URLs such as http://localhost:12345/ or http://127.0.0.1:12345/
-      const match = clean.match(/http:\/\/(?:localhost|127\.0\.0\.1):(\d+)\/?/);
-      if (match && !resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-        serverUrl = match[0];
-        if (!serverUrl.endsWith("/")) {
-          serverUrl += "/";
-        }
-        resolve();
-      }
-    };
-
-    viteProcess.stdout.on("data", parseOutput);
-    viteProcess.stderr.on("data", (data) => {
-      const output = data.toString();
-      console.error("VITE ERR:", output);
-      parseOutput(data);
-    });
-
-    viteProcess.on("error", (err) => {
-      if (!resolved) {
-        clearTimeout(timeout);
-        reject(err);
-      }
-    });
-
-    viteProcess.on("exit", (code) => {
-      if (!resolved) {
-        clearTimeout(timeout);
-        reject(new Error(`Vite process exited prematurely with code ${code}`));
-      }
-    });
-  });
-
-  return { viteProcess, serverUrl };
+  await viteServer.listen();
+  const serverUrl = `http://127.0.0.1:${port}/`;
+  return { viteServer, serverUrl };
 }
 
 async function run() {
-  let viteProcess;
+  let viteServer;
   let browser;
 
   try {
     const serverInfo = await startViteServer();
-    viteProcess = serverInfo.viteProcess;
+    viteServer = serverInfo.viteServer;
     const serverUrl = serverInfo.serverUrl;
 
     console.log(
@@ -213,7 +182,7 @@ async function run() {
     process.exitCode = 1;
   } finally {
     if (browser) await browser.close();
-    if (viteProcess) viteProcess.kill();
+    if (viteServer) await viteServer.close();
     process.exit();
   }
 }
