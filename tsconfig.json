@@ -3,8 +3,6 @@
   "references": [
     { "path": "./packages/core" },
     { "path": "./packages/render" },
-    { "path": "./packages/gen" },
-    { "path": "./apps/studio" },
-    { "path": "./apps/editor" }
+    { "path": "./packages/gen" }
   ]
 }
