@@ -1,6 +1,6 @@
 {
-  "name": "@animator/core",
-  "version": "0.0.0",
+  "name": "@monorepo/serialization",
+  "version": "1.0.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -8,7 +8,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@monorepo/scene-graph": "workspace:*",
-    "@monorepo/serialization": "workspace:*"
+    "zod": "^3.22.4",
+    "@monorepo/scene-graph": "workspace:*"
   }
 }
