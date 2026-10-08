@@ -8,7 +8,11 @@
     "moduleResolution": "NodeNext",
     "jsx": "react-jsx",
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "paths": {
+      "@animator/render": ["../../packages/render/src/index.ts"]
+    }
   },
+  "references": [{ "path": "../../packages/render" }],
   "include": ["src/**/*"]
 }
