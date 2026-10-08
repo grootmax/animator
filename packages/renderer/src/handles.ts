@@ -20,11 +20,11 @@ export class TransformHandles {
   constructor(
       store: ReturnType<typeof createSceneGraphStore>, 
       viewport: Viewport,
-      getPixiNode: (id: string) => PIXI.Container | PIXI.Graphics | undefined
+      getPixiNode?: (id: string) => PIXI.Container | PIXI.Graphics | undefined
   ) {
     this.store = store;
     this.viewport = viewport;
-    this.getPixiNode = getPixiNode;
+    this.getPixiNode = getPixiNode || (() => undefined);
     this.container = new PIXI.Container();
     this.container.zIndex = 1000;
 
@@ -47,8 +47,10 @@ export class TransformHandles {
     }
 
     // Add global pointer move/up
-    window.addEventListener('pointermove', this.onDragMove.bind(this));
-    window.addEventListener('pointerup', this.onDragEnd.bind(this));
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pointermove', this.onDragMove.bind(this));
+      window.addEventListener('pointerup', this.onDragEnd.bind(this));
+    }
   }
 
   public setSelectedNode(id: string | null) {
@@ -90,7 +92,7 @@ export class TransformHandles {
     let maxY = h / 2;
 
     if (node.type === 'group' || node.type === 'container') {
-      const pixiNode = this.getPixiNode(this.selectedNodeId);
+      const pixiNode = this.getPixiNode(selectedNodeId);
       if (pixiNode && pixiNode.children.length > 0) {
         const bounds = pixiNode.getLocalBounds();
         if (bounds.width > 0 || bounds.height > 0) {
@@ -150,7 +152,7 @@ export class TransformHandles {
     if (!this.isDragging || !selectedNodeId || !this.startNodeState) return;
 
     if (!this.hasMoved) {
-      this.store.getState().commitHistory();
+      this.store.getState().commitHistory?.();
       this.hasMoved = true;
     }
 

@@ -1,5 +1,6 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { NetworkRole, Heartbeat } from './types';
 
 export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
 
@@ -13,7 +14,7 @@ export interface Keyframe {
 export interface Track {
   nodeId: string;
   property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
+  keyframes: Keyframe[] | Record<string, Keyframe>;
 }
 
 function parseHexColor(hex: string) {
@@ -110,6 +111,15 @@ export class AnimationEngine {
   private heartbeatTimer: any = null;
   private heartbeatRate = 100;
   public driftThreshold = 150;
+
+  private uiListeners: Array<(state: { isPlaying: boolean; playhead: number }) => void> = [];
+
+  public subscribeUI(cb: (state: { isPlaying: boolean; playhead: number }) => void) {
+    this.uiListeners.push(cb);
+    return () => {
+      this.uiListeners = this.uiListeners.filter(l => l !== cb);
+    };
+  }
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
@@ -279,8 +289,9 @@ export class AnimationEngine {
     const updates = new Map<string, any>();
 
     for (const track of this.tracks) {
-      const keyframesArray = Object.values(track.keyframes).sort((a, b) => {
-        if (a.time === b.time) return a.id.localeCompare(b.id);
+      const rawKeyframes = Array.isArray(track.keyframes) ? track.keyframes : Object.values(track.keyframes);
+      const keyframesArray = [...rawKeyframes].sort((a, b) => {
+        if (a.time === b.time) return (a.id || '').localeCompare(b.id || '');
         return a.time - b.time;
       });
       const [start, end] = this.binarySearchKeyframes(keyframesArray, this.playhead);
@@ -309,7 +320,7 @@ export class AnimationEngine {
       for (const [nodeId, nodeUpdates] of updates.entries()) {
         batchUpdates[nodeId] = nodeUpdates;
       }
-      storeState.updateNodesBatch(batchUpdates);
+      storeState.updateNodesBatch?.(batchUpdates);
       requiresMatrixUpdate = true;
     }
 

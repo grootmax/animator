@@ -11,3 +11,10 @@ export interface Track {
   property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity';
   keyframes: Keyframe[];
 }
+
+export type NetworkRole = 'standalone' | 'leader' | 'follower';
+
+export interface Heartbeat {
+  playhead: number;
+  isPlaying: boolean;
+}

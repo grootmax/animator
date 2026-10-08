@@ -10,5 +10,8 @@
   "dependencies": {
     "@monorepo/math": "*",
     "@monorepo/scene-graph": "*"
+  },
+  "devDependencies": {
+    "vitest": "^0.34.0"
   }
 }

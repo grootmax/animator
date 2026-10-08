@@ -71,8 +71,9 @@ export class Viewport {
 
   private drawGrid() {
     this.grid.clear();
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const canvas = this.app.view as HTMLCanvasElement;
+    const width = typeof window !== 'undefined' ? window.innerWidth : (canvas?.width || 800);
+    const height = typeof window !== 'undefined' ? window.innerHeight : (canvas?.height || 600);
 
     const gridSize = 50 * this.container.scale.x;
     const offsetX = this.container.x % gridSize;
@@ -94,10 +95,16 @@ export class Viewport {
   private setupEvents() {
     const canvas = this.app.view as HTMLCanvasElement;
 
-    canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
-    canvas.addEventListener('pointermove', this.onPointerMove.bind(this));
-    window.addEventListener('pointerup', this.onPointerUp.bind(this));
-    canvas.addEventListener('wheel', this.onWheel.bind(this), { passive: false });
+    if (canvas && typeof canvas.addEventListener === 'function') {
+      canvas.addEventListener('pointerdown', this.onPointerDown.bind(this));
+      canvas.addEventListener('pointermove', this.onPointerMove.bind(this));
+      canvas.addEventListener('wheel', this.onWheel.bind(this), { passive: false });
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pointerup', this.onPointerUp.bind(this));
+    } else if (canvas && typeof canvas.addEventListener === 'function') {
+      canvas.addEventListener('pointerup', this.onPointerUp.bind(this));
+    }
   }
 
   private onPointerDown(e: PointerEvent) {

@@ -9,12 +9,13 @@ export interface ExportedProject {
 
 export class RuntimePlayer {
   private worker: Worker;
-  private sharedBuffer: SharedArrayBuffer;
+  private sharedBuffer: SharedArrayBuffer | ArrayBuffer;
   private syncArray: Float32Array;
 
   constructor(canvas: HTMLCanvasElement) {
     // SharedArrayBuffer for node state sync (up to 100k nodes * 16 floats per node)
-    this.sharedBuffer = new SharedArrayBuffer(100000 * 16 * 4);
+    const BufferCtor = typeof SharedArrayBuffer !== 'undefined' ? SharedArrayBuffer : ArrayBuffer;
+    this.sharedBuffer = new BufferCtor(100000 * 16 * 4);
     this.syncArray = new Float32Array(this.sharedBuffer);
 
     let offscreen: OffscreenCanvas | HTMLCanvasElement = canvas;

@@ -12,7 +12,7 @@ const DOMAIN_WHITELIST = [
   'https://fonts.gstatic.com'
 ];
 
-function setupSecurity() {
+function setupLocalSecurity() {
   const isDev = !!process.env.VITE_DEV_SERVER_URL;
   const devUrl = isDev ? new URL(process.env.VITE_DEV_SERVER_URL!).origin : '';
 
@@ -36,7 +36,7 @@ function setupSecurity() {
     });
   });
 
-  app.on('web-contents-created', (event, contents) => {
+  app.on('web-contents-created', (_event, contents) => {
     contents.on('will-navigate', (event, navigationUrl) => {
       try {
         const parsedUrl = new URL(navigationUrl);
@@ -142,7 +142,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  setupSecurity();
+  setupLocalSecurity();
   createWindow();
 
   app.on('activate', () => {

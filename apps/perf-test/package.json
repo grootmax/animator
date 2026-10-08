@@ -9,13 +9,13 @@
   },
   "dependencies": {
     "@monorepo/animation-engine": "*",
+    "@monorepo/math": "*",
     "@monorepo/renderer": "*",
-    "@monorepo/scene-graph": "*",
     "@monorepo/runtime-player": "*",
-    "@monorepo/math": "*"
+    "@monorepo/scene-graph": "*"
   },
   "devDependencies": {
-    "vite": "^4.4.5",
-    "puppeteer": "^21.0.0"
+    "puppeteer": "^21.0.0",
+    "vite": "^4.5.14"
   }
 }

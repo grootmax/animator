@@ -6,7 +6,23 @@ export const createMatrix = (): Matrix3 => [
   0, 0, 1
 ];
 
-export const multiplyMatrix = (out: Matrix3, a: Matrix3, b: Matrix3): Matrix3 => {
+export function multiplyMatrix(a: Matrix3, b: Matrix3): Matrix3;
+export function multiplyMatrix(out: Matrix3, a: Matrix3, b: Matrix3): Matrix3;
+export function multiplyMatrix(outOrA: Matrix3, aOrB: Matrix3, bOpt?: Matrix3): Matrix3 {
+  let out: Matrix3;
+  let a: Matrix3;
+  let b: Matrix3;
+
+  if (bOpt !== undefined) {
+    out = outOrA;
+    a = aOrB;
+    b = bOpt;
+  } else {
+    out = createMatrix();
+    a = outOrA;
+    b = aOrB;
+  }
+
   const a00 = a[0], a01 = a[1], a02 = a[2];
   const a10 = a[3], a11 = a[4], a12 = a[5];
   const a20 = a[6], a21 = a[7], a22 = a[8];
@@ -26,20 +42,66 @@ export const multiplyMatrix = (out: Matrix3, a: Matrix3, b: Matrix3): Matrix3 =>
   out[8] = b20 * a02 + b21 * a12 + b22 * a22;
 
   return out;
-};
+}
 
-// We don't change translate/rotate/scale/skew internally but we inline them in getTransformMatrix
-// for zero allocations, avoiding intermediate arrays.
-export const getTransformMatrix = (
-  out: Matrix3,
-  x: number, 
-  y: number, 
-  rotation: number, 
-  scaleX: number, 
+export function getTransformMatrix(
+  x: number,
+  y: number,
+  rotation: number,
+  scaleX: number,
   scaleY: number,
-  skewX: number = 0,
-  skewY: number = 0
-): Matrix3 => {
+  skewX?: number,
+  skewY?: number
+): Matrix3;
+export function getTransformMatrix(
+  out: Matrix3,
+  x: number,
+  y: number,
+  rotation: number,
+  scaleX: number,
+  scaleY: number,
+  skewX?: number,
+  skewY?: number
+): Matrix3;
+export function getTransformMatrix(
+  outOrX: Matrix3 | number,
+  xOrY: number,
+  yOrRot: number,
+  rotOrScaleX: number,
+  scaleXOrScaleY: number,
+  scaleYOrSkewX: number = 0,
+  skewXOrSkewY: number = 0,
+  skewYOpt: number = 0
+): Matrix3 {
+  let out: Matrix3;
+  let x: number;
+  let y: number;
+  let rotation: number;
+  let scaleX: number;
+  let scaleY: number;
+  let skewX: number;
+  let skewY: number;
+
+  if (typeof outOrX !== 'number') {
+    out = outOrX;
+    x = xOrY;
+    y = yOrRot;
+    rotation = rotOrScaleX;
+    scaleX = scaleXOrScaleY;
+    scaleY = scaleYOrSkewX;
+    skewX = skewXOrSkewY;
+    skewY = skewYOpt;
+  } else {
+    out = createMatrix();
+    x = outOrX;
+    y = xOrY;
+    rotation = yOrRot;
+    scaleX = rotOrScaleX;
+    scaleY = scaleXOrScaleY;
+    skewX = scaleYOrSkewX;
+    skewY = skewXOrSkewY;
+  }
+
   const c = Math.cos(rotation);
   const s = Math.sin(rotation);
   
@@ -51,7 +113,6 @@ export const getTransformMatrix = (
   if (skewX !== 0 || skewY !== 0) {
     const tx = Math.tan(skewX);
     const ty = Math.tan(skewY);
-    // Multiply by skew matrix [1, ty, 0, tx, 1, 0, 0, 0, 1]
     const temp00 = m00 + m10 * ty;
     const temp01 = m01 + m11 * ty;
     const temp10 = m00 * tx + m10;
@@ -71,7 +132,7 @@ export const getTransformMatrix = (
   out[8] = 1;
   
   return out;
-};
+}
 
 export const translateMatrix = (m: Matrix3, x: number, y: number): Matrix3 => {
   const out = createMatrix();
@@ -111,17 +172,26 @@ export const skewMatrix = (m: Matrix3, skewXRad: number, skewYRad: number): Matr
   ]);
 };
 
-export const copyMatrix = (out: Matrix3, a: Matrix3): Matrix3 => {
-  for (let i = 0; i < 9; i++) out[i] = a[i];
-  return out;
-};
+export function copyMatrix(a: Matrix3): Matrix3;
+export function copyMatrix(out: Matrix3, a: Matrix3): Matrix3;
+export function copyMatrix(outOrA: Matrix3, aOpt?: Matrix3): Matrix3 {
+  if (aOpt !== undefined) {
+    for (let i = 0; i < 9; i++) outOrA[i] = aOpt[i];
+    return outOrA;
+  } else {
+    const out = createMatrix();
+    for (let i = 0; i < 9; i++) out[i] = outOrA[i];
+    return out;
+  }
+}
 
-export const identityMatrix = (out: Matrix3): Matrix3 => {
-  out[0] = 1; out[1] = 0; out[2] = 0;
-  out[3] = 0; out[4] = 1; out[5] = 0;
-  out[6] = 0; out[7] = 0; out[8] = 1;
-  return out;
-};
+export function identityMatrix(out?: Matrix3): Matrix3 {
+  const target = out ?? createMatrix();
+  target[0] = 1; target[1] = 0; target[2] = 0;
+  target[3] = 0; target[4] = 1; target[5] = 0;
+  target[6] = 0; target[7] = 0; target[8] = 1;
+  return target;
+}
 
 export const multiplyMatrixMut = (out: Matrix3, a: Matrix3, b: Matrix3): Matrix3 => {
   const a00 = a[0], a01 = a[1], a02 = a[2],
