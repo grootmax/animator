@@ -1,0 +1,219 @@
+name: Auto Jules PR Manager
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  process-jules-prs:
+    name: Process Jules PRs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Process Jules pull requests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+
+        run: |
+          set -euo pipefail
+
+          echo "=========================================="
+          echo "        Auto Jules PR Manager"
+          echo "=========================================="
+          echo ""
+
+          post_pr_comment() {
+            local pr_num="$1"
+            local comment_body="$2"
+
+            # Check last comment to avoid duplicate comment spam
+            LAST_COMMENT=$(gh pr view "$pr_num" --repo "$GH_REPO" --json comments --jq '.comments[-1].body' 2>/dev/null || true)
+            if [ "$LAST_COMMENT" != "$comment_body" ]; then
+              echo "Posting comment on PR #$pr_num..."
+              gh pr comment "$pr_num" --repo "$GH_REPO" --body "$comment_body"
+            else
+              echo "Comment already posted on PR #$pr_num. Skipping duplicate comment."
+            fi
+          }
+
+          echo "Checking for open pull requests..."
+
+          gh pr list \
+            --repo "$GH_REPO" \
+            --state open \
+            --json number,title,headRefName,baseRefName,isDraft,createdAt \
+            --limit 100 |
+            jq 'sort_by(.number)' > /tmp/all-prs.json
+
+          TOTAL_PR_COUNT=$(jq 'length' /tmp/all-prs.json)
+
+          if [ "$TOTAL_PR_COUNT" -eq 0 ]; then
+            echo "No open pull requests found."
+            exit 0
+          fi
+
+          echo "Total open PRs: $TOTAL_PR_COUNT"
+
+          jq '
+            [
+              .[]
+              | select(.headRefName | startswith("jules/"))
+            ]
+          ' /tmp/all-prs.json > /tmp/jules-prs.json
+
+          JULES_PR_COUNT=$(jq 'length' /tmp/jules-prs.json)
+
+          if [ "$JULES_PR_COUNT" -eq 0 ]; then
+            echo "No open Jules PRs found."
+            exit 0
+          fi
+
+          echo "Open Jules PRs: $JULES_PR_COUNT"
+          echo "Processing order:"
+          jq -r '.[] | "#\(.number) - \(.headRefName)"' /tmp/jules-prs.json
+          echo ""
+
+          jq -c '.[]' /tmp/jules-prs.json | while read -r PR; do
+            PR_NUMBER=$(echo "$PR" | jq -r '.number')
+            TITLE=$(echo "$PR" | jq -r '.title')
+            HEAD_BRANCH=$(echo "$PR" | jq -r '.headRefName')
+            BASE_BRANCH=$(echo "$PR" | jq -r '.baseRefName')
+            IS_DRAFT=$(echo "$PR" | jq -r '.isDraft')
+
+            echo "=========================================="
+            echo "Processing PR #$PR_NUMBER ($TITLE)"
+            echo "Head: $HEAD_BRANCH | Base: $BASE_BRANCH | Draft: $IS_DRAFT"
+            echo "=========================================="
+
+            if [[ "$HEAD_BRANCH" != jules/* ]]; then
+              echo "Skipping non-Jules branch: $HEAD_BRANCH"
+              continue
+            fi
+
+            if [ "$IS_DRAFT" = "true" ]; then
+              echo "PR #$PR_NUMBER is a draft. Stopping sequential processing."
+              break
+            fi
+
+            echo "Checking mergeability..."
+            MERGEABLE="UNKNOWN"
+            for ATTEMPT in 1 2 3 4 5; do
+              MERGEABLE=$(gh pr view "$PR_NUMBER" \
+                --repo "$GH_REPO" \
+                --json mergeable \
+                --jq '.mergeable')
+              echo "Attempt $ATTEMPT: mergeable=$MERGEABLE"
+              if [ "$MERGEABLE" != "UNKNOWN" ]; then
+                break
+              fi
+              if [ "$ATTEMPT" -lt 5 ]; then
+                sleep 15
+              fi
+            done
+
+            if [ "$MERGEABLE" = "UNKNOWN" ]; then
+              echo "Mergeability is UNKNOWN for PR #$PR_NUMBER. Pausing processing."
+              break
+            fi
+
+            # --------------------------------------------------
+            # CONFLICTING PR
+            # Non-destructive handling: DO NOT modify files or checkout --theirs!
+            # Abort merge attempt and notify developer with actionable comment.
+            # --------------------------------------------------
+            if [ "$MERGEABLE" = "CONFLICTING" ]; then
+              echo "PR #$PR_NUMBER has merge conflicts. Aborting automated merge without changing files."
+
+              COMMENT_MSG="Automated merge aborted for PR #$PR_NUMBER: Merge conflicts detected between branch \`$HEAD_BRANCH\` and base branch \`$BASE_BRANCH\`. Please rebase or merge \`$BASE_BRANCH\` into your feature branch and resolve all conflicts manually."
+              post_pr_comment "$PR_NUMBER" "$COMMENT_MSG"
+
+              echo "Stopping processing due to merge conflicts on PR #$PR_NUMBER."
+              break
+            fi
+
+            # --------------------------------------------------
+            # MERGEABLE PR
+            # Validate status checks before attempting merge.
+            # --------------------------------------------------
+            if [ "$MERGEABLE" = "MERGEABLE" ]; then
+              echo "Checking status checks for PR #$PR_NUMBER..."
+
+              CHECK_OUTPUT=$(
+                gh pr checks "$PR_NUMBER" \
+                  --repo "$GH_REPO" \
+                  --json name,state,bucket \
+                  2>/dev/null || true
+              )
+
+              if [ -z "$CHECK_OUTPUT" ] || [ "$CHECK_OUTPUT" = "[]" ]; then
+                echo "No status checks found for PR #$PR_NUMBER. Refusing to merge."
+                COMMENT_MSG="Automated merge aborted for PR #$PR_NUMBER: Mandatory status checks are missing or have not been triggered yet. Please ensure all required CI workflows (build, typecheck, lint, test) run and pass before merging."
+                post_pr_comment "$PR_NUMBER" "$COMMENT_MSG"
+                echo "Stopping processing for PR #$PR_NUMBER."
+                break
+              fi
+
+              FAILED_CHECKS=$(echo "$CHECK_OUTPUT" | jq '[.[] | select(.bucket == "fail" or .bucket == "cancel")] | length')
+              PENDING_CHECKS=$(echo "$CHECK_OUTPUT" | jq '[.[] | select(.bucket == "pending")] | length')
+              PASSED_CHECKS=$(echo "$CHECK_OUTPUT" | jq '[.[] | select(.bucket == "pass")] | length')
+
+              echo "Check stats: Passed=$PASSED_CHECKS | Failed=$FAILED_CHECKS | Pending=$PENDING_CHECKS"
+
+              if [ "$FAILED_CHECKS" -gt 0 ]; then
+                echo "Required checks failed for PR #$PR_NUMBER."
+                FAILED_NAMES=$(echo "$CHECK_OUTPUT" | jq -r '.[] | select(.bucket == "fail" or .bucket == "cancel") | "- \(.name) (\(.state))"')
+                COMMENT_MSG="Automated merge aborted for PR #$PR_NUMBER: One or more status checks failed:
+$FAILED_NAMES
+Please resolve all failing checks before attempting automated merge."
+                post_pr_comment "$PR_NUMBER" "$COMMENT_MSG"
+                echo "Stopping processing for PR #$PR_NUMBER."
+                break
+              fi
+
+              if [ "$PENDING_CHECKS" -gt 0 ]; then
+                echo "Status checks are still running for PR #$PR_NUMBER."
+                echo "Stopping processing; PR #$PR_NUMBER will be re-evaluated on the next run."
+                break
+              fi
+
+              if [ "$PASSED_CHECKS" -eq 0 ]; then
+                echo "No passed status checks found for PR #$PR_NUMBER."
+                COMMENT_MSG="Automated merge aborted for PR #$PR_NUMBER: No passing status checks found. Please ensure all mandatory CI status checks pass successfully."
+                post_pr_comment "$PR_NUMBER" "$COMMENT_MSG"
+                echo "Stopping processing for PR #$PR_NUMBER."
+                break
+              fi
+
+              echo "All status checks passed for PR #$PR_NUMBER. Proceeding with merge."
+
+              if gh pr merge "$PR_NUMBER" \
+                --repo "$GH_REPO" \
+                --merge \
+                --delete-branch; then
+                echo "PR #$PR_NUMBER merged successfully."
+                continue
+              else
+                echo "Failed to merge PR #$PR_NUMBER."
+                COMMENT_MSG="Automated merge aborted for PR #$PR_NUMBER: GitHub returned an error during \`gh pr merge\`. Please check repository merge restrictions, branch protection rules, or required reviews."
+                post_pr_comment "$PR_NUMBER" "$COMMENT_MSG"
+                echo "Stopping processing for PR #$PR_NUMBER."
+                break
+              fi
+            fi
+
+            echo "Unhandled mergeability state ($MERGEABLE) for PR #$PR_NUMBER. Stopping processing."
+            break
+          done
+
+          echo "Processing completed."
