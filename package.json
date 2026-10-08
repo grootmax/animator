@@ -10,16 +10,20 @@
     "lint": "biome check .",
     "test": "vitest run",
     "build": "tsc -b",
-    "check": "pnpm typecheck && pnpm lint && pnpm test"
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "render:fixture": "tsx packages/renderer/src/renderFrame.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^22.13.4",
+    "@types/pngjs": "^6.0.5",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",
+    "pngjs": "^7.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "tsx": "^4.19.3",
     "typescript": "^5.7.3",
     "vite": "^6.1.1",
     "vitest": "^3.0.6"

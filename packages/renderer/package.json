@@ -1,0 +1,14 @@
+{
+  "name": "@monorepo/renderer",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "canvaskit-wasm": "^0.42.0",
+    "pixi.js": "^7.3.2"
+  }
+}
