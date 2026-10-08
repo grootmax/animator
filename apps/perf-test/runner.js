@@ -1,29 +1,56 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const require = createRequire(import.meta.url);
 
 async function run() {
   console.log("Starting Vite server...");
-  const viteProcess = spawn("npx", ["vite", "--port", "4173", "--strictPort"], {
-    cwd: __dirname,
-    stdio: "pipe",
-  });
+  const viteBin = path.resolve(
+    path.dirname(require.resolve("vite")),
+    "../../bin/vite.js",
+  );
+  const viteProcess = spawn(
+    process.execPath,
+    [viteBin, "--port", "4173", "--strictPort"],
+    {
+      cwd: __dirname,
+      stdio: "pipe",
+    },
+  );
 
-  await new Promise((resolve) => {
+  await new Promise((resolve, reject) => {
+    let resolved = false;
     viteProcess.stdout.on("data", (data) => {
       const output = data.toString();
       console.log("VITE:", output);
-      if (output.includes("localhost:4173") || output.includes("ready in")) {
+      if (
+        !resolved &&
+        (output.includes("localhost:4173") || output.includes("ready in"))
+      ) {
+        resolved = true;
         resolve();
       }
     });
     viteProcess.stderr.on("data", (data) => {
       console.error("VITE ERR:", data.toString());
+    });
+    viteProcess.on("error", (err) => {
+      if (!resolved) {
+        resolved = true;
+        reject(err);
+      }
+    });
+    viteProcess.on("exit", (code) => {
+      if (!resolved && code !== 0) {
+        resolved = true;
+        reject(new Error(`Vite server exited with code ${code}`));
+      }
     });
   });
 
@@ -86,7 +113,7 @@ async function run() {
 
     fs.writeFileSync(
       path.join(__dirname, "perf-results.json"),
-      JSON.stringify(results, null, 2),
+      `${JSON.stringify(results, null, 2)}\n`,
     );
 
     if (failed) {

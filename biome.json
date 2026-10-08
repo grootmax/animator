@@ -21,7 +21,8 @@
       "**/*.tsbuildinfo",
       "pnpm-lock.yaml",
       "**/test-results/**",
-      "**/playwright-report/**"
+      "**/playwright-report/**",
+      "**/perf-results.json"
     ]
   }
 }
