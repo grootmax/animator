@@ -9,7 +9,11 @@ id="${1:?usage: $0 <task-id>   e.g. M0-1}"
 root="$(git rev-parse --show-toplevel)"
 
 shopt -s nullglob
-matches=("$root"/docs/jules/tasks/"$id"-*.md "$root"/docs/jules/tasks/"$id".md)
+raw_matches=("$root"/docs/jules/tasks/"$id"-*.md "$root"/docs/jules/tasks/"$id".md)
+matches=()
+for f in "${raw_matches[@]}"; do
+  [ -f "$f" ] && matches+=("$f")
+done
 if [ "${#matches[@]}" -ne 1 ]; then
   echo "expected exactly one brief for $id, found ${#matches[@]}" >&2
   exit 1
