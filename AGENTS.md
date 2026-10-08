@@ -17,6 +17,9 @@ it, follow PROJECT_CONTEXT and say so in the PR description. Don't silently chan
 - **No speculative infrastructure.** No Web Workers, SharedArrayBuffer, OffscreenCanvas, binary IPC,
   object pools, Electron, Turborepo, or "performance" layers unless a brief explicitly asks for them.
 - **Every module you add has a caller and a test in the same PR.** No dead code "for later".
+- **CI stays one fast job.** `.github/workflows/ci.yml` is the only workflow and must finish in ~2 minutes.
+  Don't add workflows, OS matrices, perf/stress/benchmark suites, scheduled jobs or auto-merge bots, and
+  don't remove `concurrency` or `timeout-minutes` from it, unless a brief explicitly asks.
 
 ## Non-negotiables
 
