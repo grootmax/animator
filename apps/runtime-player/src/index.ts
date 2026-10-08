@@ -9,13 +9,18 @@ export interface ExportedProject {
 
 export class RuntimePlayer {
   private worker: Worker;
-  private sharedBuffer: SharedArrayBuffer;
+  private sharedBuffer: SharedArrayBuffer | ArrayBuffer;
   private syncArray: Float32Array;
 
   constructor(canvas: HTMLCanvasElement) {
     // SharedArrayBuffer for node state sync (up to 100k nodes * 16 floats per node)
-    this.sharedBuffer = new SharedArrayBuffer(100000 * 16 * 4);
-    this.syncArray = new Float32Array(this.sharedBuffer);
+    const bufferSize = 100000 * 16 * 4;
+    if (typeof SharedArrayBuffer !== 'undefined') {
+      this.sharedBuffer = new SharedArrayBuffer(bufferSize);
+    } else {
+      this.sharedBuffer = new ArrayBuffer(bufferSize);
+    }
+    this.syncArray = new Float32Array(this.sharedBuffer as ArrayBuffer);
 
     let offscreen: OffscreenCanvas | HTMLCanvasElement = canvas;
     if ('transferControlToOffscreen' in canvas) {

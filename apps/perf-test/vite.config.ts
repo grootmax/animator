@@ -2,6 +2,9 @@ import { defineConfig } from 'vite';
 import path from 'path';
 
 export default defineConfig({
+  optimizeDeps: {
+    include: ['zustand/vanilla', 'pixi.js', 'zod']
+  },
   resolve: {
     alias: [
       { find: '@monorepo/math', replacement: path.resolve(__dirname, '../../packages/math/src/index.ts') },

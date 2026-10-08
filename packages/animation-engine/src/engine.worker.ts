@@ -1,19 +1,7 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { Keyframe, Track, EasingType } from './types';
 
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
-
-export interface Keyframe {
-  time: number;
-  value: number;
-  easing?: EasingType;
-}
-
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity';
-  keyframes: Keyframe[];
-}
 
 const store = createSceneGraphStore();
 let tracks: Track[] = [];
@@ -65,7 +53,9 @@ function updateNodes() {
       const progress = (playhead - start.time) / (end.time - start.time);
       const easingFn = getEasingFunction(start.easing);
       const easedProgress = easingFn(progress);
-      value = start.value + (end.value - start.value) * easedProgress;
+      const startVal = typeof start.value === 'number' ? start.value : parseFloat(start.value as string) || 0;
+      const endVal = typeof end.value === 'number' ? end.value : parseFloat(end.value as string) || 0;
+      value = startVal + (endVal - startVal) * easedProgress;
     }
 
     if (!updates.has(track.nodeId)) {

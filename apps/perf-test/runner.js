@@ -1,6 +1,30 @@
 const puppeteer = require('puppeteer');
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
+
+function getExecutablePath() {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    return process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
+  if (process.env.CHROME_BIN) {
+    return process.env.CHROME_BIN;
+  }
+  const possiblePaths = [
+    '/bin/google-chrome',
+    '/usr/bin/google-chrome',
+    '/bin/google-chrome-stable',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      return p;
+    }
+  }
+  return undefined;
+}
 
 async function run() {
   console.log('Starting Vite server...');
@@ -9,11 +33,17 @@ async function run() {
     stdio: 'pipe',
   });
 
+  let serverUrl = 'http://localhost:4173';
+
   await new Promise((resolve) => {
     viteProcess.stdout.on('data', (data) => {
       const output = data.toString();
       console.log('VITE:', output);
-      if (output.includes('localhost:4173') || output.includes('ready in')) {
+      const match = output.match(/http:\/\/localhost:(\d+)/);
+      if (match) {
+        serverUrl = match[0];
+      }
+      if (output.includes('ready in') || output.includes('Local:')) {
         resolve();
       }
     });
@@ -23,23 +53,34 @@ async function run() {
   });
 
   console.log('Server started. Launching Puppeteer...');
-  
-  // Create an explicit build before starting if we use `preview`, but let's actually just spawn `vite` (dev server) for simplicity.
-  // Wait, I spawned `vite preview`. Let me kill it and spawn `vite` (dev server) instead to avoid needing a build step.
-  // Let me just fix the command in the spawned process later if needed. For now, it's just 'vite'.
 
   let browser;
   try {
-    browser = await puppeteer.launch({
+    const executablePath = getExecutablePath();
+    const launchOptions = {
       headless: 'new',
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    });
+    };
+    if (executablePath) {
+      launchOptions.executablePath = executablePath;
+    }
+    browser = await puppeteer.launch(launchOptions);
 
     const page = await browser.newPage();
-    page.on('console', (msg) => console.log('BROWSER:', msg.text()));
+    page.on('console', async (msg) => {
+      const args = await Promise.all(msg.args().map(async (arg) => {
+        try {
+          return await arg.evaluate(e => e instanceof Error ? e.stack || e.message : e);
+        } catch {
+          return arg.toString();
+        }
+      }));
+      console.log('BROWSER LOG:', msg.type(), args);
+    });
+    page.on('pageerror', (err) => console.error('PAGE ERROR:', err));
 
-    console.log('Navigating to http://localhost:4173 ...');
-    await page.goto('http://localhost:4173', { waitUntil: 'domcontentloaded', timeout: 0 });
+    console.log(`Navigating to ${serverUrl} ...`);
+    await page.goto(serverUrl, { waitUntil: 'domcontentloaded', timeout: 0 });
 
     console.log('Waiting for benchmark to complete...');
     

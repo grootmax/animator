@@ -1,20 +1,14 @@
 import { linear, easeInQuad, easeOutQuad, easeInOutQuad } from '@monorepo/math';
 import { createSceneGraphStore } from '@monorepo/scene-graph';
+import { Keyframe, Track, EasingType } from './types';
 
-export type EasingType = 'linear' | 'easeInQuad' | 'easeOutQuad' | 'easeInOutQuad';
+export type NetworkRole = 'standalone' | 'leader' | 'follower';
 
-export interface Keyframe {
-  id: string;
-  time: number; // in milliseconds
-  value: number | string;
-  easing?: EasingType;
+export interface Heartbeat {
+  playhead: number;
+  isPlaying: boolean;
 }
 
-export interface Track {
-  nodeId: string;
-  property: 'x' | 'y' | 'rotation' | 'scaleX' | 'scaleY' | 'opacity' | 'fill' | 'stroke' | 'pathData';
-  keyframes: Keyframe[];
-}
 
 function parseHexColor(hex: string) {
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(hex)) return null;
@@ -110,6 +104,7 @@ export class AnimationEngine {
   private heartbeatTimer: any = null;
   private heartbeatRate = 100;
   public driftThreshold = 150;
+  private uiListeners: Set<(state: { isPlaying: boolean }) => void> = new Set();
 
   public getPlayhead() { return this.playhead; }
   public getTracks() { return this.tracks; }
@@ -117,6 +112,20 @@ export class AnimationEngine {
   public getDuration() { return this.duration; }
   public setDuration(d: number) { this.duration = d; }
   public setTracks(tracks: Track[]) { this.tracks = tracks; }
+
+  public subscribeUI(cb: (state: { isPlaying: boolean }) => void): () => void {
+    this.uiListeners.add(cb);
+    cb({ isPlaying: this.isPlaying });
+    return () => {
+      this.uiListeners.delete(cb);
+    };
+  }
+
+  private notifyUI() {
+    for (const listener of this.uiListeners) {
+      listener({ isPlaying: this.isPlaying });
+    }
+  }
 
   constructor(store: ReturnType<typeof createSceneGraphStore>) {
     this.store = store;
@@ -129,6 +138,7 @@ export class AnimationEngine {
   public play() {
     if (this.isPlaying) return;
     this.isPlaying = true;
+    this.notifyUI();
     this.lastTime = performance.now();
     this.drift = 0;
     this.tick();
@@ -141,6 +151,7 @@ export class AnimationEngine {
 
   public pause() {
     this.isPlaying = false;
+    this.notifyUI();
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
