@@ -1,5 +1,5 @@
 {
-  "name": "@animator/core",
+  "name": "@monorepo/serialization",
   "version": "0.0.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -8,6 +8,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
+    "@animator/core": "workspace:*",
     "ajv": "^8.17.1"
   }
 }
