@@ -19,7 +19,9 @@
       "**/dist/**",
       "**/node_modules/**",
       "**/*.tsbuildinfo",
-      "pnpm-lock.yaml"
+      "pnpm-lock.yaml",
+      "**/test-results/**",
+      "**/playwright-report/**"
     ]
   }
 }

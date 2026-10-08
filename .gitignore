@@ -4,4 +4,6 @@ dist/
 .turbo/
 renders/
 coverage/
+test-results/
+playwright-report/
 .DS_Store

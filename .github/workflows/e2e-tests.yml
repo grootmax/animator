@@ -33,11 +33,11 @@ jobs:
 
     - name: Install Playwright browsers (Linux)
       if: runner.os == 'Linux'
-      run: npx playwright install --with-deps
+      run: npx playwright install --with-deps chromium
 
     - name: Install Playwright browsers (macOS / Windows)
       if: runner.os != 'Linux'
-      run: npx playwright install
+      run: npx playwright install chromium
 
     - name: Build project
       run: pnpm build
