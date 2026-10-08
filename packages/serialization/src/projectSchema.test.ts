@@ -120,4 +120,40 @@ describe('validateAndSerializeProject', () => {
 
     expect(() => validateAndSerializeProject(invalidProject)).toThrow();
   });
+
+  it('should validate and serialize image nodes with base64 src data', () => {
+    const base64Src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const imageProject = {
+      scene: {
+        imgNode: {
+          id: 'imgNode',
+          name: 'AI Generated Image',
+          type: 'image',
+          parentId: null,
+          children: [],
+          x: 50,
+          y: 50,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          opacity: 1,
+          visible: true,
+          locked: false,
+          width: 200,
+          height: 200,
+          src: base64Src,
+        }
+      },
+      animations: [],
+      metadata: {
+        version: '1.0.0',
+        duration: 5000
+      }
+    };
+
+    const serialized = validateAndSerializeProject(imageProject);
+    const parsed = JSON.parse(serialized);
+    expect(parsed.scene.imgNode.type).toBe('image');
+    expect(parsed.scene.imgNode.src).toBe(base64Src);
+  });
 });

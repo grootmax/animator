@@ -1,0 +1,14 @@
+import { defineConfig } from 'vite';
+import path from 'path';
+
+export default defineConfig({
+  resolve: {
+    alias: {
+      '@monorepo/math': path.resolve(__dirname, './packages/math/src/index.ts'),
+      '@monorepo/scene-graph': path.resolve(__dirname, './packages/scene-graph/src/index.ts'),
+      '@monorepo/renderer': path.resolve(__dirname, './packages/renderer/src/index.ts'),
+      '@monorepo/animation-engine': path.resolve(__dirname, './packages/animation-engine/src/index.ts'),
+      '@monorepo/serialization': path.resolve(__dirname, './packages/serialization/src/index.ts'),
+    },
+  },
+});

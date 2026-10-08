@@ -16,9 +16,9 @@ export class PixiBridge {
   constructor(canvas: HTMLCanvasElement, store: ReturnType<typeof createSceneGraphStore>) {
     this.app = new PIXI.Application({
       view: canvas,
-      resizeTo: window,
+      resizeTo: typeof window !== 'undefined' ? window : undefined,
       backgroundColor: 0x1a1a1a,
-      resolution: window.devicePixelRatio || 1,
+      resolution: typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
       autoDensity: true,
     });
 
@@ -222,10 +222,15 @@ export class PixiBridge {
         if (node.src) {
            const currentSrc = (sprite as any)._currentSrc;
            if (currentSrc !== node.src) {
+               const oldTexture = sprite.texture;
                (sprite as any)._currentSrc = node.src;
                const tex = PIXI.Texture.from(node.src);
                sprite.texture = tex;
                
+               if (oldTexture && oldTexture !== PIXI.Texture.EMPTY && oldTexture !== tex && typeof oldTexture.destroy === 'function') {
+                   oldTexture.destroy(true);
+               }
+
                if (!tex.valid) {
                    (tex.baseTexture as any).once('loaded', () => {
                        const n = this.store.getState().nodes[id];
@@ -237,8 +242,12 @@ export class PixiBridge {
                }
            }
         } else {
+           const oldTexture = sprite.texture;
            sprite.texture = PIXI.Texture.EMPTY;
            (sprite as any)._currentSrc = undefined;
+           if (oldTexture && oldTexture !== PIXI.Texture.EMPTY && typeof oldTexture.destroy === 'function') {
+               oldTexture.destroy(true);
+           }
         }
 
         if (node.width !== undefined && node.height !== undefined && sprite.texture.valid) {
@@ -250,6 +259,28 @@ export class PixiBridge {
       }
 
       this.applyMatrix(pixiNode, node.localMatrix);
+    }
+
+    // Purge removed scene graph nodes and unbind associated WebGL resources
+    for (const [id, pixiNode] of Array.from(this.pixiNodes.entries())) {
+      if (!nodes[id]) {
+        if (pixiNode instanceof PIXI.Container) {
+          for (const child of pixiNode.children) {
+            if (child instanceof PIXI.Sprite) {
+              if (child.texture && child.texture !== PIXI.Texture.EMPTY && typeof child.texture.destroy === 'function') {
+                child.texture.destroy(true);
+              }
+              child.texture = PIXI.Texture.EMPTY;
+            }
+          }
+        }
+
+        if (pixiNode.parent) {
+          pixiNode.parent.removeChild(pixiNode);
+        }
+        pixiNode.destroy({ children: true });
+        this.pixiNodes.delete(id);
+      }
     }
 
     for (const path of this.pathCache.keys()) {
