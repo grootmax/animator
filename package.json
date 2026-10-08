@@ -1,15 +1,18 @@
 {
   "name": "animator",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@10.5.2",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "typecheck": "tsc -b",
+    "dev": "vite apps/editor",
+    "typecheck": "tsc",
     "lint": "biome check .",
     "test": "vitest run",
-    "build": "tsc -b",
+    "build": "tsc && vite build apps/editor",
+    "preview": "vite preview apps/editor",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {

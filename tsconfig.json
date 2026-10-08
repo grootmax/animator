@@ -1,10 +1,8 @@
 {
-  "files": [],
-  "references": [
-    { "path": "./packages/core" },
-    { "path": "./packages/render" },
-    { "path": "./packages/gen" },
-    { "path": "./apps/studio" },
-    { "path": "./apps/editor" }
-  ]
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "."
+  },
+  "include": ["apps/editor/src/**/*"]
 }
