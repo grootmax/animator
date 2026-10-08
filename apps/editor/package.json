@@ -6,5 +6,12 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
+  },
+  "dependencies": {
+    "@monorepo/scene-graph": "workspace:*"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.3",
+    "happy-dom": "^20.14.5"
   }
 }
