@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "name": "opacity-fade",
+  "canvas": {
+    "width": 100,
+    "height": 100,
+    "fps": 30,
+    "duration": 1,
+    "background": "#0B1020"
+  },
+  "layers": [
+    {
+      "id": "fader",
+      "type": "shape",
+      "position": [50, 50],
+      "opacity": 0,
+      "shape": {
+        "kind": "rect",
+        "size": [50, 50],
+        "radius": 8
+      },
+      "fill": "#E15759",
+      "keyframes": {
+        "opacity": [
+          {
+            "t": 0,
+            "v": 0,
+            "ease": "easeInCubic"
+          },
+          {
+            "t": 1,
+            "v": 100
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "name": "Logo Reveal",
+  "canvas": {
+    "width": 1080,
+    "height": 1080,
+    "fps": 30,
+    "duration": 3,
+    "background": "#0B1020"
+  },
+  "params": {
+    "brandName": {
+      "type": "text",
+      "value": "Animator",
+      "label": "Brand Name"
+    },
+    "brandColor": {
+      "type": "color",
+      "value": "#FF5A5F",
+      "label": "Brand Color"
+    }
+  },
+  "layers": [
+    {
+      "id": "logo-mark",
+      "type": "group",
+      "position": [540, 480],
+      "children": [
+        {
+          "id": "logo-shape",
+          "type": "shape",
+          "position": [0, 0],
+          "shape": {
+            "kind": "rect",
+            "size": [120, 120],
+            "radius": 28
+          },
+          "fill": "{{brandColor}}"
+        },
+        {
+          "id": "logo-inner-dot",
+          "type": "shape",
+          "position": [0, 0],
+          "shape": {
+            "kind": "ellipse",
+            "size": [44, 44]
+          },
+          "fill": "#FFFFFF"
+        }
+      ],
+      "presets": [
+        {
+          "name": "pop",
+          "at": 0.2,
+          "duration": 0.6
+        }
+      ]
+    },
+    {
+      "id": "brand-text",
+      "type": "text",
+      "text": "{{brandName}}",
+      "font": {
+        "family": "Inter",
+        "weight": 700,
+        "size": 64
+      },
+      "fill": "#FFFFFF",
+      "align": "center",
+      "position": [540, 620],
+      "presets": [
+        {
+          "name": "fadeIn",
+          "at": 0.6,
+          "duration": 0.5
+        },
+        {
+          "name": "slideUp",
+          "at": 0.6,
+          "duration": 0.5,
+          "params": {
+            "distance": 25
+          }
+        }
+      ]
+    }
+  ]
+}

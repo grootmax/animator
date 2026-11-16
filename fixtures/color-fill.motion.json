@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "name": "color-fill",
+  "canvas": {
+    "width": 100,
+    "height": 100,
+    "fps": 30,
+    "duration": 1,
+    "background": "#0B1020"
+  },
+  "layers": [
+    {
+      "id": "circle",
+      "type": "shape",
+      "position": [50, 50],
+      "shape": {
+        "kind": "ellipse",
+        "size": [50, 50]
+      },
+      "fill": "#0000FF",
+      "keyframes": {
+        "fill": [
+          {
+            "t": 0,
+            "v": "#0000FF",
+            "ease": [0.333, 0.333, 0.667, 0.667]
+          },
+          {
+            "t": 1,
+            "v": "#FF0000"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "name": "Title Card",
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 4,
+    "background": "#0B1020"
+  },
+  "params": {
+    "headline": {
+      "type": "text",
+      "value": "Create Animations",
+      "label": "Headline"
+    },
+    "subtitle": {
+      "type": "text",
+      "value": "Autonomous Agent Driven Motion",
+      "label": "Subtitle"
+    },
+    "accent": {
+      "type": "color",
+      "value": "#FF5A5F",
+      "label": "Accent Color"
+    }
+  },
+  "layers": [
+    {
+      "id": "headline-text",
+      "type": "text",
+      "text": "{{headline}}",
+      "font": {
+        "family": "Inter",
+        "weight": 800,
+        "size": 96
+      },
+      "fill": "#FFFFFF",
+      "align": "center",
+      "position": [960, 480],
+      "presets": [
+        {
+          "name": "fadeIn",
+          "at": 0.2,
+          "duration": 0.6
+        },
+        {
+          "name": "slideUp",
+          "at": 0.2,
+          "duration": 0.6,
+          "params": {
+            "distance": 40
+          }
+        },
+        {
+          "name": "fadeOut",
+          "at": 3.4,
+          "duration": 0.4
+        }
+      ]
+    },
+    {
+      "id": "underline",
+      "type": "shape",
+      "position": [960, 560],
+      "shape": {
+        "kind": "path",
+        "d": "M -160 0 L 160 0"
+      },
+      "stroke": {
+        "color": "{{accent}}",
+        "width": 6,
+        "cap": "round"
+      },
+      "presets": [
+        {
+          "name": "drawOn",
+          "at": 0.5,
+          "duration": 0.6,
+          "params": {
+            "ease": "easeOutExpo"
+          }
+        },
+        {
+          "name": "fadeOut",
+          "at": 3.4,
+          "duration": 0.4
+        }
+      ]
+    },
+    {
+      "id": "subtitle-text",
+      "type": "text",
+      "text": "{{subtitle}}",
+      "font": {
+        "family": "Inter",
+        "weight": 500,
+        "size": 36
+      },
+      "fill": "#94A3B8",
+      "align": "center",
+      "position": [960, 620],
+      "presets": [
+        {
+          "name": "fadeIn",
+          "at": 0.7,
+          "duration": 0.5
+        },
+        {
+          "name": "fadeOut",
+          "at": 3.4,
+          "duration": 0.4
+        }
+      ]
+    }
+  ]
+}
