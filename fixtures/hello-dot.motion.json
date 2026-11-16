@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "name": "hello-dot",
+  "canvas": {
+    "width": 100,
+    "height": 100,
+    "fps": 30,
+    "duration": 1,
+    "background": "#0B1020"
+  },
+  "layers": [
+    {
+      "id": "dot",
+      "type": "shape",
+      "position": [20, 50],
+      "shape": {
+        "kind": "ellipse",
+        "size": [20, 20]
+      },
+      "fill": "#FF5A5F",
+      "keyframes": {
+        "position": [
+          {
+            "t": 0,
+            "v": [20, 50],
+            "ease": [0.333, 0.333, 0.667, 0.667]
+          },
+          {
+            "t": 1,
+            "v": [80, 50]
+          }
+        ]
+      }
+    }
+  ]
+}

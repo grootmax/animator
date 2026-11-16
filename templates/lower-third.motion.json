@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "name": "Lower Third",
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 5,
+    "background": "#00000000"
+  },
+  "params": {
+    "speakerName": {
+      "type": "text",
+      "value": "Alex Rivera",
+      "label": "Speaker Name"
+    },
+    "speakerTitle": {
+      "type": "text",
+      "value": "Lead Motion Designer",
+      "label": "Speaker Title"
+    },
+    "primaryColor": {
+      "type": "color",
+      "value": "#FF5A5F",
+      "label": "Primary Color"
+    }
+  },
+  "layers": [
+    {
+      "id": "bar-accent",
+      "type": "shape",
+      "position": [180, 890],
+      "shape": {
+        "kind": "rect",
+        "size": [8, 90],
+        "radius": 4
+      },
+      "fill": "{{primaryColor}}",
+      "presets": [
+        {
+          "name": "growY",
+          "at": 0.2,
+          "duration": 0.4
+        },
+        {
+          "name": "fadeOut",
+          "at": 4.5,
+          "duration": 0.4
+        }
+      ]
+    },
+    {
+      "id": "text-name",
+      "type": "text",
+      "text": "{{speakerName}}",
+      "font": {
+        "family": "Inter",
+        "weight": 700,
+        "size": 42
+      },
+      "fill": "#FFFFFF",
+      "align": "left",
+      "position": [210, 875],
+      "presets": [
+        {
+          "name": "slideRight",
+          "at": 0.3,
+          "duration": 0.5,
+          "params": {
+            "distance": 30
+          }
+        },
+        {
+          "name": "fadeIn",
+          "at": 0.3,
+          "duration": 0.5
+        },
+        {
+          "name": "fadeOut",
+          "at": 4.5,
+          "duration": 0.4
+        }
+      ]
+    },
+    {
+      "id": "text-title",
+      "type": "text",
+      "text": "{{speakerTitle}}",
+      "font": {
+        "family": "Inter",
+        "weight": 400,
+        "size": 24
+      },
+      "fill": "#94A3B8",
+      "align": "left",
+      "position": [210, 915],
+      "presets": [
+        {
+          "name": "slideRight",
+          "at": 0.45,
+          "duration": 0.5,
+          "params": {
+            "distance": 20
+          }
+        },
+        {
+          "name": "fadeIn",
+          "at": 0.45,
+          "duration": 0.5
+        },
+        {
+          "name": "fadeOut",
+          "at": 4.5,
+          "duration": 0.4
+        }
+      ]
+    }
+  ]
+}

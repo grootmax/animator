@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "name": "transform-rotation",
+  "canvas": {
+    "width": 100,
+    "height": 100,
+    "fps": 30,
+    "duration": 1,
+    "background": "#0B1020"
+  },
+  "layers": [
+    {
+      "id": "spinner",
+      "type": "shape",
+      "position": [50, 50],
+      "rotation": 0,
+      "shape": {
+        "kind": "rect",
+        "size": [40, 40],
+        "radius": 6
+      },
+      "fill": "#F28E2B",
+      "keyframes": {
+        "rotation": [
+          {
+            "t": 0,
+            "v": 0,
+            "ease": "linear"
+          },
+          {
+            "t": 1,
+            "v": 360
+          }
+        ]
+      }
+    }
+  ]
+}

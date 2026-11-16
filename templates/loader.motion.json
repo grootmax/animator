@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "name": "Loader",
+  "canvas": {
+    "width": 512,
+    "height": 512,
+    "fps": 30,
+    "duration": 2,
+    "background": "#0B1020"
+  },
+  "params": {
+    "loaderColor": {
+      "type": "color",
+      "value": "#FF5A5F",
+      "label": "Loader Color"
+    }
+  },
+  "layers": [
+    {
+      "id": "track-ring",
+      "type": "shape",
+      "position": [256, 256],
+      "shape": {
+        "kind": "ellipse",
+        "size": [160, 160]
+      },
+      "stroke": {
+        "color": "#1E293B",
+        "width": 12
+      }
+    },
+    {
+      "id": "spinner-ring",
+      "type": "shape",
+      "position": [256, 256],
+      "shape": {
+        "kind": "path",
+        "d": "M 0 -80 A 80 80 0 0 1 80 0"
+      },
+      "stroke": {
+        "color": "{{loaderColor}}",
+        "width": 12,
+        "cap": "round"
+      },
+      "presets": [
+        {
+          "name": "spin",
+          "at": 0,
+          "duration": 2,
+          "params": {
+            "ease": "linear"
+          }
+        }
+      ]
+    }
+  ]
+}
